@@ -1,7 +1,7 @@
 import { app, BrowserWindow, Menu, session, type NavigationEntry, type Session, type WebContents, type WebPreferences } from "electron";
 import { randomUUID } from "node:crypto";
 import type { BrowserMount, BrowserSnapshot, ManualToolEvent } from "@lxe/desktop-protocol";
-import { planTabSuspension } from "./tab-budget";
+import { WindowTabBudget, type TrackedPage } from "./tab-budget";
 
 interface Browser {
   owner: WebContents;
@@ -13,13 +13,7 @@ interface Browser {
   history?: { entries: NavigationEntry[]; index: number };
   attaching: boolean;
   restoring: boolean;
-  visible: boolean;
-  lastUsed: number;
-}
-interface WindowBudget {
-  selected: Map<string, { id: string; at: number }>;
-  activeSession?: string;
-  timer?: ReturnType<typeof setTimeout>;
+  budgetPage: TrackedPage;
 }
 
 export function browserUrl(raw: string): string {
@@ -32,9 +26,8 @@ export function browserUrl(raw: string): string {
 export class ManualBrowsers {
   private readonly items = new Map<string, Browser>();
   private readonly profiles = new Map<string, { partition: string; profile: Session }>();
-  private readonly windows = new Map<WebContents, WindowBudget>();
+  private readonly windows = new Map<WebContents, WindowTabBudget>();
   private readonly attachingGuests = new WeakMap<WebContents, { tab: Browser; mountSrc: string }>();
-  private sequence = 0;
   constructor(private readonly window: () => BrowserWindow | undefined, private readonly emit: (event: ManualToolEvent) => void) {}
 
   private profile(directory: string) {
@@ -75,7 +68,12 @@ export class ManualBrowsers {
 
   private newTab(owner: WebContents, workspace: Pick<Browser, "profile" | "partition">, sessionId: string, id: string, url: string): Browser {
     const tab: Browser = { owner, profile: workspace.profile, partition: workspace.partition,
-      attaching: false, restoring: false, visible: false, lastUsed: 0,
+      attaching: false, restoring: false,
+      budgetPage: this.budgetFor(owner).track(`chat:${sessionId}`, {
+        isLive: () => !!tab.contents && !tab.contents.isDestroyed(),
+        isBusy: () => tab.restoring || !!tab.contents?.isLoading() || !!tab.contents?.isCurrentlyAudible(),
+        suspend: () => this.suspend(tab),
+      }),
       snapshot: { id, sessionId, url, title: "", loading: false, canGoBack: false, canGoForward: false, error: "" } };
     this.items.set(id, tab);
     return tab;
@@ -155,7 +153,7 @@ export class ManualBrowsers {
     wc.on("before-input-event", (event, input) => {
       const refreshModifier = process.platform === "darwin" ? input.meta && !input.control : input.control && !input.meta;
       if (input.type !== "keyDown" || input.key.toLowerCase() !== "r" || !refreshModifier || input.alt || input.shift) return;
-      if (tab.contents !== wc || !tab.visible) return;
+      if (tab.contents !== wc || !tab.budgetPage.visible) return;
       event.preventDefault();
       if (!input.isAutoRepeat) this.command(sessionId, id, "reload");
     });
@@ -169,8 +167,8 @@ export class ManualBrowsers {
     wc.on("page-title-updated", update);
     wc.on("did-navigate", update);
     wc.on("did-navigate-in-page", update);
-    wc.on("did-stop-loading", () => { update(); this.enforce(tab.owner); });
-    wc.on("audio-state-changed", () => this.enforce(tab.owner));
+    wc.on("did-stop-loading", () => { update(); this.budgetFor(tab.owner).enforce(); });
+    wc.on("audio-state-changed", () => this.budgetFor(tab.owner).enforce());
     wc.on("did-fail-load", (_event, code, description, url, main) => { if (main && code !== -3) fail(`${description} (${code}): ${url}`); });
     wc.on("render-process-gone", (_event, details) => fail(`${details.reason} (exit ${details.exitCode})`));
     wc.once("destroyed", () => {
@@ -184,13 +182,13 @@ export class ManualBrowsers {
         if (tab.contents === wc && tab.history === history) delete tab.history;
       }).catch(fail).finally(() => {
         if (tab.contents !== wc) return;
-        tab.restoring = false; update(); this.enforce(tab.owner);
+        tab.restoring = false; update(); this.budgetFor(tab.owner).enforce();
       });
     } else if (tab.snapshot.url) {
       this.navigate(sessionId, id, tab.snapshot.url);
     }
     update();
-    this.enforce(tab.owner);
+    this.budgetFor(tab.owner).enforce();
   }
 
   private publish(tab: Browser): void {
@@ -234,35 +232,17 @@ export class ManualBrowsers {
   visible(sessionId: string, id: string, mountSrc: string, visible: boolean): boolean {
     const tab = this.owned(sessionId, id);
     if (!tab || tab.mountSrc !== mountSrc) return false;
-    if (tab.visible === visible) return true;
-    tab.visible = visible;
-    let budget = this.windows.get(tab.owner);
-    if (!budget) { budget = { selected: new Map() }; this.windows.set(tab.owner, budget); }
-    if (visible) {
-      tab.lastUsed = ++this.sequence;
-      budget.activeSession = sessionId;
-      budget.selected.set(sessionId, { id, at: Date.now() });
-    } else if (budget.selected.get(sessionId)?.id === id) {
-      budget.selected.set(sessionId, { id, at: Date.now() });
-    }
-    this.enforce(tab.owner);
+    tab.budgetPage.setVisible(visible);
     return true;
   }
 
-  private enforce(owner: WebContents): void {
-    const budget = this.windows.get(owner);
-    if (!budget) return;
-    clearTimeout(budget.timer);
-    const live = [...this.items.values()].filter(tab => tab.owner === owner && tab.contents && !tab.contents.isDestroyed());
-    const { victims, retryAt } = planTabSuspension(live.map(tab => ({
-      id: tab.snapshot.id, sessionId: tab.snapshot.sessionId, visible: tab.visible, lastUsed: tab.lastUsed,
-      busy: tab.restoring || tab.contents!.isLoading() || tab.contents!.isCurrentlyAudible(),
-    })), budget.selected, budget.activeSession, Date.now());
-    for (const id of victims) this.suspend(this.items.get(id)!);
-    if (retryAt !== undefined) {
-      budget.timer = setTimeout(() => this.enforce(owner), Math.max(1, retryAt - Date.now()));
-      budget.timer.unref();
+  private budgetFor(owner: WebContents): WindowTabBudget {
+    let budget = this.windows.get(owner);
+    if (!budget) {
+      budget = new WindowTabBudget();
+      this.windows.set(owner, budget);
     }
+    return budget;
   }
 
   private suspend(tab: Browser): void {
@@ -271,11 +251,11 @@ export class ManualBrowsers {
     if (!tab.restoring && history && history.length() > 0) {
       tab.history = { entries: history.getAllEntries(), index: history.getActiveIndex() };
     }
-    tab.visible = false;
     this.release(tab);
+    tab.budgetPage.setVisible(false);
   }
 
-  watchWindow(owner: WebContents): void {
+  watchWindow(owner: WebContents): WindowTabBudget {
     owner.on("did-start-navigation", event => {
       if (!event.isMainFrame || event.isSameDocument) return;
       for (const tab of this.items.values()) {
@@ -286,7 +266,9 @@ export class ManualBrowsers {
       for (const tab of this.items.values()) {
         if (tab.owner === owner) this.close(tab.snapshot.sessionId, tab.snapshot.id);
       }
+      this.windows.delete(owner);
     });
+    return this.budgetFor(owner);
   }
 
   private release(tab: Browser): void {
@@ -301,11 +283,7 @@ export class ManualBrowsers {
     if (!tab) return;
     this.release(tab);
     this.items.delete(id);
-    const budget = this.windows.get(tab.owner);
-    if (budget?.selected.get(sessionId)?.id === id) budget.selected.delete(sessionId);
-    if (![...this.items.values()].some(item => item.owner === tab.owner)) {
-      clearTimeout(budget?.timer); this.windows.delete(tab.owner);
-    } else this.enforce(tab.owner);
+    tab.budgetPage.remove();
   }
   closeSession(sessionId?: string): void {
     for (const tab of this.items.values()) if (!sessionId || tab.snapshot.sessionId === sessionId) this.close(tab.snapshot.sessionId, tab.snapshot.id);

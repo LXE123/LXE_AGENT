@@ -3,6 +3,7 @@
   background: var(--cds-surface-panel);
 }
 .team-skills-page { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.team-skills-page[hidden] { display: none; }
 .team-skills-viewport button {
   display: inline-flex; align-items: center; gap: 6px; padding: 6px 8px; border: 0;
   border-radius: 6px; background: transparent; color: var(--text-soft); font: inherit; font-size: .8125rem;
@@ -14,6 +15,7 @@
 }
 .team-skills-loading { position: absolute; inset: 0; display: grid; place-items: center; pointer-events: none; }
 .team-skills-viewport [role="alert"] { max-width: min(48ch, 90%); text-align: center; }
+.team-skills-viewport[data-show-page="false"] > iframe { display: none; }
 .team-skills-viewport > iframe { align-self: stretch; flex: 1; min-height: 0; border: 0; }
 /* Let a click on the page dismiss the dashboard popover across the guest process boundary. */
 body:has(.runtime-status-popover) .team-skills-viewport::after {

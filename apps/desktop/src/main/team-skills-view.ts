@@ -1,9 +1,12 @@
 import { randomUUID } from "node:crypto";
-import { ipcMain, session, shell, type WebContents } from "electron";
+import { app, session, shell, type DownloadItem, type NavigationEntry, type WebContents } from "electron";
+import { createLogger } from "@lxe/core";
 import { TEAM_SKILLS_URL } from "@lxe/desktop-protocol/team-skills";
 import { IPC_CHANNELS } from "../ipc-channels";
+import { WindowTabBudget } from "./manual-tools/tab-budget";
 import type { ManualBrowsers } from "./manual-tools/browsers";
 
+const logger = createLogger("desktop.team-skills");
 const catalogOrigin = new URL(TEAM_SKILLS_URL).origin;
 const partition = "persist:lxe-workbench-team-skills";
 
@@ -20,25 +23,74 @@ function isFeishuPage(url: URL | undefined): boolean {
 export function registerTeamSkillsGuest(dashboard: WebContents, browsers?: ManualBrowsers): void {
   // will-attach-webview does not identify the requesting frame. Only the dashboard's
   // main frame can obtain this single-use initial src. Replace it before navigation.
-  browsers?.watchWindow(dashboard);
+  const budget = browsers?.watchWindow(dashboard) ?? new WindowTabBudget();
+  const attaching = new WeakMap<WebContents, string>();
+  const downloads = new Set<DownloadItem>();
+  let mountSrc: string | undefined;
   let pendingSrc: string | undefined;
-  ipcMain.handle(IPC_CHANNELS.prepareTeamSkillsView, event => {
-    if (event.sender !== dashboard || event.senderFrame !== dashboard.mainFrame) {
-      throw new Error("Team skills requires the desktop main frame");
+  let contents: WebContents | undefined;
+  let history: { entries: NavigationEntry[]; index: number } | undefined;
+  let restoring = false;
+
+  function release(): void {
+    const guest = contents;
+    contents = undefined;
+    pendingSrc = undefined;
+    mountSrc = undefined;
+    restoring = false;
+    if (guest && !guest.isDestroyed()) guest.close({ waitForBeforeUnload: false });
+  }
+
+  const page = budget.track("team-skills", {
+    isLive: () => !!contents && !contents.isDestroyed(),
+    isBusy: () => restoring || downloads.size > 0 || !!contents?.isLoading() || !!contents?.isCurrentlyAudible(),
+    suspend: () => {
+      const nav = contents?.navigationHistory;
+      if (nav && nav.length() > 0) history = { entries: nav.getAllEntries(), index: nav.getActiveIndex() };
+      release();
+    },
+  });
+
+  dashboard.ipc.handle(IPC_CHANNELS.teamSkillsView, (event, action: unknown) => {
+    if (event.senderFrame !== dashboard.mainFrame) throw new Error("Team skills requires the desktop main frame");
+    if (action === "hide") {
+      page.setVisible(false);
+      return null;
     }
-    pendingSrc = `about:blank#${randomUUID()}`;
-    return pendingSrc;
+    if (action !== "show" && action !== "retry") throw new Error("Unknown team skills view action");
+    page.setVisible(true);
+    if (action === "retry") {
+      history = undefined;
+      release();
+    }
+    if (!mountSrc) pendingSrc = mountSrc = `about:blank#${randomUUID()}`;
+    return mountSrc;
   });
   dashboard.on("did-start-navigation", event => {
-    if (event.isMainFrame && !event.isSameDocument) pendingSrc = undefined;
+    if (event.isMainFrame && !event.isSameDocument) {
+      release();
+      history = undefined;
+      page.setVisible(false);
+    }
   });
-  dashboard.once("destroyed", () => ipcMain.removeHandler(IPC_CHANNELS.prepareTeamSkillsView));
 
   const profile = session.fromPartition(partition);
   profile.setPermissionCheckHandler(() => false);
   profile.setPermissionRequestHandler((_contents, _permission, callback) => callback(false));
   profile.setDevicePermissionHandler(() => false);
   profile.setDisplayMediaRequestHandler((_request, callback) => callback({}));
+
+  const onDownload = (_event: Electron.Event, item: DownloadItem, source: WebContents) => {
+    if (source !== contents) return;
+    downloads.add(item);
+    item.once("done", () => { downloads.delete(item); budget.enforce(); });
+  };
+  profile.on("will-download", onDownload);
+  dashboard.once("destroyed", () => {
+    profile.off("will-download", onDownload);
+    release();
+    page.remove();
+  });
 
   dashboard.on("will-attach-webview", (event, preferences, params) => {
     if (params.webpreferences || params.preload || params.partition || params.httpreferrer || params.useragent
@@ -48,8 +100,14 @@ export function registerTeamSkillsGuest(dashboard: WebContents, browsers?: Manua
       return;
     }
     if (pendingSrc && params.src === pendingSrc && !params.allowpopups) {
+      const ticket = pendingSrc;
       pendingSrc = undefined;
-      params.src = TEAM_SKILLS_URL;
+      const created = (_event: Electron.Event, guest: WebContents) => {
+        if (guest.getType() === "webview" && guest.session === profile) attaching.set(guest, ticket);
+      };
+      app.once("web-contents-created", created);
+      queueMicrotask(() => app.off("web-contents-created", created));
+      params.src = history ? "" : TEAM_SKILLS_URL;
       preferences.partition = partition;
     } else if (!browsers?.prepareGuest(dashboard, preferences, params)) {
       event.preventDefault();
@@ -64,6 +122,17 @@ export function registerTeamSkillsGuest(dashboard: WebContents, browsers?: Manua
 
   dashboard.on("did-attach-webview", (_event, guest) => {
     if (browsers?.attachGuest(dashboard, guest)) return;
+    if (!mountSrc || attaching.get(guest) !== mountSrc) { guest.close(); return; }
+    contents = guest;
+    guest.once("destroyed", () => {
+      if (contents !== guest) return;
+      contents = undefined;
+      mountSrc = undefined;
+      restoring = false;
+      budget.enforce();
+    });
+    guest.on("did-stop-loading", () => budget.enforce());
+    guest.on("audio-state-changed", () => budget.enforce());
     guest.on("will-navigate", event => {
       if (!isFeishuPage(httpsUrl(event.url))) event.preventDefault();
     });
@@ -79,5 +148,22 @@ export function registerTeamSkillsGuest(dashboard: WebContents, browsers?: Manua
       }
       return { action: "deny" };
     });
+    const saved = history;
+    if (saved) {
+      restoring = true;
+      void guest.navigationHistory.restore(saved).catch(error => {
+        if (contents !== guest) return;
+        logger.warn("catalog_history_restore_failed", { error });
+        return guest.loadURL(TEAM_SKILLS_URL);
+      }).catch(error => {
+        if (contents === guest) logger.warn("catalog_fallback_load_failed", { error });
+      }).finally(() => {
+        if (contents !== guest) return;
+        history = undefined;
+        restoring = false;
+        budget.enforce();
+      });
+    }
+    budget.enforce();
   });
 }

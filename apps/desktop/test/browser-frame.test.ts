@@ -18,17 +18,17 @@ test("window budget counts only live background pages and protects busy and rece
 test("sidebar webview survives menus and restores its history after budget suspension", async () => {
   const profile = mkdtempSync(resolve(tmpdir(), "lxe-browser-frame-"));
   try {
-    const built = await Bun.build({ entrypoints: [resolve(import.meta.dirname, "fixtures/browser-frame.electron.ts")],
-      outdir: profile, naming: "runner.cjs", target: "node", format: "cjs", external: ["electron"] });
+    const built = await Bun.build({ entrypoints: [resolve(import.meta.dirname, "fixtures/browser-frame.electron.ts"), resolve(import.meta.dirname, "../src/preload.ts")],
+      outdir: profile, naming: "[name].cjs", target: "node", format: "cjs", external: ["electron"] });
     expect(built.success, built.logs.join("\n")).toBe(true);
     const env = { ...process.env }; delete env.ELECTRON_RUN_AS_NODE;
-    const child = Bun.spawn([createRequire(import.meta.url)("electron"), resolve(profile, "runner.cjs"), profile],
+    const child = Bun.spawn([createRequire(import.meta.url)("electron"), resolve(profile, "browser-frame.electron.cjs"), profile],
       { env, stdout: "pipe", stderr: "pipe" });
     const timer = setTimeout(() => child.kill(), 110000);
     try {
       const [code, stdout, stderr] = await Promise.all([child.exited, new Response(child.stdout).text(), new Response(child.stderr).text()]);
       expect(code, stdout + "\n" + stderr).toBe(0);
-      expect(stdout).toContain("BROWSER_FRAME_OK: menu, 32/33 detached pages, navigation history and cleanup");
+      expect(stdout).toContain("BROWSER_FRAME_OK: menu, shared 32/33 budget, catalog and sidebar history, cleanup");
     } finally { clearTimeout(timer); if (child.exitCode === null) { child.kill(); await child.exited; } }
   } finally { rmSync(profile, { recursive: true, force: true, maxRetries: 5 }); }
 }, 120000);

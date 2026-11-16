@@ -1,2 +1,2 @@
 const { contextBridge, ipcRenderer } = require("electron");
-contextBridge.exposeInMainWorld("prepareCatalogFixture", () => ipcRenderer.invoke("lxe:workbench:prepare-team-skills"));
+contextBridge.exposeInMainWorld("prepareCatalogFixture", action => ipcRenderer.invoke("lxe:workbench:team-skills-view", action));

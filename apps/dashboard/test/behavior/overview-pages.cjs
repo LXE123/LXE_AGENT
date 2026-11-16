@@ -100,27 +100,32 @@ module.exports = async ({ win, js, step, load, waitFor, click, key, focus, settl
     await screenshot("workbench-narrow-en");
     await win.setContentSize(1200, 900);
   });
-  await step("standalone team catalog keeps its guest visible under runtime status and releases it on exit", async () => {
+  await step("standalone team catalog keeps its guest visible under runtime status and reuses the live page on return", async () => {
     await open("workbench");
-    await js("window.lxe.desktop.prepareTeamSkillsView = window.prepareCatalogFixture; void 0");
+    await js("window.lxe.desktop.teamSkillsView = window.prepareCatalogFixture; void 0");
+    assert.equal(await js("!!document.querySelector('.team-skills-viewport iframe')"), false, "no guest before first visit");
     await click(".tab-team-skills");
     await waitFor("document.querySelector('.tab-team-skills[aria-current=page]')", "catalog selected");
     assert.equal(await js("history.state.section"), "team-skills");
     assert.equal(await js("Boolean(document.querySelector('.workbench-back'))"), false);
     await waitFor("document.querySelector('.team-skills-viewport > iframe')?.contentDocument.querySelector('webview') && !document.querySelector('.team-skills-page [role=status]')", "catalog loaded");
     const guest = require("electron").webContents.fromId(await js("document.querySelector('.team-skills-viewport > iframe')?.contentDocument.querySelector('webview').getWebContentsId()"));
+    const guestId = guest.id;
     assert.equal(guest.getURL(), "https://qcnd7w5806gy.feishuapp.com/app/app_17gftabyhpd");
     const panel = await js("document.querySelector('.app-content-frame').getBoundingClientRect().toJSON()");
-    const cornerPixel = async (dx, dy) => {
-      const image = await win.webContents.capturePage({ x: Math.round(panel.x) + dx, y: Math.round(panel.y) + dy, width: 1, height: 1 });
-      return Array.from(image.toBitmap().subarray(0, 3));
-    };
     for (const theme of ["light", "dark"]) {
       await js(`document.documentElement.dataset.theme='${theme}'`); await settle();
-      const chrome = await cornerPixel(-4, 1);
-      assert.deepEqual(await cornerPixel(1, 1), chrome, `${theme}: chrome shows through the curved cutout`);
-      assert.notDeepEqual(await cornerPixel(30, 0), chrome, `${theme}: top edge is visible`);
-      assert.notDeepEqual(await cornerPixel(0, 30), chrome, `${theme}: left edge is visible`);
+      // Compare pixels from one compositor frame while changing the theme.
+      const image = await win.webContents.capturePage({ x: Math.round(panel.x) - 4, y: Math.round(panel.y), width: 35, height: 31 });
+      const size = image.getSize();
+      const bitmap = image.toBitmap();
+      const pixel = (x, y) => {
+        const offset = 4 * (Math.floor(y * size.height / 31) * size.width + Math.floor((x + 4) * size.width / 35));
+        return Array.from(bitmap.subarray(offset, offset + 3));
+      };
+      assert.deepEqual(pixel(1, 1), pixel(-4, 1), `${theme}: chrome shows through the curved cutout`);
+      assert.notDeepEqual(pixel(30, 0), pixel(-4, 1), `${theme}: top edge is visible`);
+      assert.notDeepEqual(pixel(0, 30), pixel(-4, 1), `${theme}: left edge is visible`);
     }
     await guest.executeJavaScript("document.querySelector('input').value = 'filter in progress'");
     const viewport = await js("document.querySelector('.team-skills-viewport > iframe').getBoundingClientRect().toJSON()");
@@ -152,6 +157,19 @@ module.exports = async ({ win, js, step, load, waitFor, click, key, focus, settl
     assert.equal(await js("document.querySelector('.team-skills-viewport > iframe')?.contentDocument.querySelector('webview').getWebContentsId()"), guest.id);
     await js("history.back()");
     await waitFor("document.querySelectorAll('.workbench-tool-card').length===4", "back restores the directory");
-    assert.ok(guest.isDestroyed(), "leaving the catalog releases its guest");
+    assert.ok(!guest.isDestroyed(), "switching away keeps the catalog guest alive");
+    assert.ok(await js("document.querySelector('.team-skills-page').hidden"));
+    await click(".tab-team-skills");
+    await waitFor("!document.querySelector('.team-skills-page').hidden", "catalog shown again");
+    assert.equal(await js("document.querySelector('.team-skills-viewport iframe').contentDocument.querySelector('webview').getWebContentsId()"), guest.id);
+    assert.equal(await guest.executeJavaScript("document.querySelector('input').value"), "filter in progress");
+    await click(".tab-sessions");
+    await waitFor("document.querySelector('.team-skills-page').hidden", "catalog hidden while chatting");
+    await click(".tab-team-skills");
+    assert.equal(await guest.executeJavaScript("document.querySelector('input').value"), "filter in progress");
+    await click(".tab-sessions");
+    guest.close({ waitForBeforeUnload: false });
+    await click(".tab-team-skills");
+    await waitFor("(() => { try { const wc = document.querySelector('.team-skills-viewport iframe').contentDocument.querySelector('webview').getWebContentsId(); return wc !== " + guestId + " && !!wc && !document.querySelector('.team-skills-loading') } catch { return false } })()", "return recreates a released guest");
   });
 };
