@@ -74,7 +74,7 @@ import {
 import { DesktopGateway } from "./main/desktop-gateway";
 import { AuthBrowserHost } from "./main/auth-browser-host";
 import { ElectronAuthBrowserSession } from "./main/auth-browser-session";
-import { editableContextMenuTemplate } from "./main/edit-context-menu";
+import { editContextMenuTemplate } from "./main/edit-context-menu";
 import { DesktopLoggingManager } from "./main/logging";
 import { MacOSWireGuardProvisioner } from "./main/macos-wireguard-provisioner";
 import { registerDesktopIpc, type DesktopIpcApplication } from "./main/ipc";
@@ -712,7 +712,7 @@ async function bootstrap(): Promise<void> {
   registerTeamSkillsGuest(window.webContents);
   trackFilePreviewLifecycle(window.webContents, () => gateway.releaseFilePreviews());
   window.webContents.on("context-menu", (_event, params) => {
-    const template = editableContextMenuTemplate(params);
+    const template = editContextMenuTemplate(params);
     const ownerWindow = window;
     if (!ownerWindow || !template.length) return;
     Menu.buildFromTemplate(template).popup({ window: ownerWindow });
