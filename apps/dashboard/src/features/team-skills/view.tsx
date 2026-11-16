@@ -1,6 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { TEAM_SKILLS_URL, type TeamSkillsBrowserState } from "@lxe/desktop-protocol/team-skills";
 import { useUiText } from "../../shared/i18n";
+import { NavigationIcon } from "../../shared/navigation-icons";
 import { BrowserToolbar } from "../../shared/ui/browser-toolbar";
 import "./theme.css";
 
@@ -92,7 +93,7 @@ export function TeamSkillsPage({ visible }: { visible: boolean }) {
   return <section className="team-skills-page" hidden={!visible} aria-label={copy.name}>
     {control && <BrowserToolbar key={mountSrc} url={browser?.url || TEAM_SKILLS_URL}
       enabled={confirmed && !!mountSrc && !!browser} canGoBack={browser?.canGoBack} canGoForward={browser?.canGoForward}
-      homePage={{ url: TEAM_SKILLS_URL, label: copy.backToCatalog }}
+      homePage={{ url: TEAM_SKILLS_URL, label: copy.backToCatalog, icon: <NavigationIcon section="team-skills" /> }}
       onAction={action => mountSrc ? window.lxe!.desktop.teamSkillsBrowser(mountSrc, action) : undefined} />}
     <div className="team-skills-viewport" ref={viewport} aria-label={copy.name} data-show-page={confirmed && !error}>
       {control && loading ? <span className="team-skills-loading" role="status">{t.common.loading}…</span> : null}

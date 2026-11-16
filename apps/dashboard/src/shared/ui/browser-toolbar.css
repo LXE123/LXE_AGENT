@@ -4,36 +4,35 @@
   flex: none; min-height: 46px; padding: 6px 12px; box-sizing: border-box;
   background: var(--cds-surface-chrome); border-bottom: 1px solid var(--cds-alpha-2);
 }
-.browser-toolbar-history, .browser-toolbar input, .browser-toolbar-external {
-  border: 1px solid var(--cds-alpha-2); border-radius: 999px; background: var(--cds-alpha-1);
+.browser-toolbar-navigation, .browser-toolbar-history { display: inline-flex; align-items: center; }
+.browser-toolbar-navigation { justify-self: start; gap: 8px; }
+.browser-toolbar-history {
+  padding: 1px; border: 1px solid var(--cds-alpha-2); border-radius: 9px;
 }
-.browser-toolbar-history { display: inline-flex; align-items: center; justify-self: start; padding: 2px; }
-.browser-toolbar-history button, .browser-toolbar-address button {
-  display: grid; place-items: center; position: relative; width: 29px; height: 25px; padding: 0;
-  color: var(--cds-ink); background: transparent; border: 0; border-radius: 999px; cursor: pointer;
+.browser-toolbar button {
+  box-sizing: border-box; display: grid; place-items: center; width: 32px; height: 32px;
+  padding: 0; border: 0; border-radius: 8px; background: transparent; color: var(--cds-secondary); cursor: pointer;
 }
+.browser-toolbar-history button, .browser-toolbar-address button { width: 28px; height: 28px; border-radius: 7px; }
+.browser-toolbar button:enabled:hover { background: var(--cds-alpha-1); color: var(--cds-ink); }
+.browser-toolbar button:enabled:active { background: var(--cds-selected); color: var(--cds-ink); }
+.browser-toolbar button:focus-visible { outline: 2px solid var(--cds-accent); outline-offset: -2px; }
 .browser-toolbar button:disabled { color: var(--cds-disabled-ink); cursor: default; }
-.browser-toolbar button:enabled:hover { background: var(--cds-alpha-2); }
-.browser-toolbar-history [data-preview-refresh] { margin-left: 5px; }
-.browser-toolbar-history [data-preview-refresh]::before {
-  content: ""; position: absolute; left: -3px; width: 1px; height: 13px; background: var(--cds-alpha-3);
-}
-.browser-toolbar-history .browser-toolbar-home {
-  width: auto; padding-inline: 8px; font: inherit; font-size: .8125rem; white-space: nowrap;
-}
+.browser-toolbar-home:disabled svg { opacity: .4; filter: grayscale(1); }
+.browser-toolbar-external { justify-self: end; }
+.browser-toolbar-address { position: relative; min-width: 0; }
 .browser-toolbar input {
-  box-sizing: border-box; width: 100%; min-width: 0; height: 31px; padding: 0 15px;
+  box-sizing: border-box; width: 100%; min-width: 0; height: 32px; padding: 0 12px;
+  border: 1px solid var(--cds-alpha-2); border-radius: 8px; background: var(--cds-field);
   text-align: center; color: var(--cds-ink); font: inherit; font-size: .8125rem; text-overflow: ellipsis;
 }
-.browser-toolbar input:focus { padding-right: 34px; text-align: left; background: var(--cds-surface-panel); }
-.browser-toolbar :is(button, input):focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 1px; }
-.browser-toolbar-error { padding: 4px 12px; color: var(--cds-ink); overflow-wrap: anywhere; font-size: .8125rem; }
-.browser-toolbar-address { position: relative; min-width: 0; }
-.browser-toolbar-address button { position: absolute; top: 3px; right: 3px; }
-.browser-toolbar-external {
-  justify-self: end; display: grid; place-items: center; width: 31px; height: 31px; padding: 0;
-  color: var(--cds-ink); cursor: pointer;
+.browser-toolbar input:enabled:hover:not(:focus) { border-color: var(--cds-alpha-3); }
+.browser-toolbar input:focus {
+  padding-right: 34px; text-align: left; outline: 0; border-color: transparent; box-shadow: var(--cds-focus);
 }
+.browser-toolbar input:disabled { color: var(--cds-disabled-ink); background: var(--cds-disabled-fill); }
+.browser-toolbar-address button { position: absolute; top: 2px; right: 2px; }
+.browser-toolbar-error { padding: 4px 12px; color: var(--danger); overflow-wrap: anywhere; font-size: .8125rem; }
 @container browser-controls (max-width: 620px) {
   .browser-toolbar { grid-template-columns: auto minmax(0, 1fr); padding-inline: 8px; }
   .browser-toolbar:has(.browser-toolbar-external) { grid-template-columns: auto minmax(0, 1fr) auto; }

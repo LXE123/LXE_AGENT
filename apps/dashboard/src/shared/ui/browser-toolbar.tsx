@@ -1,4 +1,4 @@
-import { useLayoutEffect, useRef, useState } from "react";
+import { useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { ArrowLeft, ArrowRight, CornerDownLeft, ExternalLink, RotateCw } from "lucide-react";
 import { useUiText } from "../i18n";
 import "./browser-toolbar.css";
@@ -12,7 +12,7 @@ interface BrowserToolbarProps {
   canGoForward?: boolean;
   loading?: boolean;
   onAction: (action: BrowserAction) => void | Promise<unknown>;
-  homePage?: { url: string; label: string };
+  homePage?: { url: string; label: string; icon: ReactNode };
   onOpenExternal?: (url: string) => void;
 }
 
@@ -40,15 +40,19 @@ export function BrowserToolbar({ url, enabled, canGoBack, canGoForward, loading,
   return <div className="browser-toolbar-container">
     <form className="browser-toolbar" aria-label={t.manualTools.browser}
       onSubmit={event => { event.preventDefault(); if (enabled && draft?.trim()) void run({ url: draft }); }}>
-      <div className="browser-toolbar-history">
-        <button type="button" aria-label={t.manualTools.back} title={t.manualTools.back}
-          disabled={!enabled || !canGoBack} onClick={() => void run("back")}><ArrowLeft size={16} /></button>
-        <button type="button" aria-label={t.manualTools.forward} title={t.manualTools.forward}
-          disabled={!enabled || !canGoForward} onClick={() => void run("forward")}><ArrowRight size={16} /></button>
-        <button type="button" data-preview-refresh aria-label={t.filePreview.refresh} title={t.filePreview.refresh}
-          disabled={!enabled} onClick={() => void run("reload")}><RotateCw size={15} className={loading ? "is-loading" : undefined} /></button>
+      <div className="browser-toolbar-navigation">
+        <div className="browser-toolbar-history">
+          <button type="button" aria-label={t.manualTools.back} title={t.manualTools.back}
+            disabled={!enabled || !canGoBack} onClick={() => void run("back")}><ArrowLeft size={16} /></button>
+          <button type="button" aria-label={t.manualTools.forward} title={t.manualTools.forward}
+            disabled={!enabled || !canGoForward} onClick={() => void run("forward")}><ArrowRight size={16} /></button>
+          <button type="button" data-preview-refresh aria-label={t.filePreview.refresh} title={t.filePreview.refresh}
+            disabled={!enabled} onClick={() => void run("reload")}><RotateCw size={16} className={loading ? "is-loading" : undefined} /></button>
+        </div>
         {homePage && <button type="button" className="browser-toolbar-home" disabled={!enabled}
-          onClick={() => void run({ url: homePage.url })}>{homePage.label}</button>}
+          title={homePage.label} aria-label={homePage.label} onClick={() => void run({ url: homePage.url })}>
+          {homePage.icon}
+        </button>}
       </div>
       <div className="browser-toolbar-address" onBlur={event => {
         if (!event.currentTarget.contains(event.relatedTarget)) setDraft(null);

@@ -126,6 +126,7 @@ module.exports = async ({ win, js, step, load, waitFor, click, key, focus, settl
       assert.deepEqual(pixel(1, 1), pixel(-4, 1), `${theme}: chrome shows through the curved cutout`);
       assert.notDeepEqual(pixel(30, 0), pixel(-4, 1), `${theme}: top edge is visible`);
       assert.notDeepEqual(pixel(0, 30), pixel(-4, 1), `${theme}: left edge is visible`);
+      await screenshot("catalog-toolbar-" + theme);
     }
     await guest.executeJavaScript("document.querySelector('input').value = 'filter in progress'");
     const viewport = await js("document.querySelector('.team-skills-viewport > iframe').getBoundingClientRect().toJSON()");
@@ -243,8 +244,9 @@ module.exports = async ({ win, js, step, load, waitFor, click, key, focus, settl
       await click(".team-skills-page [data-preview-refresh]");
       await reloaded;
       assert.equal(guest.getURL(), typed, "refresh reloads the embedded page");
-      const homeButton = ".team-skills-page [data-preview-refresh] + button";
-      assert.equal(await js(`document.querySelector('${homeButton}').textContent`), "回到技能目录");
+      const homeButton = ".team-skills-page .browser-toolbar-history + button[aria-label=回到技能目录]";
+      assert.ok(await js(`document.querySelector('${homeButton} .navigation-icon-team-skills')?.checkVisibility()`),
+        "the catalog logo is a separate, named button beside the history controls");
       await click(homeButton);
       await waitFor(`${currentHost} === '${new URL(catalogHome).host}'`, "home button returns to the catalog");
       assert.equal(guest.getURL(), catalogHome, "opens the fixed home URL in the same guest");
