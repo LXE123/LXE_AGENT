@@ -36,4 +36,13 @@ describe("system prompt builder", () => {
       expect(prompt.split(supplied)).toHaveLength(2);
     }
   });
+
+  test("describes workspace Markdown links for desktop replies only", () => {
+    const options = { platform: "desktop", provider: "test", model: "test", skillPrompt: "",
+      workspace: { directory: "/workspace", worktree: "/workspace" } };
+    const example = "[Read the report](./reports/summary.md)";
+    expect(buildSystemPrompt(options)).toContain(example);
+    expect(buildSystemPrompt({ ...options, platform: "feishu" })).not.toContain(example);
+    expect(buildSystemPrompt({ ...options, platform: "cli" })).not.toContain(example);
+  });
 });

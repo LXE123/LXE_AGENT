@@ -4,6 +4,7 @@ import type { Components, Options } from "react-markdown";
 
 import "katex/dist/katex.min.css";
 import { useUiText } from "../i18n";
+import { workspaceFileLinkPath } from "../markdown";
 import { CodeBlock } from "./code-block";
 
 export { markdownRemarkPlugins } from "../markdown-plugins";
@@ -69,28 +70,23 @@ function renderMermaidChart(id: string, chart: string) {
 }
 
 const EXTERNAL_LINK_PATTERN = /^https?:\/\//i;
+export const OpenMarkdownFileContext = React.createContext<((path: string) => void) | null>(null);
 
 export const markdownComponents = {
-  // Only a plain web link is a link. It opens in the system browser, which the
-  // Main process arranges when it denies the window this target asks for.
-  //
-  // Everything else renders as text. An in-page anchor — a footnote marker, its
-  // back-reference — would otherwise navigate the single-page shell to a route
-  // it has no entry for, which drops the reader back on the home screen; and a
-  // link on any other scheme has nowhere to go that is worth going.
-  a({ href, children, ...props }) {
+  a: function MarkdownLink({ href, children, node: _node, ...props }) {
+    const openFile = React.useContext(OpenMarkdownFileContext);
     const target = String(href ?? "");
-    if (!EXTERNAL_LINK_PATTERN.test(target)) {
-      // The back-reference arrow is a navigation control and nothing else, so
-      // without the navigation there is nothing left of it to show.
-      if ("data-footnote-backref" in props) return null;
-      return <span className="markdown-inert-link">{children}</span>;
+    if (EXTERNAL_LINK_PATTERN.test(target)) {
+      return <a {...props} href={target} rel="noreferrer noopener" target="_blank">{children}</a>;
     }
-    return (
-      <a {...props} href={target} rel="noreferrer noopener" target="_blank">
-        {children}
-      </a>
-    );
+    const path = openFile && workspaceFileLinkPath(target);
+    if (openFile && path) return <button type="button" role="link" className="markdown-file-link" title={props.title ?? path}
+      onClick={event => {
+        if (event.detail > 0 && window.getSelection()?.isCollapsed === false) return;
+        openFile(path);
+      }}>{children}</button>;
+    if ("data-footnote-backref" in props) return null;
+    return <span className="markdown-inert-link">{children}</span>;
   },
   pre({ children, ...props }) {
     const child = React.Children.count(children) === 1 ? React.Children.only(children) : null;

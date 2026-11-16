@@ -302,4 +302,26 @@ module.exports = async ({suite,win,url,js,step,load,waitFor,click,key,focus,sett
       {level:'high',session_id:'Default chat',selection_version:0},
     ]);
   });
+  await step('assistant Markdown links open in the originating session file sidebar', async () => {
+    await load('?app=1&workspaces=1&section=sessions&fileLinks=1');
+    const report = '.conversation-feed .markdown-file-link[title="reports/测试 report.md"]';
+    const shopToggle = '[data-workspace-directory="/fixture/shop"] .workspace-group-toggle';
+    await waitFor(`Boolean(document.querySelector(${JSON.stringify(shopToggle)}))`, 'shop workspace');
+    await click(shopToggle);
+    for (const session of ['Default chat', 'Shop chat 1']) {
+      const row = `[data-session-id="${session}"] .session-index-open`;
+      await waitFor(`Boolean(document.querySelector(${JSON.stringify(row)}))`, 'session in sidebar');
+      await click(row);
+      await waitFor(`document.querySelector('.conversation-header h2')?.textContent === ${JSON.stringify(session)} && Boolean(document.querySelector(${JSON.stringify(report)}))`, 'report link in selected chat');
+      await focus(report);
+      await key('Enter');
+      await waitFor(`document.querySelector('.file-sidebar .file-markdown h1')?.textContent === ${JSON.stringify('Report from ' + session)}`, 'report from the selected workspace');
+      assert.ok((await state()).calls.some(call => call.operation === 'prepare' && call.input.ref.kind === 'workspace'
+        && call.input.ref.path === 'reports/测试 report.md' && call.input.ref.session_id === session));
+      await click(report);
+      assert.equal(await js("document.querySelectorAll('.file-tab [role=tab]').length"), 1);
+    }
+    await click('.conversation-feed .markdown-file-link[title="missing.txt"]');
+    await waitFor("!!document.querySelector('.file-sidebar .file-failure-panel')", 'missing file feedback in sidebar');
+  });
 };

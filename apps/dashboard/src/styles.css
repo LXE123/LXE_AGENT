@@ -5936,7 +5936,20 @@ h1 {
   line-height: 1.7;
 }
 
-.message-markdown a {
+.message-markdown .markdown-file-link {
+  display: inline;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  font: inherit;
+  text-align: inherit;
+  text-decoration: underline;
+  cursor: pointer;
+  user-select: text;
+}
+
+.message-markdown a,
+.message-markdown .markdown-file-link {
   color: var(--info);
   font-weight: 600;
   overflow-wrap: anywhere;
@@ -5962,7 +5975,7 @@ h1 {
   background: var(--border);
 }
 
-:root:not([data-theme="dark"]) .conversation-feed .message-markdown a[href] {
+:root:not([data-theme="dark"]) .conversation-feed .message-markdown :is(a[href], .markdown-file-link) {
   color: #184f95;
   font-weight: 500;
   text-decoration-color: #a3b7d4;
@@ -5970,7 +5983,7 @@ h1 {
   text-underline-offset: 3px;
 }
 
-:root:not([data-theme="dark"]) .conversation-feed .message-markdown a[href]:hover {
+:root:not([data-theme="dark"]) .conversation-feed .message-markdown :is(a[href], .markdown-file-link):hover {
   color: #2a78d6;
 }
 
@@ -6503,7 +6516,7 @@ code {
 }
 
 /* Only the verified default state; hover keeps the existing link styling. */
-:root[data-theme="dark"] .conversation-feed :is(.message-card.role-assistant, .timeline-text.process-message-content) .message-markdown a[href]:not(:hover) {
+:root[data-theme="dark"] .conversation-feed :is(.message-card.role-assistant, .timeline-text.process-message-content) .message-markdown :is(a[href], .markdown-file-link):not(:hover) {
   color: #6da8ed;
   text-decoration-color: #39506a;
 }

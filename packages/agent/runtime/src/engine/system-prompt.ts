@@ -49,6 +49,7 @@ export function buildSystemPrompt(options: BuildSystemPromptOptions): string {
       "## Workspace",
       "Use the most recent environment_context for the current date, timezone, runtime, channel, model and workspace paths.",
       "Relative paths start from the working directory.",
+      ...(options.platform === "desktop" ? ["When sharing a file in the current workspace, link to it with standard Markdown, for example [Read the report](./reports/summary.md). Encode spaces in the link target as %20."] : []),
       "The latest environment context specifies the permission mode and approval channel for controlled local operations: exec, write and edit. Follow that mode and use the smallest sufficient permission for the operation. This file-write policy makes no additional restrictions or guarantees for reads, searches, networking, MCP, or external platform operations.",
     ].join("\n"),
     options.mcpServerDirectory,

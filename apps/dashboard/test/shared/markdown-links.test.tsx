@@ -3,7 +3,8 @@ import { renderToStaticMarkup } from "react-dom/server";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 
-import { markdownComponents } from "../../src/shared/ui/markdown";
+import { markdownComponents, OpenMarkdownFileContext } from "../../src/shared/ui/markdown";
+import { StreamingMarkdown } from "../../src/shared/ui/streaming-markdown";
 
 const render = (markdown: string): string => renderToStaticMarkup(
   <ReactMarkdown components={markdownComponents} remarkPlugins={[remarkGfm]}>
@@ -12,6 +13,26 @@ const render = (markdown: string): string => renderToStaticMarkup(
 );
 
 describe("conversation markdown links", () => {
+  test("workspace links render in streaming and completed conversations with a preview handler", () => {
+    const markdown = "[查看完整分析](./reports/分析%20%231.md) [Notes](notes.md)";
+    for (const isStreaming of [true, false]) {
+      const view = <StreamingMarkdown text={markdown} isStreaming={isStreaming} />;
+      expect(renderToStaticMarkup(view)).not.toContain('role="link"');
+      const markup = renderToStaticMarkup(<OpenMarkdownFileContext.Provider value={() => {}}>{view}</OpenMarkdownFileContext.Provider>);
+      expect(markup).toContain('title="reports/分析 #1.md">查看完整分析</button>');
+      expect(markup).toContain('title="notes.md">Notes</button>');
+    }
+  });
+
+  test("keeps escaped Markdown, anchors and non-workspace targets inert", () => {
+    const urls = ["#section", "../other.md", "/tmp/other.md", "C:/other.md", "//example.org/file", "file:///file", "mailto:user@example.org", "%2e%2e/other.md", "%2Fexternal", "foo%5Cbar", "bad%00.md"];
+    const markdown = ["[报告]\\(./report.md)", ...urls.map(href => `[label](${href})`)].join(" ");
+    const markup = renderToStaticMarkup(<OpenMarkdownFileContext.Provider value={() => {}}><StreamingMarkdown text={markdown} /></OpenMarkdownFileContext.Provider>);
+    expect(markup).not.toContain('role="link"');
+    expect(markup).not.toContain("<a ");
+    expect(markup).toContain("[报告](./report.md)");
+  });
+
   test("sends a web link to the system browser and keeps the opener isolated", () => {
     const markup = render("[百度](https://www.baidu.com) 和 <http://example.com>");
 

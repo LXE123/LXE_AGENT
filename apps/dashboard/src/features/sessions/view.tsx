@@ -24,6 +24,7 @@ import { selectContextDisplay } from "./context-display";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { StreamingMarkdown as MessageMarkdown } from "../../shared/ui/streaming-markdown";
+import { OpenMarkdownFileContext } from "../../shared/ui/markdown";
 import {
   ArrowUp,
   Brain,
@@ -1551,6 +1552,13 @@ export function SessionDetailView({
   const session = rawSession ? projectSessionTitle(rawSession) : rawSession;
   const messages = detail?.messages || [];
   const sessionKey = display?.viewKey ?? session?.session_id ?? "new";
+  const messageSessionId = display?.sessionId || session?.session_id;
+  const panel = usePreviewSidebar();
+  const openPreview = panel?.session === messageSessionId ? panel?.open : undefined;
+  const openMarkdownFile = useMemo(() => {
+    if (!messageSessionId || !openPreview) return null;
+    return (path: string) => { void openPreview({ session_id: messageSessionId, kind: "workspace", path }, undefined, "sidebar"); };
+  }, [messageSessionId, openPreview]);
   const rows = display?.rows ?? conversationRows(messages,
     [activity?.latest, activity?.active, ...(activity?.queued ?? [])].filter((turn): turn is DesktopConversationTurnPayload => Boolean(turn)), pendingMessages);
   const process = useProcessRows(groupImageViewRows(rows), sessionKey);
@@ -1575,17 +1583,19 @@ export function SessionDetailView({
         </div>
       </header></AppCaption>
       <div className="conversation-body">
-        <ConversationWindow key={sessionKey} rows={process.rows} hasOlder={hasOlder} hasNewer={hasNewer}
-          connection={display?.connection} jumpVersion={display?.jump} onFollowingChange={onFollowingChange}
-          followingIntent={display?.following} historyTarget={display?.historyTarget}
-          loadOlder={onLoadOlder} loadNewer={onLoadNewer} jumpToLatest={onJumpToLatest} onVisibleGroups={onVisibleGroups}
-          pageError={loadOlderError || display?.error || error} retryLatest={!loadOlderError}
-          empty={loading || display?.loadState === "loading" ? <EmptyState label={t.sessionDetail.loading} />
-            : error || display?.error ? <EmptyState label={t.common.errorPrefix(t.sessionDetail.errorLabel, display?.error || error)} />
-            : newConversation ? <ConversationWelcome enabled={runtimeReady} /> : <div className="conversation-empty" role="status">{t.sessionDetail.empty}</div>}
-          renderRow={(row) => <UnifiedConversationRow row={row} expanded={row.kind === "process" ? process.states.get(row.id)?.expanded ?? false : expandedRows.get(row.id) ?? false} onToggle={row.kind === "process" ? process.toggle : toggleRow}
-            onFork={onFork} forkDisabled={!!forking || !runtimeReady || row.turnId === activity?.active?.turn_id}
-            onOpenFile={onOpenFile} onRevealFile={onRevealFile} onOpenAttachment={onOpenAttachment} attachmentSessionId={display?.sessionId || session?.session_id} />} />
+        <OpenMarkdownFileContext.Provider value={openMarkdownFile}>
+          <ConversationWindow key={sessionKey} rows={process.rows} hasOlder={hasOlder} hasNewer={hasNewer}
+            connection={display?.connection} jumpVersion={display?.jump} onFollowingChange={onFollowingChange}
+            followingIntent={display?.following} historyTarget={display?.historyTarget}
+            loadOlder={onLoadOlder} loadNewer={onLoadNewer} jumpToLatest={onJumpToLatest} onVisibleGroups={onVisibleGroups}
+            pageError={loadOlderError || display?.error || error} retryLatest={!loadOlderError}
+            empty={loading || display?.loadState === "loading" ? <EmptyState label={t.sessionDetail.loading} />
+              : error || display?.error ? <EmptyState label={t.common.errorPrefix(t.sessionDetail.errorLabel, display?.error || error)} />
+              : newConversation ? <ConversationWelcome enabled={runtimeReady} /> : <div className="conversation-empty" role="status">{t.sessionDetail.empty}</div>}
+            renderRow={(row) => <UnifiedConversationRow row={row} expanded={row.kind === "process" ? process.states.get(row.id)?.expanded ?? false : expandedRows.get(row.id) ?? false} onToggle={row.kind === "process" ? process.toggle : toggleRow}
+              onFork={onFork} forkDisabled={!!forking || !runtimeReady || row.turnId === activity?.active?.turn_id}
+              onOpenFile={onOpenFile} onRevealFile={onRevealFile} onOpenAttachment={onOpenAttachment} attachmentSessionId={messageSessionId} />} />
+        </OpenMarkdownFileContext.Provider>
         <div className="conversation-composer-dock">
           <ConversationComposer
             permissionSessionId={session?.session_id ?? ""}

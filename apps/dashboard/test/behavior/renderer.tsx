@@ -45,6 +45,7 @@ const updateRelease: DesktopUpdateRelease = {version:"0.2.0",build_id:"renderer-
 let updateState: DesktopUpdateState = {phase:"unsupported"};
 let releaseUpdateDownload: (()=>void) | undefined;
 const forkFixture = new URLSearchParams(location.search).has("forkFixture");
+const fileLinksFixture = new URLSearchParams(location.search).has("fileLinks");
 const workspaceMode = new URLSearchParams(location.search).has("workspaces");
 let referenceMode = false;
 let slowCandidates = false;
@@ -169,11 +170,13 @@ function workspaceRpc(call: { operation: string; input: Record<string, unknown> 
     }
     case "sessions.detail": {
       const session = workspaceSessions.find(row => row.session_id === input.session_id);
-      if (forkFixture && session) {
+      if ((forkFixture || fileLinksFixture) && session) {
         const origin = session.source.fork as { turn_id: string } | undefined;
         const ids = origin?.turn_id === "one" ? ["one"] : ["one", "two"];
         const messages = ids.flatMap((id, index) => ["user", "assistant"].map((role, block) => ({
-          role, content: role + " " + id, display_id: id + role, display_group_id: id + block, created_at: index + 1,
+          role, content: fileLinksFixture && role === "assistant"
+            ? "[查看完整分析](./reports/测试%20report.md) [Missing](./missing.txt)" : role + " " + id,
+          display_id: id + role, display_group_id: id + block, created_at: index + 1,
           turn: { turn_id: id, status: "completed", elapsed_ms: 1, forkable: block === 1 },
         })));
         const groups = messages.map(m => m.display_group_id);
@@ -391,17 +394,17 @@ const dashboard = {
 const files = {
   async call(call: { operation: string; input: any }) {
     if (["focus-preview", "release"].includes(call.operation)) return { ok: true, value: undefined };
-    if (!referenceMode) throw new Error(`Unexpected fixture file operation: ${call.operation}`);
+    if (!referenceMode && !fileLinksFixture) throw new Error(`Unexpected fixture file operation: ${call.operation}`);
     calls.push(structuredClone(call));
     const ref = call.input.ref;
     if (ref?.path === "missing.txt") return { ok: false, error: { kind: "not_found", operation: call.operation, diagnostic: "ENOENT: fixture missing.txt" } };
     const metadata = { key: ref?.id ?? ref?.path, name: ref?.kind === "skill" ? "SKILL.md" : ref?.path, displayPath: "/fixture/" + (ref?.id ?? ref?.path), size: 20, version: "1", kind: "markdown", extension: ".md", source: "current_file" };
     if (call.operation === "stat") return { ok: true, value: metadata };
     if (call.operation === "applications") return { ok: true, value: [] };
-    if (call.operation === "prepare") return { ok: true, value: { handle: "fixture-handle", metadata, missingFonts: [] } };
+    if (call.operation === "prepare") return { ok: true, value: { handle: fileLinksFixture ? ref.session_id : "fixture-handle", metadata, missingFonts: [] } };
     throw new Error(`Unexpected fixture file operation: ${call.operation}`);
   },
-  async readText() { return { ok: true, value: { text: "# Reference preview content\n", page: 1, offset: 1, lines: 1, next: 2, eof: true, version: "1" } }; },
+  async readText(handle: string) { return { ok: true, value: { text: fileLinksFixture ? `# Report from ${handle}\n` : "# Reference preview content\n", page: 1, offset: 1, lines: 1, next: 2, eof: true, version: "1" } }; },
 };
 window.lxe = { desktop, dashboard, files } as unknown as LxeDesktopBridge;
 
