@@ -36,7 +36,6 @@ import {
   ContextPipeline,
   DEFAULT_CONTEXT_WINDOW_TOKENS,
   estimateTokens,
-  requestContextTokenEstimate,
   isContextOverflowError,
   trimToolResultBlocks,
   type ContextCompactionResult,
@@ -623,6 +622,7 @@ export class TypeScriptAgentRuntime implements AgentRuntime {
           observer.measurement(measurement);
           await saveDisplay(measurement);
           await finalAnswerStreamer?.updateContext(measurement);
+          return measurement;
         };
         const captureCurrentEnvironment = async () => {
           const current = await this.options.store.getSession(job.session_id);
@@ -632,7 +632,7 @@ export class TypeScriptAgentRuntime implements AgentRuntime {
             permissions: permissionEnvironment(policy, executionPaths, this.options.approvalAvailable === true && job.source.platform === "desktop"),
             ...(this.options.userSkillsRoot ? { userSkillsRoot: this.options.userSkillsRoot } : {}) });
         };
-        const prepareRequestContext = async (): Promise<void> => {
+        const prepareRequestContext = async () => {
           let snapshot = await captureCurrentEnvironment();
           let environment = environmentMessage(snapshot);
           const prepared = await contextPipeline.prepare({
@@ -665,14 +665,14 @@ export class TypeScriptAgentRuntime implements AgentRuntime {
             messages.push(environment);
             observer.context({ ...prepared, afterTokens: tokens });
           }
-          await updateContext();
+          return updateContext();
         };
         let providerAttemptOrdinal = 0;
         const invokeProvider = async (maximumAttempts = DEFAULT_PROVIDER_ATTEMPTS): Promise<AssistantMessage> => {
           let lastError: unknown;
           for (let attempt = 1; attempt <= maximumAttempts; attempt += 1) {
             snapshotToolsAndDirectory();
-            await prepareRequestContext();
+            const input = await prepareRequestContext();
             providerAttemptOrdinal += 1;
             apiCalls += 1;
             const attemptObserver = observer.providerAttempt(
@@ -693,6 +693,7 @@ export class TypeScriptAgentRuntime implements AgentRuntime {
             try {
               await finalAnswerStreamer?.startWaitingModel();
               const request: RuntimeProviderRequest = {
+                inputTokenEstimate: input.tokens,
                 system: midConvo
                   ? withMcpDirectory(baseSystem, directoryRevisions(messages)[0]?.directory ?? directory)
                   : systemPrompt,
@@ -717,7 +718,6 @@ export class TypeScriptAgentRuntime implements AgentRuntime {
                   if (!isCancelled(handle)) await finalAnswerStreamer?.pushEvent(event);
                 },
               };
-              const estimatedInput = requestContextTokenEstimate(systemPrompt, request.messages, request.tools, promptCapabilities);
               const requestId = randomUUID();
               if (!titleRequested && providerSnapshot) {
                 titleRequested = true;
@@ -734,7 +734,7 @@ export class TypeScriptAgentRuntime implements AgentRuntime {
                 usage.status === "complete" && [usage.input_tokens, usage.output_tokens, usage.cache_read_input_tokens ?? 0, usage.cache_creation_input_tokens ?? 0]
                   .every(value => Number.isSafeInteger(value) && value >= 0) && Number.isSafeInteger(actualInput) && actualInput > 0 &&
                 (!response.responseModel || response.responseModel === systemPromptContext.model)) {
-                response.contextTokenAnchor = { version: 1, requestId, fingerprint, estimatedInput, actualInput };
+                response.contextTokenAnchor = { version: 1, requestId, fingerprint, estimatedInput: input.estimatedTokens, actualInput };
               }
               accountMessage(response);
               attemptObserver.succeed(response);

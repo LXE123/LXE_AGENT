@@ -41,7 +41,9 @@ Desktop 优先使用 v3，兼容 v2 和旧格式。定义版本与凭据版本�
 
 在「设置 → 模型设置 → 本地模型密钥」选择 Google 并保存个人 Key。聊天输入栏的模型菜单会出现 `gemini-4-hydrogen`、`gemini-4-argon` 和 `gemini-4-carbon`。桌面和指向同一数据目录的独立 agentcli 共用 `config/auth.json` 的 `google` 凭据。
 
-首次保存 Google Key 时默认选择 Hydrogen 和 high 推理档位。Argon 与 Carbon 的型号默认档位为 medium。三者均支持 low、medium、high，Hydrogen 另支持 xhigh。Runtime 在 1,048,576 tokens 的共享上下文中预留 65,536 tokens 给输出。具体参数见 [Google 模型配置](../../../config/llm/providers/google.json)。
+首次保存 Google Key 时默认选择 Hydrogen 和 high 推理档位。Argon 与 Carbon 的型号默认档位为 medium。三者均支持 low、medium、high，Hydrogen 另支持 xhigh。
+
+三款模型的输入和输出共享 1,048,576 tokens。Runtime 按型号预留输出空间，Hydrogen 的单次输出上限为 65,536，Argon 和 Carbon 为 32,768。发送请求时还会按估算的输入用量和剩余空间收紧输出预算。标题和摘要同时受各自的输出预算约束。[Google 模型配置](../../../config/llm/providers/google.json)
 
 每个会话保存自己的 provider、model、凭据来源和推理选项；全局偏好用于新会话。持久化顺序、并发版本与重启恢复见 [会话模型与 effort](../runtime/session-models.md)。
 

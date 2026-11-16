@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import { repositoryRoot } from "@lxe/core";
-import { isContextOverflowError, sanitizeMessagesForProvider } from "../../src/engine/context";
+import { isContextOverflowError, requestContextTokenEstimate, sanitizeMessagesForProvider } from "../../src/engine/context";
 import type { AssistantMessageEvent, RuntimeMessage, RuntimeProviderRequest } from "../../src/engine/types";
 import { GoogleRuntimeProvider } from "../../src/providers/google-provider";
 import { buildGoogleRequest } from "../../src/providers/google-request";
@@ -19,18 +19,40 @@ const request = (): RuntimeProviderRequest => ({
 });
 
 test.each([
-  ["gemini-4-hydrogen", "high", ["low", "medium", "high", "xhigh"]],
-  ["gemini-4-argon", "medium", ["low", "medium", "high"]],
-  ["gemini-4-carbon", "medium", ["low", "medium", "high"]],
-] as const)("native catalog and request controls for %s", (id, effort, levels) => {
+  ["gemini-4-hydrogen", 65_536, "high", ["low", "medium", "high", "xhigh"]],
+  ["gemini-4-argon", 32_768, "medium", ["low", "medium", "high"]],
+  ["gemini-4-carbon", 32_768, "medium", ["low", "medium", "high"]],
+] as const)("native catalog and request controls for %s", (id, maxTokens, effort, levels) => {
   const descriptor = load(id);
   expect(createRuntimeProvider(descriptor)).toBeInstanceOf(GoogleRuntimeProvider);
-  expect(descriptor).toMatchObject({ apiStyle: "google_generative_ai", contextWindowTokens: 1_048_576, maxTokens: 65_536,
+  expect(descriptor).toMatchObject({ apiStyle: "google_generative_ai", contextWindowTokens: 1_048_576, maxTokens,
     supportsVision: true, supportsTemperature: false, thinkingLevels: [...levels], thinkingEffort: effort });
   expect(providerEndpointUrl(descriptor)).toBe("https://generativelanguage.googleapis.com/v1beta/models/" + id + ":streamGenerateContent?alt=sse");
   expect(buildGoogleRequest(descriptor, request()).generationConfig).toEqual({
-    maxOutputTokens: 65536, thinkingConfig: { thinkingLevel: effort, includeThoughts: true },
+    maxOutputTokens: maxTokens, thinkingConfig: { thinkingLevel: effort, includeThoughts: true },
   });
+});
+
+test.each([
+  [875_000, 42_326],
+  [900_000, 32_768],
+  [1_040_000, 4_480],
+  [1_048_576, 1],
+])("Gemini request with %i estimated input tokens allows %i output tokens", (inputTokenEstimate, maxOutputTokens) => {
+  expect(buildGoogleRequest(load(), { ...request(), inputTokenEstimate }).generationConfig).toMatchObject({ maxOutputTokens });
+});
+
+test("a standalone Gemini summary estimates its own input and shrinks its auxiliary budget to fit", async () => {
+  const messages: RuntimeMessage[] = [{ role: "user", content: "old ".repeat(10_000) }];
+  const input = requestContextTokenEstimate(SUMMARY_SYSTEM_PROMPT, messages, []);
+  const descriptor = { ...load(), contextWindowTokens: input + 4_096 + 113 };
+  let maxOutputTokens: number | undefined;
+  const provider = new GoogleRuntimeProvider(descriptor, async (_, init) => {
+    maxOutputTokens = JSON.parse(String(init?.body)).generationConfig.maxOutputTokens;
+    return sse(candidate([{ text: "checkpoint" }], "STOP"));
+  });
+  await provider.summarize({ messages, kind: "history", signal: request().signal, maxOutputTokens: 4_096 });
+  expect(maxOutputTokens).toBe(113);
 });
 
 test("signed parallel and sequential calls survive transcript replay, including empty parts and images", async () => {

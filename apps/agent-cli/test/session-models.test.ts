@@ -33,8 +33,9 @@ test("one Google credential enables all three conversation models and preserves 
   expect(await google()).toMatchObject({ selectable: false });
   writeFileSync(auth, JSON.stringify({ google: { type: "api_key", key: "personal-fixture" } }));
   expect(await google()).toMatchObject({ selectable: true, credential_source: "local", model_options: [
-    { model: "gemini-4-hydrogen", thinking_default: "high" }, { model: "gemini-4-argon", thinking_default: "medium" },
-    { model: "gemini-4-carbon", thinking_default: "medium" },
+    { model: "gemini-4-hydrogen", thinking_default: "high", capabilities: { context_window_tokens: 1_048_576, max_output_tokens: 65_536 } },
+    { model: "gemini-4-argon", thinking_default: "medium", capabilities: { context_window_tokens: 1_048_576, max_output_tokens: 32_768 } },
+    { model: "gemini-4-carbon", thinking_default: "medium", capabilities: { context_window_tokens: 1_048_576, max_output_tokens: 32_768 } },
   ] });
   const choose = (model: string) => service.call({ operation: "models.update", input: {
     session_id: "a", provider: "google", model, credential_source: "local",

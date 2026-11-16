@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import type { JsonObject } from "@lxe/protocol";
 import type { RuntimeMessageContent, RuntimeProviderRequest } from "../engine/types";
+import { requestContextTokenEstimate } from "../engine/context";
 import { compactionSummaryProviderText } from "../engine/compaction-summary";
 import { object, string } from "../messages/accumulator";
 import { canReplayMetadata, completeTool } from "../messages/replay";
@@ -32,6 +33,17 @@ function userParts(content: RuntimeMessageContent): JsonObject[] {
 }
 
 interface Call { id: string; name: string; order: number }
+
+function googleMaxOutputTokens(descriptor: ProviderDescriptor, inputTokens: number): number {
+  if (descriptor.contextWindowTokens <= 0) return descriptor.maxTokens;
+  const remaining = descriptor.contextWindowTokens - inputTokens;
+  const fixedMargin = 4_096;
+  const margin = Math.max(fixedMargin, Math.ceil(inputTokens * 0.15));
+  const room = remaining - margin;
+  // pi switches to a fixed margin in a tight window, allowing at most 32K output there.
+  const available = room < 32_768 ? Math.min(32_768, remaining - fixedMargin) : room;
+  return Math.min(descriptor.maxTokens, Math.max(1, available));
+}
 
 function toolResponse(block: JsonObject, call: Call): JsonObject {
   const content = block.content;
@@ -111,10 +123,11 @@ export function buildGoogleRequest(origin: ProviderDescriptor, request: RuntimeP
   flushResults();
   const system = instructions.filter(Boolean).join("\n\n");
   const tools = request.toolChoice === "none" ? [] : request.tools;
+  const inputTokens = request.inputTokenEstimate ?? requestContextTokenEstimate(request.system, request.messages, tools);
   return {
     contents,
     ...(system ? { systemInstruction: { parts: [{ text: system }] } } : {}),
-    generationConfig: { maxOutputTokens: descriptor.maxTokens,
+    generationConfig: { maxOutputTokens: googleMaxOutputTokens(descriptor, inputTokens),
       thinkingConfig: { thinkingLevel: descriptor.thinkingEffort, includeThoughts: true } },
     ...(tools.length ? { tools: [{ functionDeclarations: tools.map(tool => ({
       name: tool.name, description: tool.description, parametersJsonSchema: tool.input_schema,

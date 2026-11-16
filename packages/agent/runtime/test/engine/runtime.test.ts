@@ -2203,10 +2203,12 @@ describe("TypeScriptAgentRuntime", () => {
     await runtime.stop();
   });
 
-  test("Gemini reserves its 65536 output tokens and compacts near the shared window before calling the model", async () => {
+  test.each([
+    ["gemini-4-hydrogen", 65_536], ["gemini-4-argon", 32_768], ["gemini-4-carbon", 32_768],
+  ] as const)("%s reserves its model output budget when compacting near the shared window", async (model, maxTokens) => {
     const store = new MemoryStore();
     store.messages = [{ role: "user", content: "a".repeat(4_000_000) }, { role: "assistant", content: "previous answer" }];
-    const descriptor = loadProviderDescriptor(repositoryRoot(import.meta.dir), { AGENT_LLM_PROVIDER: "google" }, { deferCredential: true });
+    const descriptor = loadProviderDescriptor(repositoryRoot(import.meta.dir), { AGENT_LLM_PROVIDER: "google", AGENT_LLM_MODEL: model }, { deferCredential: true });
     const budgets: number[] = [];
     const snapshot: RuntimeProviderSnapshot = { generation: 1, descriptor, provider: {
       summarize: async request => {
@@ -2225,7 +2227,29 @@ describe("TypeScriptAgentRuntime", () => {
     await runtime.start();
     try {
       expect(await runtime.runTurn(job(), handle())).toMatchObject({ status: "completed", reply: "continued" });
-      expect(budgets).toEqual([Math.floor(65536 * 0.8)]);
+      expect(budgets).toEqual([Math.floor(maxTokens * 0.8)]);
+    } finally { await runtime.stop(); }
+  });
+
+  test("Gemini sizes the next wire request using the previous turn's reported input usage", async () => {
+    const descriptor = loadProviderDescriptor(repositoryRoot(import.meta.dir), { AGENT_LLM_PROVIDER: "google", GEMINI_API_KEY: "fixture" });
+    const budgets: number[] = [];
+    const provider = new GoogleRuntimeProvider(descriptor, async (_, init) => {
+      budgets.push(JSON.parse(String(init?.body)).generationConfig.maxOutputTokens);
+      return sse({ ...candidate([{ text: "answer" }], "STOP"), usageMetadata: { promptTokenCount: 875_000, candidatesTokenCount: 2 } });
+    });
+    const snapshot = { generation: 1, descriptor, provider };
+    const runtime = new TypeScriptAgentRuntime({ permissionPolicy, store: new MemoryStore(), tools: new ToolRegistry(), systemPrompt: "test",
+      providerManager: { acquire: () => snapshot, reconfigure: async () => snapshot },
+      emitter: { emit: async () => {}, typing: async () => {} } });
+    await runtime.start();
+    try {
+      expect((await runtime.runTurn(job(), handle())).status).toBe("completed");
+      expect((await runtime.runTurn(job({ job_id: "next", message_id: "m2", user_input: "follow up" }), handle())).status).toBe("completed");
+      expect(budgets).toHaveLength(2);
+      expect(budgets[0]).toBe(65_536);
+      expect(budgets[1]!).toBeGreaterThan(42_000);
+      expect(budgets[1]!).toBeLessThanOrEqual(42_326);
     } finally { await runtime.stop(); }
   });
 

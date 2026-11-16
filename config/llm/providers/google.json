@@ -18,7 +18,7 @@
     },
     "gemini-4-argon": {
       "context_window_tokens": 1048576,
-      "max_tokens": 65536,
+      "max_tokens": 32768,
       "supports_vision": true,
       "supports_thinking": true,
       "supports_temperature": false,
@@ -28,7 +28,7 @@
     },
     "gemini-4-carbon": {
       "context_window_tokens": 1048576,
-      "max_tokens": 65536,
+      "max_tokens": 32768,
       "supports_vision": true,
       "supports_thinking": true,
       "supports_temperature": false,
