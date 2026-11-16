@@ -126,6 +126,7 @@ module.exports = async ({ win, js, step, load, waitFor, click, key, focus, settl
       assert.deepEqual(pixel(1, 1), pixel(-4, 1), `${theme}: chrome shows through the curved cutout`);
       assert.notDeepEqual(pixel(30, 0), pixel(-4, 1), `${theme}: top edge is visible`);
       assert.notDeepEqual(pixel(0, 30), pixel(-4, 1), `${theme}: left edge is visible`);
+      assert.notDeepEqual(pixel(30, 4), pixel(-4, 1), `${theme}: toolbar surface differs from the window chrome`);
       await screenshot("catalog-toolbar-" + theme);
     }
     await guest.executeJavaScript("document.querySelector('input').value = 'filter in progress'");
@@ -244,9 +245,22 @@ module.exports = async ({ win, js, step, load, waitFor, click, key, focus, settl
       await click(".team-skills-page [data-preview-refresh]");
       await reloaded;
       assert.equal(guest.getURL(), typed, "refresh reloads the embedded page");
-      const homeButton = ".team-skills-page .browser-toolbar-history + button[aria-label=回到技能目录]";
+      const homeButton = ".team-skills-page button[aria-label=回到技能目录]";
       assert.ok(await js(`document.querySelector('${homeButton} .navigation-icon-team-skills')?.checkVisibility()`),
-        "the catalog logo is a separate, named button beside the history controls");
+        "the catalog logo is a named button");
+      for (const width of [480, 1200]) {
+        win.setContentSize(width, 900);
+        await settle();
+        const layout = await js(`(() => {
+          const bar = document.querySelector('.team-skills-page .browser-toolbar');
+          const logo = document.querySelector('${homeButton}').getBoundingClientRect();
+          const field = document.querySelector('${address}').getBoundingClientRect();
+          return { rightGap: bar.getBoundingClientRect().right - logo.right, padding: parseFloat(getComputedStyle(bar).paddingRight),
+            afterAddress: field.right <= logo.left, sameRow: Math.abs(field.top - logo.top) < 1 };
+        })()`);
+        assert.ok(layout.afterAddress && layout.sameRow && Math.abs(layout.rightGap - layout.padding) < 1,
+          `catalog logo at the toolbar's right edge at ${width}px: ${JSON.stringify(layout)}`);
+      }
       await click(homeButton);
       await waitFor(`${currentHost} === '${new URL(catalogHome).host}'`, "home button returns to the catalog");
       assert.equal(guest.getURL(), catalogHome, "opens the fixed home URL in the same guest");
