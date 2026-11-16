@@ -94,8 +94,8 @@ const SAFE_ERROR_FIELDS = new Set([
 ]);
 const SENSITIVE_KEYS = new Set([
   "authorization", "proxyauthorization", "cookie", "setcookie", "token", "accesstoken",
-  "refreshtoken", "sessiontoken", "apikey", "xapikey", "secret", "appsecret", "clientsecret",
-  "password", "signature", "redactedthinking",
+  "refreshtoken", "sessiontoken", "apikey", "xapikey", "xgoogapikey", "secret", "appsecret", "clientsecret",
+  "password", "signature", "redactedthinking", "thoughtsignature", "thinkingsignature", "textsignature",
 ]);
 
 let processSink: ProcessLoggingSink | undefined;
@@ -194,8 +194,9 @@ const sanitizeValue = (
     if (value instanceof Set) return sanitizeValue([...value].slice(0, policy.maxItems), key, depth + 1, seen, policy);
     const entries = Object.entries(value as Record<string, unknown>);
     const result: Record<string, unknown> = {};
+    const inlineData = normalizedKey(key) === "inlinedata";
     for (const [childKey, childValue] of entries.slice(0, policy.maxItems)) {
-      result[childKey] = sanitizeValue(childValue, childKey, depth + 1, seen, policy);
+      result[childKey] = inlineData && childKey === "data" ? "***" : sanitizeValue(childValue, childKey, depth + 1, seen, policy);
     }
     if (entries.length > policy.maxItems) result._omitted_fields = entries.length - policy.maxItems;
     return result;

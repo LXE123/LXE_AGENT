@@ -115,6 +115,8 @@ export interface RuntimeSummaryResult {
 }
 
 export interface RuntimeProviderRequest {
+  /** Input tokens for this request, calibrated against provider usage when available. */
+  inputTokenEstimate?: number;
   currentMcpDirectory?: string;
   auxiliary?: { maxOutputTokens: number; reasoning: "minimum" };
   temperature?: number;

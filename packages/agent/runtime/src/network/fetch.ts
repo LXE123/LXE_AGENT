@@ -114,7 +114,7 @@ export function createHarnessFetch(options: FetchOptions = {}): Fetch {
         throw new TypeError("Cannot replay a streaming request body after an HTTP redirect");
       }
       if (next.origin !== url.origin) {
-        for (const name of ["authorization", "x-api-key", "proxy-authorization", "www-authenticate", "cookie", "cookie2", "referer"]) headers.delete(name);
+        for (const name of ["authorization", "x-api-key", "x-goog-api-key", "proxy-authorization", "www-authenticate", "cookie", "cookie2", "referer"]) headers.delete(name);
       }
       headers.delete("host");
       request = { ...request, headers };

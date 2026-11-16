@@ -1,12 +1,13 @@
 # LLM 适配
 
-Provider 层把 Runtime 的统一消息转换成供应商请求，再把流式响应转成统一模型消息。当前支持三类协议，由 [provider-factory.ts](../../../packages/agent/runtime/src/providers/provider-factory.ts) 根据目录中的 apiStyle 选择：
+Provider 层把 Runtime 的统一消息转换成供应商请求，再把流式响应转成统一模型消息。[provider-factory.ts](../../../packages/agent/runtime/src/providers/provider-factory.ts) 根据目录中的 apiStyle 选择适配器。
 
 | 协议 | 适配器 |
 | --- | --- |
 | Anthropic Messages | [provider.ts](../../../packages/agent/runtime/src/providers/provider.ts) 中的 AnthropicRuntimeProvider |
 | OpenAI Chat Completions | [completions-provider.ts](../../../packages/agent/runtime/src/providers/completions-provider.ts) |
 | OpenAI Responses | [responses-provider.ts](../../../packages/agent/runtime/src/providers/responses-provider.ts) |
+| Google GenerateContent | [google-provider.ts](../../../packages/agent/runtime/src/providers/google-provider.ts) |
 
 ## 职责与请求流程
 
@@ -24,7 +25,7 @@ Provider 不执行工具，不持有会话数据库，也不决定桌面或飞�
 - [DeepSeek 图片请求](deepseek-images.md)：Files 上传、预算、回退与请求内省略。
 - [Streaming Adapter](streaming_adapter.md)：协议事件归一化、取消、超时与错误。
 - [HTTP 与系统代理](../runtime/network.md)：模型、HTTP MCP 和 OAuth 共用的出站规则。
-- [统一模型消息流](assistant-message-stream.md)：三类协议共享的内容与事件契约。
+- [统一模型消息流](assistant-message-stream.md)：各协议共享的内容与事件契约。
 - [Runtime Context](../runtime/context/README.md)：模型历史、预算与压缩。
 - [Tool Schema](../runtime/tools/tool_schema.md)：工具定义和暴露范围。
 

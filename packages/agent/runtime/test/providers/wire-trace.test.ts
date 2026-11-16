@@ -64,13 +64,14 @@ describe("provider wire traces", () => {
     expect(attempt).toBeDefined();
     const messages = Array.from({ length: 150 }, (_, index) => ({ role: "user", content: `message-${index}` }));
     attempt!.requestStart(
-      { authorization: "Bearer request-secret", cookie: "session=private", accept: "application/json" },
+      { authorization: "Bearer request-secret", "x-goog-api-key": "google-key-private", cookie: "session=private", accept: "application/json" },
       {
         model: "model-1",
         messages,
         image: { type: "base64", media_type: "image/png", data: "image-private" },
         assistant: { type: "redacted_thinking", data: "opaque-private" },
         signature: "signature-private",
+        google: { thoughtSignature: "google-sig-private", inlineData: { mimeType: "image/jpeg", data: "google-img-private" } },
         reasoning: { type: "reasoning", encrypted_content: "ciphertext-private" },
       },
     );
@@ -81,7 +82,7 @@ describe("provider wire traces", () => {
     attempt!.event("content_block_delta", { type: "content_block_delta", delta: { type: "signature_delta", signature: "stream-signature-private" } });
     attempt!.event("content_block_start", { type: "content_block_start", content_block: { type: "redacted_thinking", data: "stream-opaque-private" } });
     attempt!.event("large_event", { type: "large_event", items: Array.from({ length: 150 }, () => "z".repeat(100)) });
-    attempt!.parseError("malformed", "{\"token\":\"parse-private\"", new Error("bad event"));
+    attempt!.parseError("malformed", '{"token":"parse-private","thoughtSignature":"google-sig-private","inlineData":{"data":"google-img-private', new Error("bad event"));
     attempt!.end(true);
     attempt!.end(false, "duplicate terminal");
     attempt!.event("after_end", { text: "ignored" });
@@ -124,6 +125,7 @@ describe("provider wire traces", () => {
     expect(wireText).not.toContain("opaque-private");
     expect(wireText).not.toContain("image-private");
     expect(wireText).not.toContain("parse-private");
+    for (const secret of ["google-key-private", "google-sig-private", "google-img-private"]) expect(wireText).not.toContain(secret);
     expect(wireText).toContain("redacted thinking data omitted");
     expect(wireText).toContain("image base64 omitted");
   });

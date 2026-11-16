@@ -15,6 +15,7 @@ import {
   validateToolCallClosure,
 } from "../../src/engine/context";
 import { RuntimeProviderError } from "../../src/providers/provider-errors";
+import { messageFixture } from "../message-fixtures";
 import type {
   RuntimeSessionRecord,
   RuntimeMessage,
@@ -141,6 +142,18 @@ describe("token-aware runtime context", () => {
       }],
     });
     expect(() => validateToolCallClosure(repaired.messages)).not.toThrow();
+  });
+
+  test("a truncated reply keeps signed text and recorded tool results when an unexecuted call is omitted", () => {
+    const text = { type: "text" as const, text: "partial", textSignature: "signed" };
+    const call = { type: "tool_call" as const, name: "read", id: "recorded", arguments: {} };
+    const message = messageFixture({ stopReason: "length", content: [text, call, { ...call, id: "unexecuted" }] });
+    const result: RuntimeMessage = { role: "tool", content: [{ type: "tool_result", tool_call_id: "recorded", content: "real result" }] };
+    const earlier = messageFixture({ stopReason: "length", content: [text, call] });
+    const user: RuntimeMessage = { role: "user", content: "follow up" };
+    const repaired = sanitizeMessagesForProvider([earlier, user, message, result]);
+    expect(repaired.messages).toEqual([{ ...earlier, content: [text] }, user, { ...message, content: [text, call] }, result]);
+    expect(sanitizeMessagesForProvider(repaired.messages).changed).toBe(false);
   });
 
   test("never sends thinking signatures or encrypted redacted data to the summarizer", async () => {

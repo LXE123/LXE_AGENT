@@ -1,13 +1,15 @@
 import { Brain } from "lucide-react";
 
+import geminiColor from "../../assets/providers/google/gemini-color.svg";
 import kimiIconRound from "../../assets/providers/kimi/kimi-icon-round.png";
 
-export type ProviderBrandKind = "kimi" | "deepseek" | "openai" | "openrouter" | "zhipu" | "generic";
+export type ProviderBrandKind = "kimi" | "deepseek" | "gemini" | "openai" | "openrouter" | "zhipu" | "generic";
 
 export function providerBrandKind(provider: string | null | undefined): ProviderBrandKind {
   const normalized = String(provider || "").trim().toLowerCase().replaceAll("-", "_");
   if (["kimi", "kimi_coding", "kimi_code"].includes(normalized)) return "kimi";
   if (["deepseek", "deep_seek"].includes(normalized)) return "deepseek";
+  if (normalized === "google") return "gemini";
   if (normalized === "openai") return "openai";
   if (["openrouter", "open_router"].includes(normalized)) return "openrouter";
   if (["zhipu", "zhipuai", "zhipuai_coding_plan", "z_ai"].includes(normalized)) return "zhipu";
@@ -35,6 +37,8 @@ export function ProviderBrandMark({
     >
       {kind === "kimi" ? (
         <img alt="" draggable={false} src={kimiIconRound} />
+      ) : kind === "gemini" ? (
+        <img alt="" draggable={false} src={geminiColor} />
       ) : kind === "deepseek" ? (
         // Official DeepSeek whale silhouette (single filled path) from the
         // Simple Icons "deepseek" glyph (CC0 1.0), retrieved 2026-07-27; see

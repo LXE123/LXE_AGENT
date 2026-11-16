@@ -21,7 +21,7 @@ OpenAI 直连使用无状态 Responses API。开启推理时，顶层 `reasoning
 | --- | --- | --- |
 | OpenAI 直连的五款 GPT-6 | 在本轮用户消息前追加 `developer` 指令 | 首批放在 `input` 开头的 `additional_tools`，新增和同名修改在当步追加。撤下工具时按有效清单重建声明前缀。 |
 | DeepSeek 的 `deepseek-flash` 和 `deepseek-v4-pro` | 在本轮用户消息前追加 `system` 指令 | 下次请求更新顶层 `tools`。 |
-| Kimi、智谱、OpenRouter 当前模型 | 初始指令包含最新目录 | 下次请求更新顶层 `tools`。 |
+| Google、Kimi、智谱、OpenRouter 当前模型 | 初始指令包含最新目录 | 下次请求更新顶层 `tools`。 |
 
 `supportsMidConvoSystemMessages` 控制中途指令。Responses 路线还需开启 `supportsAdditionalTools` 才会在 `input` 里声明工具。公司模型按发布的能力配置执行，省略这两个字段时沿用原请求布局。个人配置和旧会话中的 `deepseek-v4-flash` 会解析为 `deepseek-flash`，公司凭据继续匹配发布时的模型 ID。
 
@@ -38,6 +38,12 @@ OpenAI 直连使用无状态 Responses API。开启推理时，顶层 `reasoning
 Desktop 优先使用 v3，兼容 v2 和旧格式。定义版本与凭据版本分开处理，修改模型参数不等于重新领取 Key。管理员只改默认项时，客户端保留仍有效的用户选择；同步细节由云端接入手册维护。
 
 ## 选择与生效
+
+在「设置 → 模型设置 → 本地模型密钥」选择 Google 并保存个人 Key。聊天输入栏的模型菜单会出现 `gemini-4-hydrogen`、`gemini-4-argon` 和 `gemini-4-carbon`。桌面和指向同一数据目录的独立 agentcli 共用 `config/auth.json` 的 `google` 凭据。
+
+首次保存 Google Key 时默认选择 Hydrogen 和 high 推理档位。Argon 与 Carbon 的型号默认档位为 medium。三者均支持 low、medium、high，Hydrogen 另支持 xhigh。
+
+三款模型的输入和输出共享 1,048,576 tokens。Runtime 按型号预留输出空间，Hydrogen 的单次输出上限为 65,536，Argon 和 Carbon 为 32,768。发送请求时还会按估算的输入用量和剩余空间收紧输出预算。标题和摘要同时受各自的输出预算约束。[Google 模型配置](../../../config/llm/providers/google.json)
 
 每个会话保存自己的 provider、model、凭据来源和推理选项；全局偏好用于新会话。持久化顺序、并发版本与重启恢复见 [会话模型与 effort](../runtime/session-models.md)。
 

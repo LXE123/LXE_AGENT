@@ -13,6 +13,7 @@ describe("ProviderBrandMark", () => {
     expect(providerBrandKind("deep_seek")).toBe("deepseek");
     expect(providerBrandKind("deep-seek")).toBe("deepseek");
     expect(providerBrandKind("OpenAI")).toBe("openai");
+    expect(providerBrandKind("google")).toBe("gemini");
     expect(providerBrandKind("openrouter")).toBe("openrouter");
     expect(providerBrandKind("open-router")).toBe("openrouter");
     expect(providerBrandKind("zhipuai")).toBe("zhipu");
@@ -25,6 +26,7 @@ describe("ProviderBrandMark", () => {
   test("renders the bundled Kimi icon with local vectors and a generic fallback", () => {
     const kimi = renderToStaticMarkup(<ProviderBrandMark provider="kimi_coding" />);
     const deepseek = renderToStaticMarkup(<ProviderBrandMark provider="deepseek" />);
+    const gemini = renderToStaticMarkup(<ProviderBrandMark provider="google" size={17} />);
     const openai = renderToStaticMarkup(<ProviderBrandMark provider="openai" size={17} />);
     const openrouter = renderToStaticMarkup(<ProviderBrandMark provider="openrouter" />);
     const zhipu = renderToStaticMarkup(<ProviderBrandMark provider="zhipuai" />);
@@ -37,6 +39,8 @@ describe("ProviderBrandMark", () => {
     expect(kimi).not.toContain("provider-brand-orbit");
     expect(kimi).not.toContain("provider-brand-scan");
     expect(deepseek).toContain('data-provider-mark="deepseek"');
+    expect(gemini).toContain('data-provider-mark="gemini"');
+    expect(gemini).toContain("gemini-color.svg");
     expect(openai).toContain('data-provider-mark="openai"');
     expect(openai).toContain('fill-rule="evenodd"');
     expect(openai).not.toContain("lucide-brain");
@@ -46,7 +50,7 @@ describe("ProviderBrandMark", () => {
     expect(zhipu).toContain('viewBox="0 0 30 30"');
     expect(fallback).toContain('data-provider-mark="generic"');
     expect(fallback).toContain("lucide-brain");
-    expect(`${kimi}${deepseek}${openai}${openrouter}${zhipu}`).not.toMatch(/https?:\/\//u);
+    expect(`${kimi}${deepseek}${gemini}${openai}${openrouter}${zhipu}`).not.toMatch(/https?:\/\//u);
   });
 
   test("keeps the Kimi icon scalable at compact status sizes", () => {

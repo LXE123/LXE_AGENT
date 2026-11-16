@@ -258,6 +258,14 @@ const genericClassification = (status: number, text: string): Classification => 
   };
 };
 
+const googleClassification = (status: number, text: string, details: ProviderErrorDetails): Classification => {
+  if (details.incompleteReason) return { category: "回复未完成", retryable: false };
+  if (status === 400 && /\binput token count(?:\s*\([\d,]+\))?\s+exceeds the maximum number of tokens allowed\b/u.test(text)) {
+    return { category: "上下文超限", retryable: false, contextOverflow: true };
+  }
+  return genericClassification(status, text);
+};
+
 // OpenAI distinguishes persistent billing/access failures from temporary HTTP
 // throttling. Stream errors have no HTTP status: use their code/type too.
 const openaiClassification = (status: number, text: string, details: ProviderErrorDetails): Classification => {
@@ -306,7 +314,9 @@ export function classifyProviderError(error: unknown, descriptor: ProviderDescri
         )
       : descriptor.name === "openai"
         ? openaiClassification(status, text, details)
-        : genericClassification(status, text);
+        : descriptor.name === "google"
+          ? googleClassification(status, text, details)
+          : genericClassification(status, text);
   return new RuntimeProviderError(
     safeProviderErrorText(rawMessage, secrets),
     descriptor.name,
