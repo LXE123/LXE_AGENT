@@ -5,6 +5,7 @@ import { join } from "node:path";
 import type { McpServerPreset } from "@lxe/desktop-protocol";
 import { loadMcpConfig, setMcpServerEnabled } from "@lxe/runtime";
 import { syncMcpServerPresets } from "../src/mcp-presets";
+import { renderMcpServerDirectory } from "../src/mcp-server-directory";
 import { withMcpConfigLock } from "../src/mcp-config-lock";
 
 const roots: string[] = [];
@@ -31,6 +32,16 @@ test("creates missing configuration, restores deleted presets, and leaves an unc
   writeFileSync(path, '{"servers":{}}');
   await syncMcpServerPresets(path, [preset]);
   expect(read()).toEqual(document);
+});
+
+test("adds the preset description to an existing server and exposes it before connection", async () => {
+  const { path } = fixture();
+  await syncMcpServerPresets(path, [preset]);
+  const described = { ...preset, connector_description: "Install skills in user_skills_root." };
+  expect(await syncMcpServerPresets(path, [described])).toEqual({ added: [], updated: ["team-skills"] });
+  const directory = renderMcpServerDirectory(loadMcpConfig(path, {}), "desktop", { serverInstructions: () => undefined });
+  expect(directory).toContain(`- mcp__team_skills (codemode): ${described.connector_description}`);
+  expect(await syncMcpServerPresets(path, [described])).toEqual({ added: [], updated: [] });
 });
 
 test.each(["servers", "mcpServers"])("upgrades %s without losing unrelated data or legacy files", async key => {

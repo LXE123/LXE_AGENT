@@ -38,7 +38,8 @@ describe("JSON-RPC server semantics", () => {
       if (received.length > 1) throw new Error("MCP servers must be an object");
       return { added: ["skills"], updated: [] };
     } });
-    const params = { servers: [{ name: "skills", enabled: true, transport: "streamable-http", url: "https://example.com/mcp" }] };
+    const params = { servers: [{ name: "skills", enabled: true, transport: "streamable-http",
+      url: "https://example.com/mcp", connector_description: "Find team skills." }] };
     await call("sync_mcp_server_presets", params, "early");
     expect(responses().at(-1)).toMatchObject({ error: { code: -32001 } });
     await call("initialize", initialize);
@@ -46,6 +47,7 @@ describe("JSON-RPC server semantics", () => {
     expect(responses().at(-1)).toMatchObject({ result: { added: ["skills"], updated: [] } });
     for (const invalid of [{}, { servers: {} }, { ...params, unexpected: true },
       { servers: [{ ...params.servers[0], enabled: "true" }] },
+      { servers: [{ ...params.servers[0], connector_description: 42 }] },
       { servers: [{ ...params.servers[0], url: "not-a-url" }] },
       { servers: [params.servers[0], params.servers[0]] }]) {
       await call("sync_mcp_server_presets", invalid, "invalid");

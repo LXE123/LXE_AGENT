@@ -26,8 +26,8 @@ agent-cli 在创建 runtime host 前验证业务版本；Gateway 核对响应并
 两端随桌面应用一起更新，不接收原来的 `version/command/payload/ok` wire 封装。
 
 桌面在每次 Harness 启动（包括重启）后调用 `sync_mcp_server_presets`，参数为 `{ servers: [...] }`。
-每项使用 MCP 添加接口的 `name`、`transport` 和连接字段，另带 `enabled` 作为新条目的默认开关。
-Harness 在配置文件锁内补齐条目、更新传入的连接字段，保留已有开关和未传入的用户字段；返回 `{ added: string[], updated: string[] }`。
+每项使用 MCP 添加接口的 `name`、`transport` 和连接字段，可用 `connector_description` 提供模型可见的服务简介。`enabled` 指定新条目的默认开关。
+Harness 在配置文件锁内补齐条目、更新传入的连接字段和简介，保留已有开关和未传入的用户字段，返回 `{ added: string[], updated: string[] }`。
 多个条目一起校验和写入，配置损坏或名称冲突时返回实际错误且不写文件。接口只同步配置，不建立连接。
 产品服务清单由 Electron 提供，用户配置的读写归 Harness；未传预置清单的独立 Harness 不执行这一步。
 

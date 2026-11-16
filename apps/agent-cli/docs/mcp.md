@@ -60,7 +60,7 @@ provides **Capabilities → MCP services → Add service**. Run
 `agent-cli mcp --help` or a subcommand with `--help` for options.
 
 The LXE desktop ensures its `team-skills` preset exists at startup and restores its
-transport and URL. Existing enabled state and other options are preserved; to keep
+transport, URL and description. Existing enabled state and other options are preserved; to keep
 it off, disable it in desktop settings. Removing it lasts until the next desktop
 startup. It is stored in the user configuration, so all MCP commands can use it.
 

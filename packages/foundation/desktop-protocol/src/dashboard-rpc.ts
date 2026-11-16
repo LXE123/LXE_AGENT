@@ -360,16 +360,21 @@ export type McpServerAddInput =
   | { name: string; transport: "streamable-http"; url: string; headers?: Record<string, string>;
       env_headers?: Record<string, string>; bearer_token_env_var?: string };
 
-/** Connection fields owned by the host; enabled is used only when adding a missing entry. */
-export type McpServerPreset = McpServerAddInput & { enabled: boolean };
+/** Host-defined connection and description; enabled is used only when adding a missing entry. */
+export type McpServerPreset = McpServerAddInput & { enabled: boolean; connector_description?: string };
 
 export function parseMcpServerPresets(value: unknown): McpServerPreset[] {
   if (!Array.isArray(value)) return rpcError("MCP presets must be an array");
   const names = new Set<string>();
   return value.map(raw => {
     const input = objectValue(raw, "MCP preset");
-    const { enabled, ...definition } = input;
-    const preset = { ...parseMcpServerAdd(definition), enabled: booleanValue(enabled, "MCP preset.enabled") };
+    const { enabled, connector_description, ...definition } = input;
+    const description = textValue(connector_description, "MCP preset.connector_description", { optional: true });
+    const preset = {
+      ...parseMcpServerAdd(definition),
+      enabled: booleanValue(enabled, "MCP preset.enabled"),
+      ...(description && { connector_description: description }),
+    };
     const namespace = preset.name.replaceAll("-", "_");
     if (names.has(namespace)) return rpcError(`Duplicate MCP preset namespace: ${namespace}`);
     names.add(namespace);
