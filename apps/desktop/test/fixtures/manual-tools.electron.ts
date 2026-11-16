@@ -16,9 +16,16 @@ void app.whenReady().then(async () => {
   const win = new BrowserWindow({ show: true, width: 1200, height: 820, webPreferences: { preload: join(root, "preload.cjs"), contextIsolation: true, sandbox: true, nodeIntegration: false, backgroundThrottling: false, webviewTag: true } });
   const service = new ManualToolsService(() => win, root, async id => id === "missing" ? undefined : id === "isolated" ? profile : workspace); service.register();
   registerTeamSkillsGuest(win.webContents, service.browsers);
+  const formRequests: string[] = [];
   const server = createServer((request, response) => {
+    if (request.url?.startsWith("/print-") || request.url === "/popup") {
+      formRequests.push(`${request.method} ${request.url}`);
+    }
     if (request.url === "/download") { response.setHeader("Content-Disposition", "attachment; filename=test.txt"); response.end("download blocked"); }
-    else { response.setHeader("Content-Type", "text/html; charset=utf-8"); response.end(`<title>${request.url}</title><h1>网页测试</h1><input id="entry"><a id="next" href="/second">Next</a><a id="popup" target="_blank" href="/popup">Popup</a><a id="download" href="/download">Download</a>`); }
+    else { response.setHeader("Content-Type", "text/html; charset=utf-8"); response.end(`<title>${request.url}</title><h1>网页测试</h1><input id="entry"><a id="next" href="/second">Next</a><a id="popup" target="_blank" href="/popup">Popup</a><a id="download" href="/download">Download</a>
+      <form method="post" action="/print-current"><input name="order" value="123">
+        <button id="print-current">Print here</button><button id="print-popup" formaction="/print-popup" formtarget="_blank">Print in new tab</button>
+      </form>`); }
   });
   await new Promise<void>(resolve => server.listen(0, "127.0.0.1", resolve));
   const address = `http://127.0.0.1:${(server.address() as { port: number }).port}`;
@@ -109,9 +116,18 @@ void app.whenReady().then(async () => {
     await wc.executeJavaScript("document.querySelector('#download').click()"); await wait(() => service.browsers.get("a", browserId)?.error.includes("Downloads are disabled"), "download denied"); passed.push("downloads blocked");
     await assert.rejects(service.call({ operation: "browser.navigate", input: { sessionId: "a", id: browserId, url: "file:///etc/passwd" } }), /HTTP/);
     await assert.rejects(service.call({ operation: "terminal.write", input: { sessionId: "b", id: terminalId, data: "no" } }), /another session/); passed.push("ownership and URL checks");
+    const tabCount = () => js("document.querySelectorAll('.file-tabs [role=tab]').length");
+    const beforePopup = await tabCount();
+    await wc.executeJavaScript("document.querySelector('#print-current').click()", true);
+    await wait(() => wc.getURL() === address + "/print-current" && !wc.isLoading(), "POST opens in the current tab");
+    await wc.executeJavaScript("document.querySelector('#print-popup').click()", true);
     await wc.executeJavaScript("document.querySelector('#popup').click()", true);
     await wait(() => webContents.getAllWebContents().some(w => w.getURL().endsWith("/popup")), "popup becomes sidebar tab"); passed.push("popup opens in sidebar");
     await wait(async () => { const page = await activeGuest(); return page?.getURL().endsWith("/popup") && !page.isLoading(); }, "popup visible and loaded");
+    assert.deepEqual(formRequests, ["POST /print-current", "GET /popup"]);
+    assert.equal(await tabCount(), beforePopup + 1, "only the ordinary link creates a tab");
+    assert.equal(wc.getURL(), address + "/print-current", "the rejected popup leaves its source page in place");
+    passed.push("new-window POST is ignored and same-tab POST still submits");
     await delay(500);
     await service.call({ operation: "terminal.write", input: { sessionId: "a", id: terminalId, data: process.platform === "win32"
       ? "$p = Start-Process -FilePath $env:ComSpec -ArgumentList '/c ping -n 60 127.0.0.1 >nul' -WindowStyle Hidden -PassThru; Set-Content -Path child.pid -Value $p.Id\r"

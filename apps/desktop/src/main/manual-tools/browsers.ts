@@ -135,7 +135,9 @@ export class ManualBrowsers {
     const guard = (event: { preventDefault(): void; url: string }) => { try { this.validate(event.url); } catch (error) { event.preventDefault(); fail(error); } };
     wc.on("will-navigate", guard);
     wc.on("will-redirect", guard);
-    wc.setWindowOpenHandler(({ url }) => {
+    wc.setWindowOpenHandler(({ url, postBody }) => {
+      // A URL-only sidebar tab cannot carry the original form data.
+      if (postBody !== undefined) return { action: "deny" };
       try { this.emit({ kind: "browser.open", sessionId, url: this.validate(url) }); } catch (error) { fail(error); }
       return { action: "deny" };
     });
