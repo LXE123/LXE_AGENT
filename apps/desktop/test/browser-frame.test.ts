@@ -18,7 +18,7 @@ test("window budget counts only live background pages and protects busy and rece
 test("sidebar webview survives menus and restores its history after budget suspension", async () => {
   const profile = mkdtempSync(resolve(tmpdir(), "lxe-browser-frame-"));
   try {
-    const built = await Bun.build({ entrypoints: [resolve(import.meta.dirname, "fixtures/browser-frame.electron.ts"), resolve(import.meta.dirname, "../src/preload.ts")],
+    const built = await Bun.build({ entrypoints: [resolve(import.meta.dirname, "fixtures/browser-frame.electron.ts"), resolve(import.meta.dirname, "../src/preload.ts"), resolve(import.meta.dirname, "../src/team-skills-preload.ts")],
       outdir: profile, naming: "[name].cjs", target: "node", format: "cjs", external: ["electron"] });
     expect(built.success, built.logs.join("\n")).toBe(true);
     const env = { ...process.env }; delete env.ELECTRON_RUN_AS_NODE;

@@ -55,10 +55,10 @@ export function buildDesktop(options: DesktopBuildOptions = {}): void {
     "--external",
     "node:sqlite",
   ]);
-  runBuild(desktopRoot, [
-    join(desktopRoot, "src", "preload.ts"),
+  for (const name of ["preload", "team-skills-preload"]) runBuild(desktopRoot, [
+    join(desktopRoot, "src", name + ".ts"),
     "--outfile",
-    join(outputRoot, "preload.cjs"),
+    join(outputRoot, name + ".cjs"),
     "--target",
     "node",
     "--format",

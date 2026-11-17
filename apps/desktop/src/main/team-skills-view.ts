@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { app, session, shell, type DownloadItem, type NavigationEntry, type WebContents } from "electron";
 import { createLogger } from "@lxe/core";
-import { TEAM_SKILLS_URL, type TeamSkillsBrowserState } from "@lxe/desktop-protocol/team-skills";
+import { TEAM_SKILLS_URL, isTeamSkillsPage, validTeamSkillId, validTeamVersion, type TeamInstallResult, type TeamSkillsBrowserState } from "@lxe/desktop-protocol/team-skills";
 import { IPC_CHANNELS } from "../ipc-channels";
 import { WindowTabBudget } from "./manual-tools/tab-budget";
 import type { ManualBrowsers } from "./manual-tools/browsers";
@@ -9,7 +9,14 @@ import type { ManualBrowsers } from "./manual-tools/browsers";
 const logger = createLogger("desktop.team-skills");
 const partition = "persist:lxe-workbench-team-skills";
 
-export function registerTeamSkillsGuest(dashboard: WebContents, browsers?: ManualBrowsers): void {
+interface CatalogHost {
+  preload: string;
+  versions(ids: string[]): Promise<Record<string, string>>;
+  install(id: string, version: string, fingerprint?: string): Promise<TeamInstallResult>;
+  confirm(name: string, previousVersion: string | null, version: string): Promise<boolean>;
+}
+
+export function registerTeamSkillsGuest(dashboard: WebContents, browsers?: ManualBrowsers, host?: CatalogHost): void {
   // will-attach-webview does not identify the requesting frame. Only the dashboard's
   // main frame can obtain this single-use initial src. Replace it before navigation.
   const budget = browsers?.watchWindow(dashboard) ?? new WindowTabBudget();
@@ -20,6 +27,7 @@ export function registerTeamSkillsGuest(dashboard: WebContents, browsers?: Manua
   let contents: WebContents | undefined;
   let history: { entries: NavigationEntry[]; index: number } | undefined;
   let restoring = false;
+  const installing = new Set<string>();
 
   function targetUrl(raw: string): URL | undefined {
     const target = URL.parse(raw);
@@ -38,7 +46,7 @@ export function registerTeamSkillsGuest(dashboard: WebContents, browsers?: Manua
 
   const page = budget.track("team-skills", {
     isLive: () => !!contents && !contents.isDestroyed(),
-    isBusy: () => restoring || downloads.size > 0 || !!contents?.isLoading() || !!contents?.isCurrentlyAudible(),
+    isBusy: () => restoring || installing.size > 0 || downloads.size > 0 || !!contents?.isLoading() || !!contents?.isCurrentlyAudible(),
     suspend: () => {
       const nav = contents?.navigationHistory;
       if (nav && nav.length() > 0) history = { entries: nav.getAllEntries(), index: nav.getActiveIndex() };
@@ -129,6 +137,7 @@ export function registerTeamSkillsGuest(dashboard: WebContents, browsers?: Manua
       queueMicrotask(() => app.off("web-contents-created", created));
       params.src = history ? "" : TEAM_SKILLS_URL;
       preferences.partition = partition;
+      if (host) preferences.preload = host.preload;
     } else if (!browsers?.prepareGuest(dashboard, preferences, params)) {
       event.preventDefault();
       return;
@@ -144,6 +153,34 @@ export function registerTeamSkillsGuest(dashboard: WebContents, browsers?: Manua
     if (browsers?.attachGuest(dashboard, guest)) return;
     if (!mountSrc || attaching.get(guest) !== mountSrc) { guest.close(); return; }
     contents = guest;
+    if (host) {
+      function requireCatalog(event: Electron.IpcMainInvokeEvent) {
+        if (contents !== guest || guest.isDestroyed() || !page.visible || event.senderFrame !== guest.mainFrame ||
+            !isTeamSkillsPage(guest.getURL()) || !isTeamSkillsPage(event.senderFrame.url)) throw new Error("此页面无法访问本机团队技能");
+      }
+      guest.ipc.handle(IPC_CHANNELS.teamSkillVersions, (event, ids: unknown) => {
+        requireCatalog(event);
+        if (!Array.isArray(ids) || ids.length > 100 || !ids.every(validTeamSkillId)) throw new Error("无效的技能 ID 列表");
+        return host.versions(ids);
+      });
+      guest.ipc.handle(IPC_CHANNELS.teamSkillInstall, async (event, id: unknown, version: unknown) => {
+        requireCatalog(event);
+        if (!validTeamSkillId(id) || !validTeamVersion(version)) throw new Error("无效的技能 ID 或版本");
+        if (installing.has(id)) throw new Error("该技能正在安装");
+        installing.add(id);
+        try {
+          let result = await host.install(id, version);
+          if (result.kind === "confirm") {
+            requireCatalog(event);
+            if (!await host.confirm(result.name, result.previousVersion, version)) return null;
+            requireCatalog(event);
+            result = await host.install(id, version, result.fingerprint);
+          }
+          if (result.kind !== "installed") throw new Error("确认期间本机技能已变化，请重试");
+          return result.version;
+        } finally { installing.delete(id); budget.enforce(); }
+      });
+    }
     guest.once("destroyed", () => {
       if (contents !== guest) return;
       contents = undefined;

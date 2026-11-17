@@ -709,7 +709,17 @@ async function bootstrap(): Promise<void> {
     },
   });
   if (desktopPlatform !== "darwin") window.setMenuBarVisibility(false);
-  registerTeamSkillsGuest(window.webContents, manualTools?.browsers);
+  const catalogWindow = window;
+  registerTeamSkillsGuest(window.webContents, manualTools?.browsers, {
+    preload: join(import.meta.dirname, "team-skills-preload.cjs"),
+    versions: ids => gateway.dashboardCall({ operation: "skills.team.versions", input: { ids } }),
+    install: (id, version, fingerprint) => gateway.dashboardCall({ operation: "skills.team.install", input: { id, version, ...(fingerprint && { fingerprint }) } }),
+    confirm: async (name, previousVersion, version) => (await dialog.showMessageBox(catalogWindow, {
+      type: "question", title: "更新本机 Skill",
+      message: previousVersion ? `将 ${name} 从 v${previousVersion} 更新到 v${version}？` : `用团队库的 ${name} v${version} 替换本机同名 Skill？`,
+      detail: "此操作会替换技能目录中的文件，包括本地编辑。", buttons: ["取消", "替换"], defaultId: 0, cancelId: 0,
+    })).response === 1,
+  });
   trackFilePreviewLifecycle(window.webContents, () => gateway.releaseFilePreviews());
   window.webContents.on("context-menu", (_event, params) => {
     const template = editableContextMenuTemplate(params);

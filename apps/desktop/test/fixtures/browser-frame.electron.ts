@@ -23,7 +23,19 @@ void app.whenReady().then(async () => {
       void js(`document.getElementById(${JSON.stringify(event.mountSrc)})?.remove()`).catch(() => {});
     }
   });
-  registerTeamSkillsGuest(win.webContents, browsers);
+  const skillId = "e522e0c9-4891-439f-826a-467b6f312478";
+  const installed: Record<string, string> = {};
+  let approve = false;
+  registerTeamSkillsGuest(win.webContents, browsers, {
+    preload: join(process.argv[2]!, "team-skills-preload.cjs"),
+    versions: async ids => Object.fromEntries(ids.filter(id => installed[id]).map(id => [id, installed[id]!])),
+    install: async (id, version, fingerprint) => {
+      if (installed[id] && !fingerprint) return { kind: "confirm", fingerprint: "fixture", previousVersion: installed[id]!, name: "demo" };
+      installed[id] = version;
+      return { kind: "installed", version };
+    },
+    confirm: async () => approve,
+  });
   session.fromPartition("persist:lxe-workbench-team-skills").protocol.handle("https", () =>
     new Response("<title>Catalog</title><input>", { headers: { "Content-Type": "text/html" } }));
   const server = createServer((req, res) => {
@@ -67,9 +79,19 @@ void app.whenReady().then(async () => {
     browsers.visible("chat", "first", first.mountSrc, false);
     const catalog = await showCatalog();
     await wait(() => catalog.getURL() === TEAM_SKILLS_URL && !catalog.isLoading(), "catalog home");
+    const host = "window.lxeTeamSkills";
+    const id = JSON.stringify(skillId);
+    assert.deepEqual(await catalog.executeJavaScript(host + ".installedVersions([" + id + "])"), {});
+    assert.equal(await catalog.executeJavaScript(host + ".install(" + id + ", '1.0.0')", true), "1.0.0");
+    assert.equal(await catalog.executeJavaScript(host + ".install(" + id + ", '1.0.1')", true), null);
+    assert.equal(installed[skillId], "1.0.0");
+    approve = true;
+    assert.equal(await catalog.executeJavaScript(host + ".install(" + id + ", '1.0.1')", true), "1.0.1");
+    assert.deepEqual(await catalog.executeJavaScript(host + ".installedVersions([" + id + "])"), { [skillId]: "1.0.1" });
     const catalogId = catalog.id;
     const detail = new URL("/skill/detail", TEAM_SKILLS_URL).href;
     await catalog.loadURL(detail);
+    assert.equal(await catalog.executeJavaScript("typeof window.lxeTeamSkills"), "undefined");
     await js("window.lxe.desktop.teamSkillsView('hide')");
     for (let i = 1; i <= 30; i++) {
       const page = await make(String(i), base + "/background");

@@ -1,5 +1,6 @@
 import { takeDesktopMcpConfig } from "./desktop-mcp";
 import { McpAccess } from "./mcp-access";
+import { teamSkillDownloader } from "./team-skill-download";
 import { McpAuthStore } from "./mcp-auth-store";
 import { withMcpConfigLock } from "./mcp-config-lock";
 import { registerMcpDiscoveryTools } from "./mcp-discovery";
@@ -240,6 +241,7 @@ export function createAgentRuntimeHost(
     execSnapshots: (sessionId) => processes.snapshots(sessionId),
     terminateSession: async (sessionId) => { await processes.terminateSession(sessionId); await sessions.dispose(sessionId); },
     refreshMcpConfig,
+    downloadTeamSkill: teamSkillDownloader(refreshMcpConfig, mcpAuth, environment),
     addMcpServer: ({ name, ...definition }) => withMcpConfigLock(mcpConfigPath, () => {
       if (mcpNamespace(name) === mcpNamespace(DESKTOP_MCP_NAME)) throw new DashboardRpcError("invalid_request", "The mcp__lxe_desktop namespace is reserved for the desktop app");
       const owner = refreshMcpConfig().servers.find(server => mcpNamespace(server.name) === mcpNamespace(name));
