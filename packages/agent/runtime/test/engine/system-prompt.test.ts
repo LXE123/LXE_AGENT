@@ -37,12 +37,14 @@ describe("system prompt builder", () => {
     }
   });
 
-  test("describes workspace Markdown links for desktop replies only", () => {
-    const options = { platform: "desktop", provider: "test", model: "test", skillPrompt: "",
-      workspace: { directory: "/workspace", worktree: "/workspace" } };
-    const example = "[Read the report](./reports/summary.md)";
-    expect(buildSystemPrompt(options)).toContain(example);
-    expect(buildSystemPrompt({ ...options, platform: "feishu" })).not.toContain(example);
-    expect(buildSystemPrompt({ ...options, platform: "cli" })).not.toContain(example);
+  test.each(["desktop", "cli", "feishu"])("places file and line link examples in Communication for %s", (platform) => {
+    const prompt = buildSystemPrompt({
+      platform, provider: "test", model: "test", skillPrompt: "",
+      workspace: { directory: "/workspace", worktree: "/workspace" },
+    });
+    const communication = prompt.split(/^## /m).find(section => section.startsWith("Communication\n"));
+    expect(communication).toContain("[README.md](./README.md)");
+    expect(communication).toContain("[prepare-desktop-source.ts:42](./scripts/prepare-desktop-source.ts:42)");
+    expect(communication).toContain("[prepare-desktop-source.ts:42-50](./scripts/prepare-desktop-source.ts:42-50)");
   });
 });
