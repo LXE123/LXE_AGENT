@@ -36,4 +36,15 @@ describe("system prompt builder", () => {
       expect(prompt.split(supplied)).toHaveLength(2);
     }
   });
+
+  test.each(["desktop", "cli", "feishu"])("places file and line link examples in Communication for %s", (platform) => {
+    const prompt = buildSystemPrompt({
+      platform, provider: "test", model: "test", skillPrompt: "",
+      workspace: { directory: "/workspace", worktree: "/workspace" },
+    });
+    const communication = prompt.split(/^## /m).find(section => section.startsWith("Communication\n"));
+    expect(communication).toContain("[README.md](./README.md)");
+    expect(communication).toContain("[prepare-desktop-source.ts:42](./scripts/prepare-desktop-source.ts:42)");
+    expect(communication).toContain("[prepare-desktop-source.ts:42-50](./scripts/prepare-desktop-source.ts:42-50)");
+  });
 });

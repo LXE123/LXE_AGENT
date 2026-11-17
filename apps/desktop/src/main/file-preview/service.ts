@@ -1,8 +1,9 @@
 import { sourceAccess, invalidFileReference } from "./errors";
 import { createHash, randomUUID } from "node:crypto";
 import { watch, type FSWatcher, type Stats } from "node:fs";
-import { readdir, stat } from "node:fs/promises";
-import { basename, dirname, extname, join } from "node:path";
+import { readdir, realpath, stat } from "node:fs/promises";
+import { homedir } from "node:os";
+import { basename, dirname, extname, join, resolve } from "node:path";
 import type { DesktopFileCall, DesktopFileOperations, FileMetadata, FilePreviewKind, SessionFileRef, ConversationImagePreviewSource, PreviewTextPage, TextPageRequest } from "@lxe/desktop-protocol";
 import { readTextPage } from "./text-pages";
 import { validateRef, regularFile, workspacePath, readLimited } from "./paths";
@@ -38,6 +39,7 @@ export class FilePreviewService {
   private directoryWatches = new Map<string, DirectoryWatch>();
   private applications = new Map<string, { expires: number; value: ReturnType<typeof nativeFileApplications> }>();
   private versions = new Map<string, { signature: string; revision: number }>();
+  private clickedFiles = new Map<string, { canonical?: string }>();
   private readonly timer: ReturnType<typeof setInterval>;
   constructor(private runtime: () => FileServiceRuntime, private office: OfficePreviewCache,
     private native: { openPath(path: string): Promise<string>; revealPath(path: string): void },
@@ -48,8 +50,27 @@ export class FilePreviewService {
     }, 60000);
     this.timer.unref();
   }
+  clickedFileLink(session: string, path: string): void {
+    if (!session || !path || path.length > 32768 || /[\u0000-\u001f\u007f]/.test(path) || /^[/\\]{2}/.test(path)) return;
+    if (process.platform === "win32" && (path.replace(/^[a-z]:[/\\]/i, "").includes(":") ||
+      path.split(/[/\\]/).some(part => /^(?:con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\.|$)/i.test(part)))) return;
+    this.clickedFiles.set(JSON.stringify([session, path]), {});
+  }
   async resolve(ref: SessionFileRef): Promise<string> {
     const runtime = this.runtime();
+    if (ref.kind === "linked") {
+      const key = JSON.stringify([ref.session_id, ref.path]);
+      const click = this.clickedFiles.get(key);
+      if (!click) throw invalidFileReference("Open this file link from its conversation");
+      const directory = await runtime.resolveWorkspaceDirectory(ref.session_id);
+      const requested = ref.path.startsWith("~/") ? resolve(homedir(), ref.path.slice(2)) : resolve(directory, ref.path);
+      if (process.platform === "win32" && /^[/\\]{2}/.test(requested)) throw invalidFileReference("A local file is required");
+      const canonical = await sourceAccess(() => realpath(requested));
+      if (this.clickedFiles.get(key) !== click || click.canonical && click.canonical !== canonical)
+        throw invalidFileReference("The file link target changed; reopen it from the conversation");
+      click.canonical = canonical;
+      return canonical;
+    }
     if (ref.kind === "workspace") return workspacePath(await runtime.resolveWorkspaceDirectory(ref.session_id), ref.path);
     const path = await (ref.kind === "skill" ? runtime.resolveSkill?.(ref.session_id, ref.id) : ref.kind === "artifact" ? runtime.resolveArtifact(ref.session_id, ref.id) : runtime.resolveAttachment(ref.session_id, ref.id));
     if (!path) throw invalidFileReference("File is not part of this conversation");
@@ -98,7 +119,9 @@ export class FilePreviewService {
       delete handle.html;
       await this.read(call.input.handle);
       const root = handle.ref.kind === "workspace" ? await this.runtime().resolveWorkspaceDirectory(handle.ref.session_id) : dirname(handle.path);
-      const document = await prepareHtmlDocument(handle.bytes, handle.path, root, handle.metadata.version, call.input.references, handle.signal);
+      // Clicking one external file does not grant its neighboring files as HTML assets.
+      const references = handle.ref.kind === "linked" ? [] : call.input.references;
+      const document = await prepareHtmlDocument(handle.bytes, handle.path, root, handle.metadata.version, references, handle.signal);
       await this.read(call.input.handle);
       handle.signal.throwIfAborted();
       if (handle.htmlGeneration !== generation) throw new Error("HTML preparation was superseded");
@@ -216,6 +239,7 @@ export class FilePreviewService {
     const current = (await this.describe(value.ref)).metadata;
     if (current.key !== value.metadata.key || current.version !== value.metadata.version) throw new Error("File changed; reload preview");
     if (relativeImage !== undefined) {
+      if (value.ref.kind === "linked") throw invalidFileReference("A file link grants only the selected file");
       if (typeof relativeImage !== "string" || value.metadata.kind !== "markdown") throw new Error("Invalid Markdown image request");
       const path = await regularFile(await workspacePath(dirname(value.path), relativeImage));
       if (!IMAGE.has(extname(path).toLowerCase())) throw new Error("Markdown resource is not an image");
@@ -280,6 +304,6 @@ export class FilePreviewService {
     const request = this.requests.get(id); this.requests.delete(id); request?.controller.abort(); request?.cacheRelease?.();
     if (request?.handle) { this.handles.get(request.handle)?.watcher?.close(); this.handles.delete(request.handle); }
   }
-  releaseAll(): void { for (const id of this.requests.keys()) this.release(id); for (const id of this.directoryWatches.keys()) this.release(id); }
+  releaseAll(): void { this.clickedFiles.clear(); for (const id of this.requests.keys()) this.release(id); for (const id of this.directoryWatches.keys()) this.release(id); }
   async dispose(): Promise<void> { clearInterval(this.timer); this.releaseAll(); await this.office.dispose(); this.versions.clear(); this.applications.clear(); }
 }
