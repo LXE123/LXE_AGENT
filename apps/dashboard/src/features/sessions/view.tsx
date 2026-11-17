@@ -1353,11 +1353,6 @@ export function ConversationComposer({
           </div>
         </div>
       </div>
-      {activity?.queued.length ? (
-        <div className="conversation-queue-status" role="status">
-          {t.conversation.queuedCount(formatNumber(activity.queued.length))}
-        </div>
-      ) : null}
       {error ? <div className="conversation-compose-error" role="alert">{error}</div> : null}
       </ApprovalGate>
     </div>
@@ -1385,7 +1380,7 @@ function ConversationStatus({ row }: { row: ConversationRow }) {
     }
   };
   const label = row.status === "error" ? t.conversation.error : row.status === "cancelled" ? t.conversation.cancelled
-    : row.status === "completed" ? t.conversation.completed : row.status === "queued" ? t.conversation.queued
+    : row.status === "completed" ? t.conversation.completed
     : row.status === "stopping" ? t.conversation.stopping : phaseLabel();
   return <div aria-live={row.status === "error" ? "assertive" : "polite"} className={`live-progress-status conversation-chrome-theme state-${row.status}`}>
     {active ? <LoaderCircle className="conversation-spinner" size={13} /> : null}
@@ -1454,14 +1449,15 @@ export const UnifiedConversationRow = React.memo(function UnifiedConversationRow
   </div>;
   if (message.role !== "user" && message.role !== "assistant") return <article className="message-card role-system"><RoleBadge role={message.role} /><MessageContent content={message.content} message={message} isStreaming={isStreaming} /></article>;
   const role = message.role;
+  const deliveryStatus = role === "user" && ["sending", "queued"].includes(row.status ?? "")
+    ? <div className="optimistic-message-state" role="status">{stateLabel}</div> : null;
   if (role === "user" && message.attachments?.length) {
     const text = readerFacingMessageText(message);
     return <div className="message-with-meta role-user has-sent-attachments conversation-chrome-theme">
       <SentAttachmentList attachments={message.attachments} sessionId={attachmentSessionId}
         ready={row.status !== "sending" && !row.error} onOpen={onOpenAttachment} />
-      {text.trim() ? <article className="message-card role-user"><UserReferenceText text={text} skills={Array.isArray(message.invoked_skills) ? message.invoked_skills : []} /></article> : null}
+      {text.trim() ? <article className="message-card role-user"><UserReferenceText text={text} skills={Array.isArray(message.invoked_skills) ? message.invoked_skills : []} />{deliveryStatus}</article> : deliveryStatus}
       {row.error ? <div role="alert">{row.error}</div> : row.status === "error" ? <div role="status">{stateLabel}</div> : null}
-      {["sending", "queued"].includes(row.status ?? "") ? <div className="optimistic-message-state">{stateLabel}</div> : null}
       <MessageMeta createdAt={Number(message.created_at ?? row.createdAt / 1000)} role={role} text={text} />
     </div>;
   }
@@ -1470,7 +1466,7 @@ export const UnifiedConversationRow = React.memo(function UnifiedConversationRow
       <MessageContent content={message.content} message={message} isStreaming={isStreaming} />
       {message.attachments?.length ? <InputAttachmentList attachments={message.attachments} onOpen={onOpenAttachment} /> : null}
       {row.error ? <div role="alert">{row.error}</div> : row.status === "error" ? <div role="status">{stateLabel}</div> : null}
-      {role === "user" && ["sending", "queued"].includes(row.status ?? "") ? <div className="optimistic-message-state">{stateLabel}</div> : null}
+      {deliveryStatus}
     </article>
     {row.presentation !== "final" ? <MessageMeta createdAt={Number(message.created_at ?? row.createdAt / 1000)} role={role} text={readerFacingMessageText(message)} /> : null}
   </div>;

@@ -5277,11 +5277,6 @@ h1 {
   font-size: 0.625rem;
 }
 
-.conversation-queue-status {
-  color: var(--warning);
-  font-size: 0.6875rem;
-}
-
 .conversation-compose-error {
   color: var(--danger);
   font-size: 0.75rem;
@@ -10344,7 +10339,6 @@ pre {
   white-space: nowrap;
 }
 
-.conversation-queue-status,
 .conversation-compose-error {
   padding-inline: 5px;
 }

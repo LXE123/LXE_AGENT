@@ -2,6 +2,43 @@ const assert = require('node:assert/strict');
 module.exports = async ({suite,win,url,js,step,load,waitFor,click,key,focus,settle,state}) => {
   const textClick = async text => { await js(`Array.from(document.querySelectorAll('button')).find(e=>e.textContent===${JSON.stringify(text)}).click()`); await settle(); };
   if (suite === 'conversation-window') {
+    await step('adjacent tool calls share an outline and expand independently', async () => {
+      await win.loadURL(new URL('../features/sessions/process-fixture.html', url).href);
+      const card = id => `[data-conversation-row="tool:t:${id}"] .tool-op-list`;
+      await waitFor(`Boolean(document.querySelector('${card("c")}'))`, 'first tool');
+      await js(`window.firstTool = document.querySelector('${card("c")}')`);
+      await textClick('Append tool calls');
+      for (const theme of ['light', 'dark']) {
+        await js(`document.documentElement.dataset.theme = '${theme}'`);
+        await settle();
+        const [first, middle, last, separate] = await js(`[${['c','write','check','last'].map(id => JSON.stringify(card(id))).join(',')}].map(selector => {
+          const el = document.querySelector(selector), style = getComputedStyle(el), rect = el.getBoundingClientRect();
+          return {top: rect.top, bottom: rect.bottom, topRadius: parseFloat(style.borderTopLeftRadius),
+            bottomRadius: parseFloat(style.borderBottomLeftRadius), topBorder: parseFloat(style.borderTopWidth), bottomBorder: parseFloat(style.borderBottomWidth)};
+        })`);
+        assert.ok(first.topRadius > 0 && last.bottomRadius > 0 && separate.topRadius > 0 && separate.bottomRadius > 0);
+        assert.deepEqual([first.bottomRadius, middle.topRadius, middle.bottomRadius, last.topRadius], [0, 0, 0, 0]);
+        for (const [above, below] of [[first, middle], [middle, last]]) {
+          assert.ok(Math.abs(above.bottom - below.top) < 1, 'no gap between cards');
+          assert.equal(above.bottomBorder + below.topBorder, 1, 'a single divider');
+        }
+      }
+      await click(card('write') + ' .tool-op-summary');
+      assert.equal(await js(`document.querySelector('${card("write")} .tool-op-summary').getAttribute('aria-expanded')`), 'true');
+      assert.equal(await js(`firstTool === document.querySelector('${card("c")}') && firstTool.querySelector('button').getAttribute('aria-expanded') === 'false'`), true);
+      assert.equal(await js(`document.querySelector('${card("check")} .tool-op-summary').getAttribute('aria-expanded')`), 'false');
+      await textClick('Show thinking between calls');
+      await js(`{ const transcript = document.querySelector('.conversation-transcript');
+        transcript.dispatchEvent(new WheelEvent('wheel', { bubbles: true, deltaY: -600 }));
+        transcript.scrollTop = 0; }`);
+      await waitFor(`Boolean(document.querySelector('${card("c")}') && document.querySelector('${card("check")}'))`, 'tool cards around visible thinking');
+      for (const id of ['c', 'write', 'check']) {
+        assert.equal(await js(`document.querySelector('${card(id)}').closest('[data-conversation-row]').matches('[data-tool-joins-previous], [data-tool-joins-next]')`), false);
+      }
+      assert.equal(await js(`document.querySelector('[data-conversation-row="next:0"]').textContent`), 'Checking a detail.');
+      assert.ok(await js(`document.querySelector('[data-conversation-row="next:4"] .redacted')?.textContent`));
+      assert.equal(await js(`document.querySelector('${card("write")} .tool-op-summary').getAttribute('aria-expanded')`), 'true');
+    });
     await step('resize compensation and row positions agree before the same paint',async()=>{
       for(const theme of ['light','dark']){
         await win.loadURL(new URL('../features/sessions/window-fixture.html',url).href);
@@ -82,6 +119,49 @@ module.exports = async ({suite,win,url,js,step,load,waitFor,click,key,focus,sett
       })()`);
       assert.ok(following.length>=9,'measured each streaming resize');
       assert.ok(following.every(distance=>Math.abs(distance)<=2),`bottom-follow gaps before paint: ${following}`);
+    });
+    await step('scrolling up past the top of a tool result releases stream following', async () => {
+      await win.loadURL(new URL('../features/sessions/window-fixture.html', url).href);
+      const tool = '[data-display-group=g997] .tool-op-summary';
+      await waitFor(`Boolean(document.querySelector('${tool}'))`, 'tool mounted');
+      await js(`document.querySelector('${tool}').click()`);
+      const output = "document.querySelector('[data-display-group=g997] .tool-result-full')";
+      await waitFor(`${output}?.scrollHeight > ${output}?.clientHeight`, 'long tool output');
+      await js("document.fonts.ready.then(() => undefined)");
+      await settle();
+      const transcript = "document.querySelector('.conversation-transcript')";
+      await waitFor(`${transcript}.scrollHeight - ${transcript}.clientHeight - ${transcript}.scrollTop <= 2`, 'expanded output measured at the latest bottom');
+      win.webContents.focus();
+      await js("new Promise(resolve => setTimeout(resolve, 250))");
+      const point = await js(`(() => {
+        const result = ${output}, box = result.getBoundingClientRect();
+        const view = document.querySelector('.conversation-transcript').getBoundingClientRect();
+        const x = Math.floor(box.left + box.width / 2);
+        const y = Math.floor((Math.max(view.top, box.top) + Math.min(view.bottom, box.bottom)) / 2);
+        result.scrollTop = 200;
+        return {x, y, hitsOutput: result.contains(document.elementFromPoint(x, y))};
+      })()`);
+      assert.ok(point.hitsOutput, 'wheel lands inside expanded output');
+      win.webContents.debugger.attach('1.3');
+      const wheelUp = () => win.webContents.debugger.sendCommand('Input.dispatchMouseEvent', {
+        type: 'mouseWheel', x: point.x, y: point.y, deltaX: 0, deltaY: -80
+      });
+      const reading = "Boolean(document.querySelector('.conversation-jump-latest'))";
+      const bottom = await js(transcript + '.scrollTop');
+      await wheelUp();
+      await waitFor(`Math.abs(${output}.scrollTop - 120) <= 1`, 'inner result scrolls by the wheel delta');
+      assert.equal(await js(reading), false, 'following stays enabled inside the result');
+      assert.equal(await js(transcript + '.scrollTop'), bottom);
+      await js(output + '.scrollTop = 0');
+      await settle();
+      await wheelUp();
+      await waitFor(`${reading} && Math.abs(${transcript}.scrollTop - (${bottom} - 80)) <= 1`, 'transcript takes over the next wheel gesture');
+      win.webContents.debugger.detach();
+      const before = await js(transcript + '.scrollTop');
+      const height = await js(transcript + '.scrollHeight');
+      await textClick('Stream text');
+      await waitFor(`${transcript}.scrollHeight > ${height}`, 'stream grew below the reader');
+      assert.equal(await js(transcript + '.scrollTop'), before, 'stream preserves the reading position');
     });
     await win.loadURL(new URL('../features/sessions/window-fixture.html',url).href);
     await waitFor("document.querySelectorAll('[data-conversation-row]').length>0",'virtual conversation');

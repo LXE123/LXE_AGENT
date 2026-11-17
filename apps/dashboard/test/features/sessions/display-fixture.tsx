@@ -150,7 +150,12 @@ function Fixture(){
     const body=[...el.querySelectorAll<HTMLElement>(".message-markdown")].at(-1)!;
     const nested=document.createElement("div");nested.style.cssText="height:40px;overflow:auto";
     nested.innerHTML='<div style="height:500px">Nested code scroller</div>';body.append(nested);await delay(150);
-    wheel(-100,nested);assert(followState().following,"nested scroll cancelled conversation following");
+    nested.scrollTop=150;
+    wheel(-100,nested);assert(followState().following,"scrolling within nested content cancelled following");
+    nested.scrollTop=0;nested.style.overscrollBehaviorY="contain";
+    wheel(-100,nested);assert(followState().following,"contained overscroll cancelled following");
+    nested.style.overscrollBehaviorY="auto";
+    wheel(-100,nested);assert(!followState().following,"scrolling up past nested content kept following");
     nested.remove();await delay(100);wheel(-10);
     const button=document.createElement("button");button.textContent="Nested action";body.append(button);await delay(150);bottom();
     button.dispatchEvent(new KeyboardEvent("keydown",{key:" ",bubbles:true}));
