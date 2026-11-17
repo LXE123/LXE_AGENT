@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { app, session, shell, type DownloadItem, type NavigationEntry, type WebContents } from "electron";
 import { createLogger } from "@lxe/core";
-import { TEAM_SKILLS_URL, isTeamSkillsPage, validTeamSkillId, parseTeamInstallTicket, type TeamInstallTicket, type TeamInstallResult, type TeamSkillsBrowserState } from "@lxe/desktop-protocol/team-skills";
+import { TEAM_SKILLS_URL, isTeamSkillsPage, validTeamSkillId, validTeamVersion, type TeamUninstallTarget, parseTeamInstallTicket, type TeamInstallTicket, type TeamInstallResult, type TeamSkillsBrowserState } from "@lxe/desktop-protocol/team-skills";
 import { IPC_CHANNELS } from "../ipc-channels";
 import { WindowTabBudget } from "./manual-tools/tab-budget";
 import type { ManualBrowsers } from "./manual-tools/browsers";
@@ -13,6 +13,9 @@ interface CatalogHost {
   preload: string;
   versions(ids: string[]): Promise<Record<string, string>>;
   install(ticket: TeamInstallTicket, replaceLocalName?: string): Promise<TeamInstallResult>;
+  uninstallTarget(id: string, version: string): Promise<TeamUninstallTarget>;
+  confirmUninstall(name: string, version: string): Promise<boolean>;
+  recycle(target: TeamUninstallTarget): Promise<void>;
   confirmOverwrite(name: string): Promise<boolean>;
 }
 
@@ -27,7 +30,7 @@ export function registerTeamSkillsGuest(dashboard: WebContents, browsers?: Manua
   let contents: WebContents | undefined;
   let history: { entries: NavigationEntry[]; index: number } | undefined;
   let restoring = false;
-  const installing = new Set<string>();
+  const changingSkills = new Set<string>();
 
   function targetUrl(raw: string): URL | undefined {
     const target = URL.parse(raw);
@@ -46,7 +49,7 @@ export function registerTeamSkillsGuest(dashboard: WebContents, browsers?: Manua
 
   const page = budget.track("team-skills", {
     isLive: () => !!contents && !contents.isDestroyed(),
-    isBusy: () => restoring || installing.size > 0 || downloads.size > 0 || !!contents?.isLoading() || !!contents?.isCurrentlyAudible(),
+    isBusy: () => restoring || changingSkills.size > 0 || downloads.size > 0 || !!contents?.isLoading() || !!contents?.isCurrentlyAudible(),
     suspend: () => {
       const nav = contents?.navigationHistory;
       if (nav && nav.length() > 0) history = { entries: nav.getAllEntries(), index: nav.getActiveIndex() };
@@ -163,13 +166,27 @@ export function registerTeamSkillsGuest(dashboard: WebContents, browsers?: Manua
         if (!Array.isArray(ids) || ids.length > 100 || !ids.every(validTeamSkillId)) throw new Error("无效的技能 ID 列表");
         return host.versions(ids);
       });
+      guest.ipc.handle(IPC_CHANNELS.teamSkillUninstall, async (event, id: unknown, installedVersion: unknown) => {
+        requireCatalog(event);
+        if (!validTeamSkillId(id) || !validTeamVersion(installedVersion)) throw new Error("无效的技能 ID 或本机版本");
+        if (changingSkills.has(id)) throw new Error("该技能正在处理，请稍后重试");
+        changingSkills.add(id);
+        try {
+          const target = await host.uninstallTarget(id, installedVersion);
+          requireCatalog(event);
+          if (!await host.confirmUninstall(target.name, installedVersion)) return false;
+          requireCatalog(event);
+          await host.recycle(target);
+          return true;
+        } finally { changingSkills.delete(id); budget.enforce(); }
+      });
       const approvals = new Map<string, { token: string; version: string; sha256: string; localName: string }>();
       guest.on("did-start-navigation", event => { if (event.isMainFrame && !event.isSameDocument) approvals.clear(); });
       guest.ipc.handle(IPC_CHANNELS.teamSkillInstall, async (event, raw: unknown, token?: unknown) => {
         requireCatalog(event);
         const ticket = parseTeamInstallTicket(raw);
-        if (installing.has(ticket.skillId)) throw new Error("该技能正在安装");
-        installing.add(ticket.skillId);
+        if (changingSkills.has(ticket.skillId)) throw new Error("该技能正在处理，请稍后重试");
+        changingSkills.add(ticket.skillId);
         try {
           const approved = approvals.get(ticket.skillId);
           approvals.delete(ticket.skillId);
@@ -186,7 +203,7 @@ export function registerTeamSkillsGuest(dashboard: WebContents, browsers?: Manua
           const timeout = setTimeout(() => { if (approvals.get(ticket.skillId)?.token === approval) approvals.delete(ticket.skillId); }, 120_000);
           timeout.unref();
           return { approval };
-        } finally { installing.delete(ticket.skillId); budget.enforce(); }
+        } finally { changingSkills.delete(ticket.skillId); budget.enforce(); }
       });
     }
     guest.once("destroyed", () => {

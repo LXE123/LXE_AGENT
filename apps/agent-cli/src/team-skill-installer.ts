@@ -29,6 +29,12 @@ function restoreSwap(stage: string, root: string) {
   rmSync(join(stage, "next"), { recursive: true, force: true });
 }
 
+function userRelease(entries: ReturnType<SkillCatalog["entries"]>, id: string) {
+  const matches = entries.filter(entry => entry.source === "user" && entry.manifest?.teamRelease?.id === id);
+  if (matches.length > 1) throw new Error("本机存在多份相同 ID 的 Skill");
+  return matches[0];
+}
+
 export class TeamSkillInstaller {
   constructor(private readonly catalog: SkillCatalog, private readonly download = downloadTeamSkill) {}
 
@@ -54,6 +60,14 @@ export class TeamSkillInstaller {
     return result;
   }
 
+  uninstallTarget(id: string, installedVersion: string) {
+    const entry = userRelease(this.inventory(), id);
+    const manifest = entry?.manifest;
+    if (!entry || !manifest?.teamRelease || manifest.teamRelease.version !== installedVersion)
+      throw new Error("本机技能或版本已变化，请刷新后重试");
+    return { id: entry.id, version: entry.version, name: manifest.name };
+  }
+
   async install(raw: TeamInstallTicket, replaceLocalName?: string): Promise<TeamInstallResult> {
     const ticket = parseTeamInstallTicket(raw);
     const { skillId: id, version } = ticket;
@@ -76,9 +90,7 @@ export class TeamSkillInstaller {
       mkdirSync(next);
       const manifest = await extractTeamSkill(bytes, next, id, version);
       const inventory = this.inventory();
-      const matches = inventory.filter(entry => entry.source === "user" && entry.manifest?.teamRelease?.id === id);
-      if (matches.length > 1) throw new Error("本机存在多份相同 ID 的 Skill");
-      const existing = matches[0];
+      const existing = userRelease(inventory, id);
       const dest = existing ? realpathSync(existing.manifest!.root) : join(root, manifest.name);
       if (!inside(root, dest) || realpathSync(dirname(dest)) !== dirname(dest)) throw new Error("技能目录不属于 LXE 用户技能目录");
       const nameTaken = inventory.some(entry => entry.source !== "shared" &&
