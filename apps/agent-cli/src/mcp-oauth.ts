@@ -4,6 +4,7 @@ import { once } from "node:events";
 import { createInterface } from "node:readline/promises";
 import { auth, fetchToken, OAuthError, refreshAuthorization, type OAuthClientProvider, type OAuthDiscoveryState, type StoredOAuthClientInformation, type StoredOAuthTokens } from "@modelcontextprotocol/client";
 import { harnessFetch, type McpOAuthChallenge, type McpOAuthSettings } from "@lxe/runtime";
+import { sendMcpCallbackPage } from "./mcp-oauth-page";
 
 export type McpGrant = {
   name: string;
@@ -129,18 +130,16 @@ export async function loginToMcp(target: McpOAuthChallenge, openBrowser: (url: s
     };
     server.on("request", (request, response) => {
       const incoming = URL.parse(request.url ?? "/", callback.origin);
-      response.setHeader("Cache-Control", "no-store");
-      response.setHeader("Content-Type", "text/plain; charset=utf-8");
       if (!incoming || request.method !== "GET" || request.headers.host !== callback.host || incoming.origin !== callback.origin ||
           incoming.pathname !== callback.pathname || incoming.searchParams.get("state") !== state) {
-        response.writeHead(400).end("Invalid login callback.");
+        sendMcpCallbackPage(response, "invalid");
         return;
       }
       try {
         completed.resolve(acceptRedirect(incoming));
-        response.end("Authorization response received. You can close this tab and return to LXE Agent to check the connection.");
+        sendMcpCallbackPage(response, "received");
       } catch (error) {
-        response.writeHead(400).end("Sign-in did not complete. Return to LXE Agent.");
+        sendMcpCallbackPage(response, "incomplete");
         completed.reject(error);
       }
     });

@@ -41,10 +41,21 @@ test("interactive MCP login binds the callback state and uses PKCE before return
       challenge = auth.searchParams.get("code_challenge")!;
       const callback = new URL(redirect);
       callback.searchParams.set("code", "approved");
-      expect((await fetch(callback)).status).toBe(400);
+      const invalid = await fetch(callback);
+      expect(invalid.status).toBe(400);
+      expect(await invalid.text()).toContain("授权回调无效");
       expect(exchanged).toBe(0);
       callback.searchParams.set("state", auth.searchParams.get("state")!);
-      expect((await fetch(callback)).ok).toBe(true);
+      const received = await fetch(callback);
+      expect(received.status).toBe(200);
+      expect(received.headers.get("content-type")).toBe("text/html; charset=utf-8");
+      expect(received.headers.get("cache-control")).toBe("no-store");
+      const html = await received.text();
+      expect(html).toContain("已收到授权回调");
+      expect(html).toContain("回到 LXE Agent");
+      expect(html).toContain("查看连接状态");
+      expect(html).toContain("data:image/png;base64,");
+      expect(html).not.toContain(auth.searchParams.get("state")!);
     }, new AbortController().signal);
     const grant = { name: "orders", ...token };
     expect(grant.access_token).toBe("fixture-access");
@@ -53,6 +64,17 @@ test("interactive MCP login binds the callback state and uses PKCE before return
     expect(renewed.renewal?.refresh_token).toBe("second-refresh");
     expect(renewed.expires_at!).toBeGreaterThan(grant.expires_at!);
     expect(renewed.access_token).toBe("second-access");
+    expect(exchanged).toBe(1);
+
+    await expect(loginToMcp(target, async link => {
+      const auth = new URL(link);
+      const callback = new URL(redirect);
+      callback.searchParams.set("state", auth.searchParams.get("state")!);
+      callback.searchParams.set("error", "access_denied");
+      const denied = await fetch(callback);
+      expect(denied.status).toBe(400);
+      expect(await denied.text()).toContain("授权未完成");
+    }, new AbortController().signal)).rejects.toThrow("MCP OAuth callback error: access_denied");
     expect(exchanged).toBe(1);
 
     const cancel = new AbortController();
