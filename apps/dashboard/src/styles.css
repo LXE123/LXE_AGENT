@@ -8389,7 +8389,7 @@ pre {
    whole transcript flattens into one sheet. */
 .sessions-focus .content-panel-fill {
   padding: 0;
-  background: var(--bg);
+  background: var(--conversation-bg);
 }
 
 .runtime-status-host {

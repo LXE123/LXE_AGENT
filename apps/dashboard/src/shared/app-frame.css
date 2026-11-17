@@ -20,10 +20,21 @@
   min-width: 0;
   min-height: 0;
   overflow: hidden;
-  border: 1px solid var(--app-chrome-border);
+  border: 1px solid transparent;
   border-radius: var(--app-panel-radius);
-  background: var(--cds-surface-panel);
+  background: var(--cds-surface-panel) padding-box;
   transition: grid-template-columns 180ms cubic-bezier(0.2, 0.75, 0.25, 1);
+}
+/* Cast onto the surrounding chrome without tinting the clipped page. */
+.app-shell::after {
+  content: "";
+  position: absolute;
+  grid-area: 2 / 2 / 3 / 3;
+  inset: 1px;
+  z-index: 27;
+  border-radius: calc(var(--app-panel-radius) - 1px);
+  box-shadow: 0 0 4px var(--shadow-medium), 0 2px 6px var(--shadow-soft);
+  pointer-events: none;
 }
 .app-shell[data-sidebar-resizing] .app-content-frame { transition: none; }
 .app-content-frame > .main-panel {
@@ -78,7 +89,12 @@
   content: ""; position: absolute; top: calc((var(--app-titlebar-height) - 16px) / 2);
   left: 0; width: 1px; height: 16px; background: var(--app-chrome-border); pointer-events: none;
 }
-.desktop-platform-win32 .app-shell { --app-frame-caption-height: 0px; }
+.desktop-platform-win32 .app-shell {
+  --app-frame-caption-height: 0px;
+  /* The Windows caption sits outside the shell. Let the top shadow reach it. */
+  overflow: clip;
+  overflow-clip-margin: 6px;
+}
 
 @media (max-width: 920px) {
   .app-shell { --app-sidebar-track: 0px; }
