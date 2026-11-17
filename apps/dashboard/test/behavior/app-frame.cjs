@@ -47,6 +47,12 @@ module.exports = async ({ win, js, step, load, waitFor, click, settle, delay }) 
         for (const page of ["home", "workbench", "automations", "capabilities", "activity", "team-skills", "sessions"]) {
           await click(".tab-" + page); await delay(220);
           assert.deepEqual(await checkFrame(), first, `${page}: outer bounds stay fixed`);
+          if (page === "capabilities") {
+            const card = ".skills-catalog button.catalog-item";
+            await waitFor(`Boolean(document.querySelector('${card}'))`, "skill card mounted");
+            assert.equal(await js(`getComputedStyle(document.querySelector('${card}')).webkitAppRegion`), "none",
+              "scrolling skill cards cannot subtract from the native title-bar drag region");
+          }
           await capture(`${platform}-${theme}-${page}`);
         }
       }

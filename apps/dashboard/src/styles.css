@@ -327,11 +327,10 @@ button {
   user-select: none;
 }
 
-.desktop-window-frame button,
-.desktop-window-frame input,
-.desktop-window-frame select,
-.desktop-window-frame summary,
-.desktop-window-frame a {
+/* Scrolled-out controls can subtract from the native title bar even when
+   clipped. The sidebar toggle is mounted in the frame but fixed in the caption. */
+.desktop-window-frame :is(button, input, select, summary, a):not(:where(.app-content-frame *)),
+.desktop-window-frame .sidebar-window-controls button {
   app-region: no-drag;
   -webkit-app-region: no-drag;
 }
