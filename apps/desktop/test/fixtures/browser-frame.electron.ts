@@ -30,6 +30,15 @@ void app.whenReady().then(async () => {
   registerTeamSkillsGuest(win.webContents, browsers, {
     preload: join(process.argv[2]!, "team-skills-preload.cjs"),
     versions: async ids => Object.fromEntries(ids.filter(id => installed[id]).map(id => [id, installed[id]!])),
+    uninstallTarget: async (id, version) => {
+      assert.equal(id, skillId); assert.equal(version, installed[id]);
+      return { id: "local-entry", version: "file-revision", name: "demo" };
+    },
+    confirmUninstall: async (name, version) => { assert.equal(name, "demo"); assert.equal(version, "1.0.1"); return approve; },
+    recycle: async target => {
+      assert.deepEqual(target, { id: "local-entry", version: "file-revision", name: "demo" });
+      delete installed[skillId];
+    },
     confirmOverwrite: async name => { assert.equal(name, "demo"); prompts++; return approve; },
     install: async ({ skillId: id, version }, replaceLocalName) => {
       if (!installed[id] && replaceLocalName !== "demo") return { localName: "demo" };
@@ -98,6 +107,13 @@ void app.whenReady().then(async () => {
     assert.deepEqual(await catalog.executeJavaScript(host + ".installedVersions([" + id + "])"), { [skillId]: "1.0.1" });
     assert.equal(prompts, 2, "only the unmarked namesake prompts; the same-ID update completes directly");
     assert.equal(await catalog.executeJavaScript("window.ticketCalls"), 4, "confirmed overwrite renews its grant");
+    const uninstall = host + ".uninstall(" + id + ", '1.0.1')";
+    approve = false;
+    assert.equal(await catalog.executeJavaScript(uninstall, true), false);
+    assert.equal(installed[skillId], "1.0.1");
+    approve = true;
+    assert.equal(await catalog.executeJavaScript(uninstall, true), true);
+    assert.deepEqual(await catalog.executeJavaScript(host + ".installedVersions([" + id + "])"), {});
     const catalogId = catalog.id;
     const detail = new URL("/skill/detail", TEAM_SKILLS_URL).href;
     await catalog.loadURL(detail);

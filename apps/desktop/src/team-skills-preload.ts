@@ -5,9 +5,13 @@ import { IPC_CHANNELS } from "./ipc-channels";
 if (process.isMainFrame && isTeamSkillsPage(location.href)) {
   contextBridge.exposeInMainWorld("lxeTeamSkills", {
     installedVersions: (ids: string[]) => ipcRenderer.invoke(IPC_CHANNELS.teamSkillVersions, ids),
+    uninstall: (id: string, installedVersion: string) => {
+      if (!navigator.userActivation.isActive) throw new Error("请点击详情页的「从本机卸载」");
+      return ipcRenderer.invoke(IPC_CHANNELS.teamSkillUninstall, id, installedVersion);
+    },
     install: async (id: string, version: string, getTicket: () => Promise<TeamInstallTicket>) => {
       // Check the click before waiting for the authenticated web request.
-      if (!navigator.userActivation.isActive) throw new Error("请点击卡片上的安装或更新按钮");
+      if (!navigator.userActivation.isActive) throw new Error("请点击安装或更新按钮");
       async function submit(approval?: string) {
         const ticket = parseTeamInstallTicket(await getTicket());
         if (ticket.skillId !== id || ticket.version !== version) throw new Error("下载凭据与技能卡片不符");

@@ -12,6 +12,9 @@ export type TeamInstallTicket = {
 /** A version string denotes success. An unmarked namesake needs a user decision. */
 export type TeamInstallResult = string | { localName: string };
 
+/** Local user entry and content revision used for a confirmed recycle operation. */
+export type TeamUninstallTarget = { id: string; version: string; name: string };
+
 export function parseTeamInstallTicket(raw: unknown): TeamInstallTicket {
   if (!raw || typeof raw !== "object") throw new Error("无效的技能安装凭据");
   const { skillId, version, downloadUrl, expiresAt, size, sha256 } = raw as Partial<TeamInstallTicket>;

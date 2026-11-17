@@ -716,6 +716,16 @@ async function bootstrap(): Promise<void> {
     preload: join(import.meta.dirname, "team-skills-preload.cjs"),
     versions: ids => gateway.dashboardCall({ operation: "skills.team.versions", input: { ids } }),
     install: (ticket, replaceLocalName) => gateway.dashboardCall({ operation: "skills.team.install", input: { ticket, ...(replaceLocalName && { replaceLocalName }) } }),
+    uninstallTarget: (id, version) => gateway.dashboardCall({ operation: "skills.team.uninstallTarget", input: { id, version } }),
+    confirmUninstall: async (name, version) => (await dialog.showMessageBox(catalogWindow, {
+      type: "question", title: "从本机卸载", message: `从这台电脑卸载「${name}」v${version}？`,
+      detail: "LXE 会将本机技能文件夹和其中的修改一起移入回收目录。团队成员仍可使用技能库中的版本。",
+      buttons: ["取消", "从本机卸载"], defaultId: 0, cancelId: 0, noLink: true,
+    })).response === 1,
+    recycle: async ({ id, version }) => {
+      await gateway.dashboardCall({ operation: "skills.user.delete", input: { id, version } });
+      invalidations.push(["skills"]);
+    },
     confirmOverwrite: async name => (await dialog.showMessageBox(catalogWindow, {
       type: "question", title: "覆盖安装", message: `用户 Skill 目录中已有同名技能「${name}」。`,
       detail: `是否用飞书技能库版本替换整个「${name}/」文件夹？`,

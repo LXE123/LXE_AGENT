@@ -1,4 +1,4 @@
-import { validTeamSkillId, parseTeamInstallTicket, type TeamInstallTicket, type TeamInstallResult } from "./team-skills";
+import { validTeamSkillId, validTeamVersion, parseTeamInstallTicket, type TeamInstallTicket, type TeamInstallResult, type TeamUninstallTarget } from "./team-skills";
 import { AUTOMATION_OPERATIONS, parseAutomationCall, type AutomationRpcSpec, type AutomationOperation } from "./automations";
 import { parsePermissionMode, type PermissionMode, type PendingApproval, type ApprovalDecision } from "@lxe/protocol";
 export type { PermissionMode, PendingApproval, ApprovalDecision } from "@lxe/protocol";
@@ -575,6 +575,7 @@ export interface DashboardRpcSpec extends AutomationRpcSpec {
     result: WorkspaceReloadPayload;
   };
   "skills.team.versions": { input: { ids: string[] }; result: Record<string, string> };
+  "skills.team.uninstallTarget": { input: { id: string; version: string }; result: TeamUninstallTarget };
   "skills.team.install": { input: { ticket: TeamInstallTicket; replaceLocalName?: string }; result: TeamInstallResult };
   "skills.user.list": { input: DashboardRpcEmptyInput; result: ApiList<UserSkillPayload> };
   "skills.user.content": { input: { id: string; path?: string }; result: UserSkillContentPayload };
@@ -970,6 +971,10 @@ export function parseDashboardRpcCall(value: unknown): DashboardRpcCall {
       exactKeys(input, ["ids"], operation);
       if (!Array.isArray(input.ids) || input.ids.length > 100 || !input.ids.every(validTeamSkillId)) return rpcError("Invalid team skill IDs");
       return { operation, input: { ids: input.ids } };
+    case "skills.team.uninstallTarget":
+      exactKeys(input, ["id", "version"], operation);
+      if (!validTeamSkillId(input.id) || !validTeamVersion(input.version)) return rpcError("Invalid team skill ID or installed version");
+      return { operation, input: { id: input.id, version: input.version } };
     case "skills.team.install": {
       exactKeys(input, ["ticket", "replaceLocalName"], operation);
       const ticket = parseTeamInstallTicket(input.ticket);

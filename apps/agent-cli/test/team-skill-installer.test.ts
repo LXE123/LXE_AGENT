@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { TextReader, Uint8ArrayWriter, ZipWriter } from "@zip.js/zip.js";
 import { type TeamInstallTicket } from "@lxe/desktop-protocol/team-skills";
-import { SkillCatalog } from "@lxe/runtime";
+import { SkillCatalog, UserSkillFiles } from "@lxe/runtime";
 import { TeamSkillInstaller } from "../src/team-skill-installer";
 import { downloadTeamSkill, readTeamZip } from "../src/team-skill-download";
 
@@ -119,6 +119,27 @@ test("download or metadata validation failure leaves the previously installed tr
     .install(ticket("1.0.1"))).rejects.toThrow("network offline");
   expect(readFileSync(join(skills, "demo", "SKILL.md"), "utf8")).toBe(manifest("1.0.0"));
   expect(existsSync(join(skills, ".lxe-team-install/next"))).toBe(false);
+});
+
+test("uninstall resolves only the displayed user release and recycles its local files", async () => {
+  const { root, skills, catalog, installer } = setup((_, version) => archive(version));
+  const shared = join(root, "shared", "demo");
+  mkdirSync(shared, { recursive: true });
+  writeFileSync(join(shared, "SKILL.md"), manifest("1.0.1"));
+  const files = new UserSkillFiles(catalog, root);
+  expect(() => installer.uninstallTarget(id, "1.0.1")).toThrow("本机技能或版本已变化");
+  await installer.install(ticket("1.0.1"));
+  expect(() => installer.uninstallTarget(id, "1.0.0")).toThrow("本机技能或版本已变化");
+  const first = installer.uninstallTarget(id, "1.0.1");
+  expect(first.name).toBe("demo");
+  writeFileSync(join(skills, "demo", "local.txt"), "local edit");
+  expect(() => files.delete(first.id, first.version)).toThrow("Skill changed");
+  const target = installer.uninstallTarget(id, "1.0.1");
+  const { recycled_path } = files.delete(target.id, target.version);
+  expect(readFileSync(join(recycled_path, "local.txt"), "utf8")).toBe("local edit");
+  expect(await installer.versions([id])).toEqual({});
+  expect(readFileSync(join(shared, "SKILL.md"), "utf8")).toBe(manifest("1.0.1"));
+  expect(await installer.install(ticket("1.0.1"))).toBe("1.0.1");
 });
 
 test("checking versions restores an interrupted directory replacement", async () => {
