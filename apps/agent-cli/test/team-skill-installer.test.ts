@@ -32,7 +32,7 @@ function setup(download: (id: string, version: string) => Promise<Buffer>) {
   const root = mkdtempSync(join(tmpdir(), "lxe-team-installer-")); temp.push(root);
   mkdirSync(join(root, "repo"));
   const skills = join(root, "user");
-  const catalog = new SkillCatalog(root, skills, { repositorySkillsRoot: join(root, "repo"), sharedSkillsRoot: false });
+  const catalog = new SkillCatalog(root, skills, { repositorySkillsRoot: join(root, "repo"), sharedSkillsRoot: join(root, "shared") });
   return { root, skills, catalog, installer: new TeamSkillInstaller(catalog, download) };
 }
 
@@ -57,6 +57,30 @@ test("legacy install, confirmed update and rediscovery after restart", async () 
   const restarted = new TeamSkillInstaller(new SkillCatalog(root, skills, { repositorySkillsRoot: join(root, "repo"), sharedSkillsRoot: false }));
   expect(await restarted.versions([id])).toEqual({ [id]: "1.0.2" });
   await expect(installer.install(id, "1.0.0")).rejects.toThrow("本机版本较新");
+});
+
+test.each(["install", "update"])("a shared namesake present before %s yields to the user release", async phase => {
+  const { root, catalog, installer } = setup((_, version) => archive(version));
+  if (phase === "update") await installer.install(id, "1.0.0");
+  const shared = join(root, "shared", "demo");
+  mkdirSync(shared, { recursive: true });
+  const sharedManifest = manifest("9.9.9");
+  writeFileSync(join(shared, "SKILL.md"), sharedManifest);
+
+  expect(await installer.versions([id])).toEqual(phase === "install" ? {} : { [id]: "1.0.0" });
+  expect(await installer.install(id, "1.0.1")).toEqual({ kind: "installed", version: "1.0.1" });
+  expect(await installer.versions([id])).toEqual({ [id]: "1.0.1" });
+  expect(catalog.get("demo")).toMatchObject({ source: "user", teamRelease: { id, version: "1.0.1" } });
+  expect(readFileSync(join(shared, "SKILL.md"), "utf8")).toBe(sharedManifest);
+});
+
+test.each(["repo", "user"])("a different %s directory with the same skill name blocks installation", async source => {
+  const { root, skills, installer } = setup((_, version) => archive(version));
+  const other = join(root, source, "other-folder");
+  mkdirSync(other, { recursive: true });
+  writeFileSync(join(other, "SKILL.md"), manifest());
+  await expect(installer.install(id, "1.0.0")).rejects.toThrow("同名 Skill");
+  expect(existsSync(join(skills, "demo"))).toBe(false);
 });
 
 test("manually imported releases and unrelated directories retain their identity", async () => {

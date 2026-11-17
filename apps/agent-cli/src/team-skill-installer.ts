@@ -121,8 +121,9 @@ export class TeamSkillInstaller {
       const existing = matches[0];
       const dest = existing ? realpathSync(existing.entry.manifest!.root) : join(root, manifest.name);
       if (!inside(root, dest) || realpathSync(dirname(dest)) !== dirname(dest)) throw new Error("技能目录不属于 LXE 用户技能目录");
-      const clashes = inventory.filter(({ entry }) => entry.manifest?.name === manifest.name && realpathSync(entry.manifest.root) !== dest);
-      if (clashes.length) throw new Error("LXE 另一个目录已包含同名 Skill，请先处理名称冲突");
+      const nameTaken = inventory.some(({ entry }) => entry.source !== "shared" &&
+        entry.manifest?.name === manifest.name && realpathSync(entry.manifest.root) !== dest);
+      if (nameTaken) throw new Error("LXE 另一个目录已包含同名 Skill，请先处理名称冲突");
       const stat = lstatSync(dest, { throwIfNoEntry: false });
       if (stat) {
         if (!stat.isDirectory() || realpathSync(dest) !== dest) throw new Error("同名路径不能作为安装目标");
