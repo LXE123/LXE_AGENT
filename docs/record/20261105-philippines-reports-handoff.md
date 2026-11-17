@@ -43,3 +43,11 @@
 ## 维护者已接受的边界
 
 本轮保留既有行为：续跑记录未绑定来源账号；菲律宾文件读取层未额外严格核对必要列和实际雅仓仓库，正常自动取数依赖上游导出的校验。维护者明确接受这两个边界，本次没有将其标记为已修复。
+
+## 2026-11-12 合并表样式
+
+- `codex/fix-mabang-nearest-shipping-date`：两份合并表按字段沿用各自雅仓原表的单元格样式、列宽、行高和视图设置。雅仓商品使用对应原行样式；TMS 独有商品使用雅仓首条数据行样式，无数据行时使用默认样式。合并与筛选规则不变。
+- 修改 `services/philippines_reports/workbooks.py`、对应工作簿测试和菲律宾 Skill。调用入口、凭据和数据归属不变；菲律宾基础功能已通过 #153 合入 main。
+- 当前工作区运行 `uv run --frozen --no-sync pytest python/lxeskill_cli/tests/philippines_reports -q --tb=short`：50 passed。依赖同步因网络不可用未完成，本次使用已有工作区环境。
+- 曾用本地雅仓历史动销文件和 13 列库存旧样本生成仅供样式预览的两份报表；未取得实时 TMS 数据，不能作为完整来源验收。真实平台导出和 Windows 显示效果仍为 NOT VERIFIED。
+- 工作区保留既有未跟踪的 `docs/superpowers/plans/2026-11-05-philippines-reports.md`；提交及后续推送状态以 Git 和远端为准。
