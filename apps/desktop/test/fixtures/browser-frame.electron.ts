@@ -25,10 +25,14 @@ void app.whenReady().then(async () => {
   });
   const skillId = "e522e0c9-4891-439f-826a-467b6f312478";
   const installed: Record<string, string> = {};
+  let approve = false;
+  let prompts = 0;
   registerTeamSkillsGuest(win.webContents, browsers, {
     preload: join(process.argv[2]!, "team-skills-preload.cjs"),
     versions: async ids => Object.fromEntries(ids.filter(id => installed[id]).map(id => [id, installed[id]!])),
-    install: async ({ skillId: id, version }) => {
+    confirmOverwrite: async name => { assert.equal(name, "demo"); prompts++; return approve; },
+    install: async ({ skillId: id, version }, replaceLocalName) => {
+      if (!installed[id] && replaceLocalName !== "demo") return { localName: "demo" };
       installed[id] = version;
       return version;
     },
@@ -85,11 +89,15 @@ void app.whenReady().then(async () => {
       return { skillId: ${id}, version: window.requestVersion, size: 5, sha256: 'c'.repeat(64),
         expiresAt: new Date(Date.now() + 120000).toISOString(), downloadUrl: 'https://dataloom-rdqueaxi.feishucdn.com/4577945282/bucket_aadk3bkqatkfw/demo?sign=fixture' };
     }; void 0`);
+    assert.equal(await catalog.executeJavaScript(install("1.0.0"), true), null);
+    assert.equal(installed[skillId], undefined);
+    approve = true;
     assert.equal(await catalog.executeJavaScript(install("1.0.0"), true), "1.0.0");
     await catalog.executeJavaScript("window.requestVersion = '1.0.1'");
     assert.equal(await catalog.executeJavaScript(install("1.0.1"), true), "1.0.1");
     assert.deepEqual(await catalog.executeJavaScript(host + ".installedVersions([" + id + "])"), { [skillId]: "1.0.1" });
-    assert.equal(await catalog.executeJavaScript("window.ticketCalls"), 2, "one web grant per install or update");
+    assert.equal(prompts, 2, "only the unmarked namesake prompts; the same-ID update completes directly");
+    assert.equal(await catalog.executeJavaScript("window.ticketCalls"), 4, "confirmed overwrite renews its grant");
     const catalogId = catalog.id;
     const detail = new URL("/skill/detail", TEAM_SKILLS_URL).href;
     await catalog.loadURL(detail);

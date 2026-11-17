@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { app, session, shell, type DownloadItem, type NavigationEntry, type WebContents } from "electron";
 import { createLogger } from "@lxe/core";
-import { TEAM_SKILLS_URL, isTeamSkillsPage, validTeamSkillId, parseTeamInstallTicket, type TeamInstallTicket, type TeamSkillsBrowserState } from "@lxe/desktop-protocol/team-skills";
+import { TEAM_SKILLS_URL, isTeamSkillsPage, validTeamSkillId, parseTeamInstallTicket, type TeamInstallTicket, type TeamInstallResult, type TeamSkillsBrowserState } from "@lxe/desktop-protocol/team-skills";
 import { IPC_CHANNELS } from "../ipc-channels";
 import { WindowTabBudget } from "./manual-tools/tab-budget";
 import type { ManualBrowsers } from "./manual-tools/browsers";
@@ -12,7 +12,8 @@ const partition = "persist:lxe-workbench-team-skills";
 interface CatalogHost {
   preload: string;
   versions(ids: string[]): Promise<Record<string, string>>;
-  install(ticket: TeamInstallTicket): Promise<string>;
+  install(ticket: TeamInstallTicket, replaceLocalName?: string): Promise<TeamInstallResult>;
+  confirmOverwrite(name: string): Promise<boolean>;
 }
 
 export function registerTeamSkillsGuest(dashboard: WebContents, browsers?: ManualBrowsers, host?: CatalogHost): void {
@@ -162,13 +163,30 @@ export function registerTeamSkillsGuest(dashboard: WebContents, browsers?: Manua
         if (!Array.isArray(ids) || ids.length > 100 || !ids.every(validTeamSkillId)) throw new Error("无效的技能 ID 列表");
         return host.versions(ids);
       });
-      guest.ipc.handle(IPC_CHANNELS.teamSkillInstall, async (event, raw: unknown) => {
+      const approvals = new Map<string, { token: string; version: string; sha256: string; localName: string }>();
+      guest.on("did-start-navigation", event => { if (event.isMainFrame && !event.isSameDocument) approvals.clear(); });
+      guest.ipc.handle(IPC_CHANNELS.teamSkillInstall, async (event, raw: unknown, token?: unknown) => {
         requireCatalog(event);
         const ticket = parseTeamInstallTicket(raw);
         if (installing.has(ticket.skillId)) throw new Error("该技能正在安装");
         installing.add(ticket.skillId);
-        try { return await host.install(ticket); }
-        finally { installing.delete(ticket.skillId); budget.enforce(); }
+        try {
+          const approved = approvals.get(ticket.skillId);
+          approvals.delete(ticket.skillId);
+          if (token !== undefined && (!approved || token !== approved.token || approved.version !== ticket.version || approved.sha256 !== ticket.sha256))
+            throw new Error("覆盖确认已失效，请重新点击安装");
+          const result = await host.install(ticket, token === undefined ? undefined : approved?.localName);
+          if (typeof result === "string") return result;
+          if (token !== undefined) throw new Error("同名 Skill 已变化，请重新点击安装");
+          requireCatalog(event);
+          if (!await host.confirmOverwrite(result.localName)) return null;
+          requireCatalog(event);
+          const approval = randomUUID();
+          approvals.set(ticket.skillId, { token: approval, version: ticket.version, sha256: ticket.sha256, localName: result.localName });
+          const timeout = setTimeout(() => { if (approvals.get(ticket.skillId)?.token === approval) approvals.delete(ticket.skillId); }, 120_000);
+          timeout.unref();
+          return { approval };
+        } finally { installing.delete(ticket.skillId); budget.enforce(); }
       });
     }
     guest.once("destroyed", () => {

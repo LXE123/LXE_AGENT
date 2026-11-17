@@ -97,10 +97,17 @@ test("manually imported releases and unrelated directories retain their identity
   writeFileSync(join(target, "SKILL.md"), manifest("1.0.0"));
   expect(await installer.versions([id])).toEqual({ [id]: "1.0.0" });
   writeFileSync(join(target, "SKILL.md"), manifest("1.0.0").replace(id, randomUUID()));
-  await expect(installer.install(ticket("1.0.1"))).rejects.toThrow("其他内容占用");
+  await expect(installer.install(ticket("1.0.1"), "demo")).rejects.toThrow("其他内容占用");
   writeFileSync(join(target, "SKILL.md"), manifest());
+  const notes = join(target, "notes.txt");
+  writeFileSync(notes, "original notes");
   expect(await installer.versions([id])).toEqual({});
-  expect(await installer.install(ticket("1.0.1"))).toBe("1.0.1");
+  expect(await installer.install(ticket("1.0.1"))).toEqual({ localName: "demo" });
+  expect(await installer.install(ticket("1.0.1"), "another-skill")).toEqual({ localName: "demo" });
+  expect(readFileSync(join(target, "SKILL.md"), "utf8")).toBe(manifest());
+  expect(readFileSync(notes, "utf8")).toBe("original notes");
+  expect(await installer.install(ticket("1.0.1"), "demo")).toBe("1.0.1");
+  expect(existsSync(notes)).toBe(false);
   expect(readFileSync(join(target, "SKILL.md"), "utf8")).toBe(manifest("1.0.1"));
 });
 

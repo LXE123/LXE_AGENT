@@ -2,7 +2,7 @@ import { existsSync, lstatSync, mkdirSync, readFileSync, realpathSync, renameSyn
 import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import lockfile from "proper-lockfile";
 import { SkillCatalog } from "@lxe/runtime";
-import { parseTeamInstallTicket, validTeamVersion, type TeamInstallTicket } from "@lxe/desktop-protocol/team-skills";
+import { parseTeamInstallTicket, validTeamVersion, type TeamInstallTicket, type TeamInstallResult } from "@lxe/desktop-protocol/team-skills";
 import { downloadTeamSkill } from "./team-skill-download";
 import { extractTeamSkill } from "./team-skill-archive";
 
@@ -54,7 +54,7 @@ export class TeamSkillInstaller {
     return result;
   }
 
-  async install(raw: TeamInstallTicket): Promise<string> {
+  async install(raw: TeamInstallTicket, replaceLocalName?: string): Promise<TeamInstallResult> {
     const ticket = parseTeamInstallTicket(raw);
     const { skillId: id, version } = ticket;
     const bytes = await this.download(ticket);
@@ -89,9 +89,11 @@ export class TeamSkillInstaller {
         if (!stat.isDirectory() || realpathSync(dest) !== dest) throw new Error("同名路径不能作为安装目标");
         const local = existing ?? inventory.find(entry => entry.source === "user" && entry.manifest?.name === manifest.name && realpathSync(entry.manifest.root) === dest);
         const release = local?.manifest?.teamRelease;
-        if (!local || (release && release.id !== id)) throw new Error("同名目录已被其他内容占用");
-        if (release && release.version.localeCompare(version, "en", { numeric: true }) > 0) throw new Error("本机版本较新，请刷新技能库");
-        if (release?.version === version) return version;
+        if (!local || (release?.id && release.id !== id)) throw new Error("同名目录已被其他内容占用");
+        if (release?.id) {
+          if (release.version.localeCompare(version, "en", { numeric: true }) > 0) throw new Error("本机版本较新，请刷新技能库");
+          if (release.version === version) return version;
+        } else if (replaceLocalName !== manifest.name) return { localName: manifest.name };
         writeFileSync(join(stage, "target.json"), JSON.stringify({ path: relative(root, dest), nextInode: lstatSync(next, { bigint: true }).ino.toString() }), { flag: "wx" });
         renameSync(dest, join(stage, "previous"));
       }

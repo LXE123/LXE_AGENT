@@ -8,9 +8,13 @@ if (process.isMainFrame && isTeamSkillsPage(location.href)) {
     install: async (id: string, version: string, getTicket: () => Promise<TeamInstallTicket>) => {
       // Check the click before waiting for the authenticated web request.
       if (!navigator.userActivation.isActive) throw new Error("请点击卡片上的安装或更新按钮");
-      const ticket = parseTeamInstallTicket(await getTicket());
-      if (ticket.skillId !== id || ticket.version !== version) throw new Error("下载凭据与技能卡片不符");
-      return ipcRenderer.invoke(IPC_CHANNELS.teamSkillInstall, ticket);
+      async function submit(approval?: string) {
+        const ticket = parseTeamInstallTicket(await getTicket());
+        if (ticket.skillId !== id || ticket.version !== version) throw new Error("下载凭据与技能卡片不符");
+        return ipcRenderer.invoke(IPC_CHANNELS.teamSkillInstall, ticket, approval);
+      }
+      const result = await submit();
+      return result?.approval ? submit(result.approval) : result;
     },
   });
 }

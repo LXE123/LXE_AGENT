@@ -305,7 +305,7 @@ export class DashboardService {
     "skills.user.setEnabled": input => this.userSkillFiles.setEnabled(input.id, input.version, input.enabled, this.skillOptions()),
     "skills.user.delete": input => this.userSkillFiles.delete(input.id, input.version),
     "skills.team.versions": input => this.teamSkills.versions(input.ids),
-    "skills.team.install": input => this.teamSkills.install(input.ticket),
+    "skills.team.install": input => this.teamSkills.install(input.ticket, input.replaceLocalName),
     "skills.list": async input => this.listPayload((await this.sessionSkills(input.session_id)).map(manifest => this.skillPayload(manifest))) as DashboardRpcResult<"skills.list">,
     "skills.content": async input => {
       const skill = (await this.sessionSkills(input.session_id)).find(item => item.name === input.name);
