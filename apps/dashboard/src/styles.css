@@ -5935,10 +5935,27 @@ h1 {
   line-height: 1.7;
 }
 
-.message-markdown a {
+.message-markdown .markdown-file-link {
+  display: inline;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  font: inherit;
+  text-align: inherit;
+  text-decoration: underline;
+  cursor: pointer;
+  user-select: text;
+}
+
+.message-markdown a,
+.message-markdown .markdown-file-link {
   color: var(--info);
   font-weight: 600;
   overflow-wrap: anywhere;
+}
+
+.conversation-feed .markdown-file-link:is(:hover, :focus-visible) {
+  --file-link-underline: currentColor;
 }
 
 /* A link the shell will not follow reads as the text it wraps, so nothing in
@@ -5961,10 +5978,10 @@ h1 {
   background: var(--border);
 }
 
-:root:not([data-theme="dark"]) .conversation-feed .message-markdown a[href] {
+:root:not([data-theme="dark"]) .conversation-feed .message-markdown :is(a[href], .markdown-file-link) {
   color: #184f95;
   font-weight: 500;
-  text-decoration-color: #a3b7d4;
+  text-decoration-color: var(--file-link-underline, #a3b7d4);
   text-decoration-thickness: 1px;
   text-underline-offset: 3px;
 }
@@ -6501,10 +6518,9 @@ code {
   color: #c3c2b7;
 }
 
-/* Only the verified default state; hover keeps the existing link styling. */
-:root[data-theme="dark"] .conversation-feed :is(.message-card.role-assistant, .timeline-text.process-message-content) .message-markdown a[href]:not(:hover) {
+:root[data-theme="dark"] .conversation-feed :is(.message-card.role-assistant, .timeline-text.process-message-content) .message-markdown :is(a[href]:not(:hover), .markdown-file-link) {
   color: #6da8ed;
-  text-decoration-color: #39506a;
+  text-decoration-color: var(--file-link-underline, #39506a);
 }
 
 :root[data-theme="dark"] .conversation-feed :is(.message-card.role-assistant, .timeline-text.process-message-content) .message-markdown :is(th, td) {

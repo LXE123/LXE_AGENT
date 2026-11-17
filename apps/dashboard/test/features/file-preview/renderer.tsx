@@ -32,7 +32,7 @@ const faults = new Map<string, "not_found" | "permission_denied">();
 let appFailure = false, openFailure = false, slowPrepare = false;
 const fault = (ref: SessionFileRef, operation: string, original = false) => { const kind = faults.get(pathOf(ref)); if (kind && !(ref.kind === "attachment" && !original)) throw new FilePreviewError({kind, operation, diagnostic: `${kind === "not_found" ? "ENOENT" : "EACCES"}: real error shape (test fixture) ${pathOf(ref)}`}); };
 let version = "1", slow = false, removedTreeFile = false;
-const pathOf = (ref: SessionFileRef) => ref.kind === "workspace" ? ref.path : ref.id;
+const pathOf = (ref: SessionFileRef) => "path" in ref ? ref.path : ref.id;
 function metadata(ref: SessionFileRef): FileMetadata {
   const path = pathOf(ref), extension = path.slice(path.lastIndexOf("."));
   return { key: ref.session_id + (ref.kind === "attachment" ? "history:" : "") + path, name: path, extension, size: 100, version, source: ref.kind === "attachment" ? "history" : "current_file", kind: extension === ".xlsx" || extension === ".csv" ? "excel" : extension === ".pdf" ? "pdf" : [".png", ".svg"].includes(extension) ? "image" : extension === ".md" ? "markdown" : extension === ".zip" ? "unsupported" : "text" };

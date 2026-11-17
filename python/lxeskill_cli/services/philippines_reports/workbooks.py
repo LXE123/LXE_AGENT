@@ -3,13 +3,13 @@
 from __future__ import annotations
 
 from contextlib import ExitStack
+from copy import copy
 from datetime import date
 from decimal import Decimal
 from itertools import chain
 import math
 from pathlib import Path
 
-from openpyxl.styles import Font, PatternFill
 from openpyxl.utils import get_column_letter
 
 from services.yacang.validation import INVENTORY_SALES_DELIVERY_HEADERS
@@ -65,22 +65,44 @@ def _excel_value(value: object) -> object:
 
 def _write_report(source, *, path: Path, headers, rows, source_sheet_name: str, sheet_name: str):
     book = source.book
-    book.worksheets[0].title = source_sheet_name
+    original = book.worksheets[0]
+    original.title = source_sheet_name
     sheet = book.create_sheet(sheet_name)
-    sheet.freeze_panes = "A2"
+    sheet.sheet_format = copy(original.sheet_format)
+    sheet.views = copy(original.views)
+    source_columns = {str(cell.value or "").strip(): cell.column for cell in original[1]}
+    column_numbers = [source_columns[header] for header in headers]
+    sku_column = source_columns["SKU"]
+    source_max_row = original.max_row
+    source_rows = {str(original.cell(row, sku_column).value).strip(): row
+                   for row in range(2, source_max_row + 1)
+                   if original.cell(row, sku_column).value is not None}
+    for target_column, source_column in enumerate(column_numbers, 1):
+        source_letter = get_column_letter(source_column)
+        target_letter = get_column_letter(target_column)
+        source_dimension = original.column_dimensions.get(source_letter)
+        if source_dimension is None:
+            source_dimension = next((dim for dim in original.column_dimensions.values()
+                                     if dim.min and dim.max and dim.min <= source_column <= dim.max), None)
+        if source_dimension is not None:
+            dimension = copy(source_dimension)
+            dimension.index = target_letter
+            dimension.min = dimension.max = target_column
+            sheet.column_dimensions[target_letter] = dimension
     sheet.auto_filter.ref = f"A1:{get_column_letter(len(headers))}{len(rows) + 1}"
     for row_number, row in enumerate(chain((headers,), rows), 1):
+        source_row = 1 if row_number == 1 else source_rows.get(row[headers.index("SKU")], 2)
+        if source_row in original.row_dimensions:
+            dimension = copy(original.row_dimensions[source_row])
+            dimension.index = row_number
+            sheet.row_dimensions[row_number] = dimension
         sheet.append([_excel_value(value) for value in row])
-        for column in range(1, len(headers) + 1):
+        for column, source_column in enumerate(column_numbers, 1):
             cell = sheet.cell(row_number, column)
+            if source_row <= source_max_row:
+                cell._style = copy(original.cell(source_row, source_column)._style)
             if isinstance(cell.value, str):
                 cell.data_type = "s"
-    for cell in sheet[1]:
-        cell.font = Font(bold=True, color="FFFFFF")
-        cell.fill = PatternFill(fill_type="solid", fgColor="24476A")
-    for index, header in enumerate(headers, 1):
-        width = 40 if header == "商品名" else 26 if header in {"SKU", "条码", "映射条码", "规格"} else 16
-        sheet.column_dimensions[get_column_letter(index)].width = width
     book.save(filesystem_path(path))
     return {"path": str(display_path(path.resolve())), "sheet_names": list(book.sheetnames),
             "row_count": len(rows), "source_row_count": len(source.rows)}

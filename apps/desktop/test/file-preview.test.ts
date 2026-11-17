@@ -32,6 +32,33 @@ test("workspace boundary rejects parent, absolute paths and symlink escape", asy
   await symlink(f.outside, join(f.workspace, "escape"), process.platform === "win32" ? "junction" : "dir");
   await expect(workspacePath(f.workspace, "escape/external.txt")).rejects.toThrow("outside");
 });
+test("a conversation click opens one external file, scoped to its session and window", async () => {
+  const { service, outside } = await fixture();
+  const ref = { kind: "linked", session_id: "s", path: join(outside, "external.txt") } as const;
+  await expect(service.call({ operation: "stat", input: { ref } })).rejects.toThrow("from its conversation");
+  service.clickedFileLink("s", ref.path);
+  const preview = await service.call({ operation: "prepare", input: { ref, request_id: "external", mode: "text" } });
+  expect((await service.readText(preview.handle)).text).toBe("external");
+  await expect(service.resolve({ ...ref, session_id: "other" })).rejects.toThrow("from its conversation");
+  await expect(service.read(preview.handle, "neighbor.png")).rejects.toThrow("only the selected file");
+  service.releaseAll();
+  await expect(service.resolve(ref)).rejects.toThrow("from its conversation");
+});
+test("a relative link cannot silently follow a repointed directory symlink", async () => {
+  const { service, workspace, outside, root } = await fixture();
+  const alias = join(root, "alias");
+  const linkType = process.platform === "win32" ? "junction" : "dir";
+  await symlink(outside, alias, linkType);
+  const ref = { kind: "linked", session_id: "s", path: "../alias/external.txt" } as const;
+  service.clickedFileLink("s", ref.path);
+  expect(await service.resolve(ref)).toBe(await realpath(join(outside, "external.txt")));
+  await rm(alias);
+  await writeFile(join(workspace, "external.txt"), "replacement");
+  await symlink(workspace, alias, linkType);
+  await expect(service.resolve(ref)).rejects.toThrow("target changed");
+  service.clickedFileLink("s", ref.path);
+  expect(await service.resolve(ref)).toBe(await realpath(join(workspace, "external.txt")));
+});
 test("pages directories first, includes hidden files, and does not treat symlinks as navigable directories", async () => {
   const f = await fixture(); await mkdir(join(f.workspace, "folder")); await writeFile(join(f.workspace, ".hidden"), "x");
   await Promise.all(Array.from({ length: 205 }, (_, i) => writeFile(join(f.workspace, `${i}.txt`), "x")));

@@ -345,4 +345,64 @@ module.exports = async ({suite,win,url,js,step,load,waitFor,click,key,focus,sett
       {level:'high',session_id:'Default chat',selection_version:0},
     ]);
   });
+  await step('assistant Markdown links open in the originating session file sidebar', async () => {
+    await load('?app=1&workspaces=1&section=sessions&fileLinks=1');
+    const report = '.conversation-feed .markdown-file-link[title="reports/测试 report.md"]';
+    const shopToggle = '[data-workspace-directory="/fixture/shop"] .workspace-group-toggle';
+    await waitFor(`Boolean(document.querySelector(${JSON.stringify(shopToggle)}))`, 'shop workspace');
+    await click(shopToggle);
+    for (const session of ['Default chat', 'Shop chat 1']) {
+      const row = `[data-session-id="${session}"] .session-index-open`;
+      await waitFor(`Boolean(document.querySelector(${JSON.stringify(row)}))`, 'session in sidebar');
+      await click(row);
+      await waitFor(`document.querySelector('.conversation-header h2')?.textContent === ${JSON.stringify(session)} && Boolean(document.querySelector(${JSON.stringify(report)}))`, 'report link in selected chat');
+      if (session === 'Default chat') {
+        const element = `document.querySelector(${JSON.stringify(report)})`;
+        const colors = () => js(`((s) => [s.color, s.textDecorationColor])(getComputedStyle(${element}))`);
+        for (const theme of ['light', 'dark']) {
+          await js(`document.documentElement.dataset.theme = ${JSON.stringify(theme)}; ${element}.scrollIntoView({ block: 'center' })`);
+          win.webContents.sendInputEvent({ type: 'mouseMove', x: 1, y: 1 });
+          await settle();
+          const [text, underline] = await colors();
+          assert.notEqual(underline, text);
+          const point = await js(`((r) => ({x: Math.round(r.left + r.width / 2), y: Math.round(r.top + r.height / 2)}))(${element}.getBoundingClientRect())`);
+          win.webContents.sendInputEvent({ type: 'mouseMove', ...point });
+          await waitFor(`${element}.matches(':hover')`, theme + ' file link hover');
+          assert.deepEqual(await colors(), [text, text]);
+          win.webContents.sendInputEvent({ type: 'mouseMove', x: 1, y: 1 });
+          await settle();
+          assert.deepEqual(await colors(), [text, underline]);
+        }
+      }
+      await focus(report);
+      await key('Enter');
+      await waitFor(`document.querySelector('.file-sidebar .file-markdown h1')?.textContent === ${JSON.stringify('Report from ' + session)}`, 'report from the selected workspace');
+      assert.ok((await state()).calls.some(call => call.operation === 'prepare' && call.input.ref.kind === 'workspace'
+        && call.input.ref.path === 'reports/测试 report.md' && call.input.ref.session_id === session));
+      await click(report);
+      assert.equal(await js("document.querySelectorAll('.file-tab [role=tab]').length"), 1);
+    }
+    await click('.conversation-feed .markdown-file-link[title="missing.txt"]');
+    await waitFor("!!document.querySelector('.file-sidebar .file-failure-panel')", 'missing file feedback in sidebar');
+    const link = line => `.conversation-feed .markdown-file-link[title="scripts/source.ts:${line}"]`;
+    for (const line of [42, 50, 42, 6500]) {
+      await click(link(line));
+      await waitFor(`(() => {
+        const row = document.querySelector('.file-sidebar .file-target-line[data-line="${line}"]');
+        const viewport = row?.closest('.file-text-scroll')?.getBoundingClientRect();
+        return row?.textContent === '// source line ${line}' && row.getBoundingClientRect().top >= viewport.top && row.getBoundingClientRect().bottom <= viewport.bottom;
+      })()`, 'visible source line ' + line);
+    }
+    assert.equal(await js("Array.from(document.querySelectorAll('.file-tab [role=tab]')).filter(tab => tab.textContent.includes('source.ts')).length"), 1);
+    await click('.file-text-actions button:first-of-type');
+    await waitFor("!!document.querySelector('.file-sidebar .code-line[data-line=\"1\"]')", 'return to beginning of distant source link');
+    await click(link(9999));
+    await waitFor("!!document.querySelector('.file-sidebar .file-line-missing')", 'line past end of file');
+    await click('.conversation-feed .markdown-file-link[data-linked-path="/fixture/shared/reference.ts"]');
+    await waitFor("document.querySelectorAll('.file-sidebar .file-target-line').length === 9", 'external file source range');
+    assert.deepEqual(await js("Array.from(document.querySelectorAll('.file-sidebar .file-target-line'), row => Number(row.dataset.line))"),
+      [42, 43, 44, 45, 46, 47, 48, 49, 50]);
+    assert.ok((await state()).calls.some(call => call.operation === 'prepare' && call.input.ref.kind === 'linked'
+      && call.input.ref.path === '/fixture/shared/reference.ts' && call.input.ref.session_id === 'Shop chat 1'));
+  });
 };

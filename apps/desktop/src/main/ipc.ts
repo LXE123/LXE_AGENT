@@ -49,7 +49,8 @@ import {
 
 export interface DesktopIpcApplication {
   showTitlebarMenu?(request: import("@lxe/desktop-protocol").DesktopTitlebarMenuRequest): Promise<import("@lxe/desktop-protocol").DesktopTitlebarAction>;
-  isTrustedFileSender(event: import("electron").IpcMainInvokeEvent): boolean;
+  isTrustedFileSender(event: Pick<Electron.IpcMainInvokeEvent, "sender" | "senderFrame">): boolean;
+  clickedFileLink(session: string, path: string): void;
   fileCall?<K extends keyof import("@lxe/desktop-protocol").DesktopFileOperations>(call: import("@lxe/desktop-protocol").DesktopFileCall<K>): Promise<import("@lxe/desktop-protocol").DesktopFileOperations[K]["result"]>;
   fileRead?(handle: string, relativeImage?: string): Promise<Uint8Array>;
   fileReadText?(handle: string, range?: import("@lxe/desktop-protocol").TextPageRequest): Promise<import("@lxe/desktop-protocol").PreviewTextPage>;
@@ -114,6 +115,10 @@ const stringArray = (value: unknown, label: string): string[] => {
 };
 
 export function registerDesktopIpc(application: DesktopIpcApplication): () => void {
+  const clickedFileLink = (event: Electron.IpcMainEvent, session: unknown, path: unknown) => {
+    if (application.isTrustedFileSender(event) && typeof session === "string" && typeof path === "string") application.clickedFileLink(session, path);
+  };
+  ipcMain.on(IPC_CHANNELS.clickedFileLink, clickedFileLink);
   const workspaceApps = new WorkspaceApplications({ openPath: path => shell.openPath(path), icon: path => process.platform === "darwin" ? bundleIconDataUrl(path) : app.getFileIcon(path, { size: "normal" }).then(image => image.toDataURL()) });
   const trustedWorkspaceSender = (event: Electron.IpcMainInvokeEvent) => { if (!application.isTrustedFileSender(event)) throw new Error("Workspace applications are only available to the desktop main frame"); };
   ipcMain.handle(IPC_CHANNELS.fileCall, (event, call) => fileResult(typeof call?.operation === "string" ? call.operation : "call", () => {
@@ -317,6 +322,7 @@ export function registerDesktopIpc(application: DesktopIpcApplication): () => vo
     if (error) throw new Error(error);
   });
   return () => {
+    ipcMain.removeListener(IPC_CHANNELS.clickedFileLink, clickedFileLink);
     for (const channel of Object.values(IPC_CHANNELS)) {
       if (channel !== IPC_CHANNELS.statusChanged
         && channel !== IPC_CHANNELS.cloudStateChanged

@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
-import { editableContextMenuTemplate } from "../src/main/edit-context-menu";
+import { editContextMenuTemplate } from "../src/main/edit-context-menu";
 
 const editFlags = {
   canUndo: false,
@@ -13,13 +13,16 @@ const editFlags = {
   canEditRichly: false,
 };
 
-describe("editable context menu", () => {
-  test("does not open outside editable controls", () => {
-    expect(editableContextMenuTemplate({ isEditable: false, editFlags })).toEqual([]);
+describe("edit context menu", () => {
+  test("offers native copy for a selection in read-only text", () => {
+    const params = { isEditable: false, selectionText: "Windows x64", editFlags: { ...editFlags, canCopy: true } };
+    expect(editContextMenuTemplate(params)).toEqual([{ role: "copy" }]);
+    expect(editContextMenuTemplate({ ...params, selectionText: "" })).toEqual([]);
+    expect(editContextMenuTemplate({ ...params, editFlags })).toEqual([]);
   });
 
   test("contains only native cut, copy, and paste roles with truthful states", () => {
-    expect(editableContextMenuTemplate({ isEditable: true, editFlags })).toEqual([
+    expect(editContextMenuTemplate({ isEditable: true, selectionText: "", editFlags })).toEqual([
       { role: "cut", enabled: true },
       { role: "copy", enabled: false },
       { role: "paste", enabled: true },

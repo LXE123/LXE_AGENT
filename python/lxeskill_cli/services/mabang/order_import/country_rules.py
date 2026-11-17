@@ -16,7 +16,6 @@ class ShippingCandidate(NamedTuple):
     header: str
     shipping_date: date
     field: str
-    yellow: bool = False
 
 
 class CountryRule(NamedTuple):
@@ -58,6 +57,10 @@ RULES = {
         "印尼", "印尼", 5, ("land", "air", "sea"), "IN",
         "印尼马帮订单导入模板-{order_id}.xlsx", "印尼备货清单", "mabang_indonesia_order_import",
     ),
+    "thailand": CountryRule(
+        "泰国", "泰国", 5, ("land", "air", "sea"), "TH",
+        "泰国马帮订单导入模板-{order_id}.xlsx", "泰国备货清单", "mabang_thailand_order_import",
+    ),
 }
 DATASET_IDS = {country: rule.dataset_id for country, rule in RULES.items()}
 COUNTRIES = tuple(RULES)
@@ -68,22 +71,6 @@ def _rule(country: str) -> CountryRule:
         return RULES[country]
     except (KeyError, TypeError) as exc:
         raise OrderImportWorkbookError(f"country 仅支持: {', '.join(COUNTRIES)}") from exc
-
-
-def _is_yellow_header(cell: Any) -> bool:
-    fill = cell.fill
-    if fill.patternType != "solid" or fill.fgColor.tint:
-        return False
-    color = fill.fgColor
-    if color.type == "rgb":
-        rgb = color.rgb
-    elif color.type == "indexed":
-        palette = cell.parent.parent._colors
-        index = color.indexed
-        rgb = palette[index] if isinstance(index, int) and 0 <= index < len(palette) else None
-    else:
-        return False
-    return isinstance(rgb, str) and rgb[-6:].upper() == "FFFF00"
 
 
 def _scan_candidates(rule: CountryRule, sheet: Any, today: date) -> list[ShippingCandidate]:
@@ -105,9 +92,9 @@ def _scan_candidates(rule: CountryRule, sheet: Any, today: date) -> list[Shippin
             field += f"_{batch.lower()}"
         shipping_date = nearest_occurrence(
             int(match.group("month")), int(match.group("day")), today,
-            country=rule.name, label=f"{cell.coordinate}: {label}", defer_year_tie=True,
+            country=rule.name, label=f"{cell.coordinate}: {label}",
         )
-        candidates.append(ShippingCandidate(cell.column, label, shipping_date, field, _is_yellow_header(cell)))
+        candidates.append(ShippingCandidate(cell.column, label, shipping_date, field))
     return candidates
 
 
@@ -124,21 +111,14 @@ def _closest_candidates(candidates: list[ShippingCandidate], today: date) -> lis
     return [item for item in candidates if item.shipping_date == closest]
 
 
-def _select_nearest_per_transport(
+def _select_nearest_date(
     rule: CountryRule, candidates: list[ShippingCandidate], overrides: Mapping[str, str], today: date,
 ) -> dict[str, ShippingCandidate]:
     if not candidates:
         raise OrderImportWorkbookError(f"{rule.name}工作表没有可识别的陆运、空运或海运日期字段")
     nearest_candidates: dict[str, list[ShippingCandidate]] = {}
-    for mode in rule.fields:
-        options = [item for item in candidates if item.field.partition("_")[0] == mode]
-        if not options:
-            continue
-        distance = min(abs((item.shipping_date - today).days) for item in options)
-        fields = {item.field for item in options if abs((item.shipping_date - today).days) == distance}
-        fields.update(item.field for item in options if item.yellow)
-        for field in fields:
-            nearest_candidates[field] = _closest_candidates([item for item in options if item.field == field], today)
+    for item in _closest_candidates(candidates, today):
+        nearest_candidates.setdefault(item.field, []).append(item)
 
     for field, column in overrides.items():
         choices = nearest_candidates.get(field, [])
@@ -192,13 +172,7 @@ def select_shipping_columns(
         if match is None:
             raise OrderImportWorkbookError(f"指定的运输列 {column} 不是离当天最近的候选列")
         overrides[match.field] = column
-    selected = _select_nearest_per_transport(rule, candidates, overrides, today)
-    for candidate in selected.values():
-        nearest_occurrence(
-            candidate.shipping_date.month, candidate.shipping_date.day, today,
-            country=rule.name, label=f"{get_column_letter(candidate.column)}1: {candidate.header}",
-        )
-    return selected
+    return _select_nearest_date(rule, candidates, overrides, today)
 
 
 def generate_order_workbooks(
@@ -239,14 +213,14 @@ def generate_order_workbooks(
             template_path=template_path,
         )
         artifact = {**result}
-        if country in {"malaysia", "philippines", "indonesia"}:
+        if country in {"malaysia", "philippines", "indonesia", "thailand"}:
             artifact["field"] = field
         artifact.update({
             "shipping_column": get_column_letter(candidate.column) if country == "brazil" else candidate.column,
             "shipping_header": candidate.header,
             "shipping_date": candidate.shipping_date.isoformat(),
         })
-        if country in {"vietnam", "philippines", "indonesia"}:
+        if country in {"vietnam", "philippines", "indonesia", "thailand"}:
             artifact["shipping_mode"] = _transport_output(field)[0]
         artifacts.append(artifact)
     return artifacts
