@@ -327,11 +327,10 @@ button {
   user-select: none;
 }
 
-.desktop-window-frame button,
-.desktop-window-frame input,
-.desktop-window-frame select,
-.desktop-window-frame summary,
-.desktop-window-frame a {
+/* Scrolled-out controls can subtract from the native title bar even when
+   clipped. The sidebar toggle is mounted in the frame but fixed in the caption. */
+.desktop-window-frame :is(button, input, select, summary, a):not(:where(.app-content-frame *)),
+.desktop-window-frame .sidebar-window-controls button {
   app-region: no-drag;
   -webkit-app-region: no-drag;
 }
@@ -341,9 +340,9 @@ button {
 }
 
 .desktop-platform-darwin:has(.app-shell.sessions-focus) > .desktop-window-drag-region {
+  /* Native window dragging uses the shared strip. DOM input goes to the
+     caption controls and their popovers above it. */
   pointer-events: none;
-  app-region: no-drag;
-  -webkit-app-region: no-drag;
 }
 
 .desktop-loading,
@@ -8766,29 +8765,9 @@ pre {
   backdrop-filter: none;
 }
 
-/* This row stands in for the window's title bar, but only its title text may
-   drag the window. Once the sidebar is collapsed the row starts at x=0 and runs
-   under the floating sidebar toggle, and a drag region there swallows the
-   button: draggable regions are handed to the window manager as caption area,
-   so the click never reaches the DOM. Stacking cannot rescue it either — the
-   regions are unioned and subtracted in document order, not by z-index, and the
-   header comes after the toggle, so its rectangle would be added back last. */
 .desktop-platform-darwin .sessions-focus .conversation-header {
   z-index: 21;
   background: var(--bg);
-  app-region: no-drag;
-  -webkit-app-region: no-drag;
-}
-
-.desktop-platform-darwin .sessions-focus .conversation-header-copy {
-  app-region: drag;
-  -webkit-app-region: drag;
-}
-
-/* Declared after the title text so the subtraction lands on top of it. */
-.desktop-platform-darwin .sessions-focus .conversation-header button {
-  app-region: no-drag;
-  -webkit-app-region: no-drag;
 }
 
 .desktop-window-frame .app-shell.sidebar-collapsed.sessions-focus .conversation-header {

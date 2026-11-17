@@ -47,6 +47,12 @@ module.exports = async ({ win, js, step, load, waitFor, click, settle, delay }) 
         for (const page of ["home", "workbench", "automations", "capabilities", "activity", "team-skills", "sessions"]) {
           await click(".tab-" + page); await delay(220);
           assert.deepEqual(await checkFrame(), first, `${page}: outer bounds stay fixed`);
+          if (page === "capabilities") {
+            const card = ".skills-catalog button.catalog-item";
+            await waitFor(`Boolean(document.querySelector('${card}'))`, "skill card mounted");
+            assert.equal(await js(`getComputedStyle(document.querySelector('${card}')).webkitAppRegion`), "none",
+              "scrolling skill cards cannot subtract from the native title-bar drag region");
+          }
           await capture(`${platform}-${theme}-${page}`);
         }
       }
@@ -75,6 +81,10 @@ module.exports = async ({ win, js, step, load, waitFor, click, settle, delay }) 
         await settle();
         assert.deepEqual(await checkFrame(), first);
         const pane = await rect(".file-sidebar"), strip = await rect(".file-tab-strip");
+        if (platform === "darwin") {
+          assert.equal(await js("getComputedStyle(document.querySelector('.file-tab-strip')).webkitAppRegion"), "none");
+          assert.equal(await js("getComputedStyle(document.querySelector('.file-tab [role=tab]')).webkitAppRegion"), "no-drag");
+        }
         assert.equal(await js("document.querySelectorAll('.file-header-actions button, .file-panel-hide').length"), 1, "split and full-width tools each have one toggle");
         assert.ok(Math.abs(pane.right - first.right + 1) < 0.02);
         assert.ok(Math.abs(strip.right - pane.right) < 0.02, "tool caption aligns with its pane");
