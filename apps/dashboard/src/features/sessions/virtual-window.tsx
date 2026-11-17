@@ -7,6 +7,13 @@ import type { ConversationRow } from "./presentation";
 import { useUiText } from "../../shared/i18n";
 import "./conversation-theme.css";
 
+function toolCardGroup(row: ConversationRow | undefined) {
+  if (row?.kind !== "tool") return;
+  const tool = row.operation ?? row.liveTool;
+  // Questions can turn into a standalone answer summary when the user replies.
+  if (tool && tool.name !== "ask_user_question") return processId(row);
+}
+
 export function ConversationWindow({ rows, renderRow, hasOlder, hasNewer, loadOlder, loadNewer, jumpToLatest, onVisibleGroups, pageError, empty, connection = "attached", onFollowingChange, followingIntent = true, historyTarget, jumpVersion = 0, retryLatest = false }: {
   connection?: "attached" | "detached"; onFollowingChange?: (following: boolean) => void; jumpVersion?: number; retryLatest?: boolean;
   followingIntent?: boolean; historyTarget?: { turnId: string; version: number };
@@ -256,13 +263,21 @@ export function ConversationWindow({ rows, renderRow, hasOlder, hasNewer, loadOl
         : el.scrollHeight - el.scrollTop - el.clientHeight <= 120 ? "end" : null);
     }}>
       <div className="conversation-feed" ref={setFeed} style={{ position: "relative", paddingBlock: rows.length ? 0 : undefined, minHeight: rows.length ? undefined : "100%" }}>
-        {!rows.length ? empty : items.map((item) => <div key={item.key} ref={virtual.measureElement} data-index={item.index}
-          data-conversation-row={rows[item.index]!.id} data-display-group={rows[item.index]!.groupId}
-          data-answer-id={answerId(rows[item.index]!)}
-          data-answer-active={Boolean(answerId(rows[item.index]!) && (answerId(rows[item.index]!) === hoveredAnswer || answerId(rows[item.index]!) === focusedAnswer)) || undefined}
-          style={{ position: "absolute", left: 0, width: "100%", paddingBottom: rows[item.index]!.kind === "process" || rows[item.index]!.presentation === "final" ? 8 : rows[item.index]!.presentation === "process" ? 6 : 12 }}>
-          {renderRow(rows[item.index]!)}
-        </div>)}
+        {!rows.length ? empty : items.map((item) => {
+          const row = rows[item.index]!;
+          const group = toolCardGroup(row);
+          const joinsPrevious = group !== undefined && group === toolCardGroup(rows[item.index - 1]);
+          const joinsNext = group !== undefined && group === toolCardGroup(rows[item.index + 1]);
+          const answer = answerId(row);
+          const paddingBottom = row.kind === "process" || row.presentation === "final" ? 8 : row.presentation === "process" ? 6 : 12;
+          return <div key={item.key} ref={virtual.measureElement} data-index={item.index}
+            data-conversation-row={row.id} data-display-group={row.groupId}
+            data-tool-joins-previous={joinsPrevious || undefined} data-tool-joins-next={joinsNext || undefined}
+            data-answer-id={answer} data-answer-active={Boolean(answer && (answer === hoveredAnswer || answer === focusedAnswer)) || undefined}
+            style={{ position: "absolute", left: 0, width: "100%", paddingBottom: joinsNext ? 0 : paddingBottom }}>
+            {renderRow(row)}
+          </div>;
+        })}
       </div>
     </div>
     {loading ? <span className="conversation-window-loading" aria-live="polite">{t.sessionDetail.loading}</span> : null}

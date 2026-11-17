@@ -2,6 +2,15 @@
 
 /* Tool chrome shares CDS surfaces and ink. Syntax colors belong to the shared
    conversation code palette in styles.css, independent of these UI tokens. */
+.conversation-feed [data-tool-joins-next] .tool-op-list {
+  border-bottom-width: 0;
+  border-bottom-left-radius: 0;
+  border-bottom-right-radius: 0;
+}
+.conversation-feed [data-tool-joins-previous] .tool-op-list {
+  border-top-left-radius: 0;
+  border-top-right-radius: 0;
+}
 .tool-turn-group.conversation-chrome-theme .tool-op-name {
   color: var(--cds-muted);
 }

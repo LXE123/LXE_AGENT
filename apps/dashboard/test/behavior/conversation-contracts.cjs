@@ -2,6 +2,32 @@ const assert = require('node:assert/strict');
 module.exports = async ({suite,win,url,js,step,load,waitFor,click,key,focus,settle,state}) => {
   const textClick = async text => { await js(`Array.from(document.querySelectorAll('button')).find(e=>e.textContent===${JSON.stringify(text)}).click()`); await settle(); };
   if (suite === 'conversation-window') {
+    await step('adjacent tool calls share an outline and expand independently', async () => {
+      await win.loadURL(new URL('../features/sessions/process-fixture.html', url).href);
+      const card = id => `[data-conversation-row="tool:t:${id}"] .tool-op-list`;
+      await waitFor(`Boolean(document.querySelector('${card("c")}'))`, 'first tool');
+      await js(`window.firstTool = document.querySelector('${card("c")}')`);
+      await textClick('Append tool calls');
+      for (const theme of ['light', 'dark']) {
+        await js(`document.documentElement.dataset.theme = '${theme}'`);
+        await settle();
+        const [first, middle, last, separate] = await js(`[${['c','write','check','last'].map(id => JSON.stringify(card(id))).join(',')}].map(selector => {
+          const el = document.querySelector(selector), style = getComputedStyle(el), rect = el.getBoundingClientRect();
+          return {top: rect.top, bottom: rect.bottom, topRadius: parseFloat(style.borderTopLeftRadius),
+            bottomRadius: parseFloat(style.borderBottomLeftRadius), topBorder: parseFloat(style.borderTopWidth), bottomBorder: parseFloat(style.borderBottomWidth)};
+        })`);
+        assert.ok(first.topRadius > 0 && last.bottomRadius > 0 && separate.topRadius > 0 && separate.bottomRadius > 0);
+        assert.deepEqual([first.bottomRadius, middle.topRadius, middle.bottomRadius, last.topRadius], [0, 0, 0, 0]);
+        for (const [above, below] of [[first, middle], [middle, last]]) {
+          assert.ok(Math.abs(above.bottom - below.top) < 1, 'no gap between cards');
+          assert.equal(above.bottomBorder + below.topBorder, 1, 'a single divider');
+        }
+      }
+      await click(card('write') + ' .tool-op-summary');
+      assert.equal(await js(`document.querySelector('${card("write")} .tool-op-summary').getAttribute('aria-expanded')`), 'true');
+      assert.equal(await js(`firstTool === document.querySelector('${card("c")}') && firstTool.querySelector('button').getAttribute('aria-expanded') === 'false'`), true);
+      assert.equal(await js(`document.querySelector('${card("check")} .tool-op-summary').getAttribute('aria-expanded')`), 'false');
+    });
     await step('resize compensation and row positions agree before the same paint',async()=>{
       for(const theme of ['light','dark']){
         await win.loadURL(new URL('../features/sessions/window-fixture.html',url).href);
