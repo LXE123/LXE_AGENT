@@ -29,7 +29,7 @@ void app.whenReady().then(async () => {
   registerTeamSkillsGuest(win.webContents, browsers, {
     preload: join(process.argv[2]!, "team-skills-preload.cjs"),
     versions: async ids => Object.fromEntries(ids.filter(id => installed[id]).map(id => [id, installed[id]!])),
-    install: async (id, version, fingerprint) => {
+    install: async ({ skillId: id, version }, fingerprint) => {
       if (installed[id] && !fingerprint) return { kind: "confirm", fingerprint: "fixture", previousVersion: installed[id]!, name: "demo" };
       installed[id] = version;
       return { kind: "installed", version };
@@ -82,12 +82,20 @@ void app.whenReady().then(async () => {
     const host = "window.lxeTeamSkills";
     const id = JSON.stringify(skillId);
     assert.deepEqual(await catalog.executeJavaScript(host + ".installedVersions([" + id + "])"), {});
-    assert.equal(await catalog.executeJavaScript(host + ".install(" + id + ", '1.0.0')", true), "1.0.0");
-    assert.equal(await catalog.executeJavaScript(host + ".install(" + id + ", '1.0.1')", true), null);
+    const install = (version: string) => host + ".install(" + id + ", " + JSON.stringify(version) + ", window.getTicket)";
+    await catalog.executeJavaScript(`window.ticketCalls = 0; window.requestVersion = '1.0.0'; window.getTicket = async () => {
+      window.ticketCalls++;
+      return { skillId: ${id}, version: window.requestVersion, size: 5, sha256: 'c'.repeat(64),
+        expiresAt: new Date(Date.now() + 120000).toISOString(), downloadUrl: 'https://dataloom-rdqueaxi.feishucdn.com/4577945282/bucket_aadk3bkqatkfw/demo?sign=fixture' };
+    }; void 0`);
+    assert.equal(await catalog.executeJavaScript(install("1.0.0"), true), "1.0.0");
+    await catalog.executeJavaScript("window.requestVersion = '1.0.1'");
+    assert.equal(await catalog.executeJavaScript(install("1.0.1"), true), null);
     assert.equal(installed[skillId], "1.0.0");
     approve = true;
-    assert.equal(await catalog.executeJavaScript(host + ".install(" + id + ", '1.0.1')", true), "1.0.1");
+    assert.equal(await catalog.executeJavaScript(install("1.0.1"), true), "1.0.1");
     assert.deepEqual(await catalog.executeJavaScript(host + ".installedVersions([" + id + "])"), { [skillId]: "1.0.1" });
+    assert.equal(await catalog.executeJavaScript("window.ticketCalls"), 4, "confirmed overwrite obtains a fresh web grant");
     const catalogId = catalog.id;
     const detail = new URL("/skill/detail", TEAM_SKILLS_URL).href;
     await catalog.loadURL(detail);

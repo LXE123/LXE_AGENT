@@ -551,6 +551,7 @@ async function bootstrap(): Promise<void> {
     dashboardCall: async <O extends DashboardRpcOperation>(
       call: DashboardRpcCall<O>,
     ): Promise<DashboardRpcResult<O>> => {
+      if (call.operation === "skills.team.install") throw new Error("请从团队技能库卡片安装");
       const result = await gateway.dashboardCall(call);
       invalidations.push(dashboardDomainsForMutation(call.operation));
       return result;
@@ -713,7 +714,7 @@ async function bootstrap(): Promise<void> {
   registerTeamSkillsGuest(window.webContents, manualTools?.browsers, {
     preload: join(import.meta.dirname, "team-skills-preload.cjs"),
     versions: ids => gateway.dashboardCall({ operation: "skills.team.versions", input: { ids } }),
-    install: (id, version, fingerprint) => gateway.dashboardCall({ operation: "skills.team.install", input: { id, version, ...(fingerprint && { fingerprint }) } }),
+    install: (ticket, fingerprint) => gateway.dashboardCall({ operation: "skills.team.install", input: { ticket, ...(fingerprint && { fingerprint }) } }),
     confirm: async (name, previousVersion, version) => (await dialog.showMessageBox(catalogWindow, {
       type: "question", title: "更新本机 Skill",
       message: previousVersion ? `将 ${name} 从 v${previousVersion} 更新到 v${version}？` : `用团队库的 ${name} v${version} 替换本机同名 Skill？`,

@@ -1,4 +1,4 @@
-import { validTeamSkillId, validTeamVersion, type TeamInstallResult } from "./team-skills";
+import { validTeamSkillId, parseTeamInstallTicket, type TeamInstallTicket, type TeamInstallResult } from "./team-skills";
 import { AUTOMATION_OPERATIONS, parseAutomationCall, type AutomationRpcSpec, type AutomationOperation } from "./automations";
 import { parsePermissionMode, type PermissionMode, type PendingApproval, type ApprovalDecision } from "@lxe/protocol";
 export type { PermissionMode, PendingApproval, ApprovalDecision } from "@lxe/protocol";
@@ -575,7 +575,7 @@ export interface DashboardRpcSpec extends AutomationRpcSpec {
     result: WorkspaceReloadPayload;
   };
   "skills.team.versions": { input: { ids: string[] }; result: Record<string, string> };
-  "skills.team.install": { input: { id: string; version: string; fingerprint?: string }; result: TeamInstallResult };
+  "skills.team.install": { input: { ticket: TeamInstallTicket; fingerprint?: string }; result: TeamInstallResult };
   "skills.user.list": { input: DashboardRpcEmptyInput; result: ApiList<UserSkillPayload> };
   "skills.user.content": { input: { id: string; path?: string }; result: UserSkillContentPayload };
   "skills.user.setEnabled": { input: { id: string; version: string; enabled: boolean }; result: UserSkillPayload };
@@ -971,10 +971,9 @@ export function parseDashboardRpcCall(value: unknown): DashboardRpcCall {
       if (!Array.isArray(input.ids) || input.ids.length > 100 || !input.ids.every(validTeamSkillId)) return rpcError("Invalid team skill IDs");
       return { operation, input: { ids: input.ids } };
     case "skills.team.install":
-      exactKeys(input, ["id", "version", "fingerprint"], operation);
-      if (!validTeamSkillId(input.id) || !validTeamVersion(input.version) ||
-          (input.fingerprint !== undefined && (typeof input.fingerprint !== "string" || !/^[a-f0-9]{64}$/.test(input.fingerprint)))) return rpcError("Invalid team skill release");
-      return { operation, input: { id: input.id, version: input.version, ...(typeof input.fingerprint === "string" && { fingerprint: input.fingerprint }) } };
+      exactKeys(input, ["ticket", "fingerprint"], operation);
+      if (input.fingerprint !== undefined && (typeof input.fingerprint !== "string" || !/^[a-f0-9]{64}$/.test(input.fingerprint))) return rpcError("Invalid team skill confirmation");
+      return { operation, input: { ticket: parseTeamInstallTicket(input.ticket), ...(typeof input.fingerprint === "string" && { fingerprint: input.fingerprint }) } };
     case "skills.user.list":
     case "commands.list":
     case "toolsets.list":

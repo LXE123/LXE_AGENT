@@ -3,7 +3,8 @@ import { existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, realpathSy
 import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import lockfile from "proper-lockfile";
 import { SkillCatalog, type SkillCatalogEntry } from "@lxe/runtime";
-import { validTeamSkillId, validTeamVersion, type TeamInstallResult } from "@lxe/desktop-protocol/team-skills";
+import { validTeamSkillId, validTeamVersion, parseTeamInstallTicket, type TeamInstallTicket, type TeamInstallResult } from "@lxe/desktop-protocol/team-skills";
+import { downloadTeamSkill } from "./team-skill-download";
 import { extractTeamSkill, TEAM_RECEIPT } from "./team-skill-archive";
 
 type Release = { id: string; version: string; treeHash?: string };
@@ -68,7 +69,7 @@ function restoreSwap(stage: string, root: string) {
 }
 
 export class TeamSkillInstaller {
-  constructor(private readonly catalog: SkillCatalog, private readonly download?: (id: string, version: string) => Promise<Buffer>) {}
+  constructor(private readonly catalog: SkillCatalog, private readonly download = downloadTeamSkill) {}
 
   private inventory() {
     this.catalog.forceRefresh();
@@ -94,10 +95,10 @@ export class TeamSkillInstaller {
     return result;
   }
 
-  async install(id: string, version: string, fingerprint?: string): Promise<TeamInstallResult> {
-    if (!validTeamSkillId(id) || !validTeamVersion(version)) throw new Error("无效的技能 ID 或版本");
-    if (!this.download) throw new Error("团队技能下载服务不可用");
-    const bytes = await this.download(id, version);
+  async install(raw: TeamInstallTicket, fingerprint?: string): Promise<TeamInstallResult> {
+    const ticket = parseTeamInstallTicket(raw);
+    const { skillId: id, version } = ticket;
+    const bytes = await this.download(ticket);
     mkdirSync(this.catalog.userSkillsRoot, { recursive: true });
     const root = realpathSync(this.catalog.userSkillsRoot);
     const stage = join(root, stageName);

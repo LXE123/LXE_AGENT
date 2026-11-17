@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { app, session, shell, type DownloadItem, type NavigationEntry, type WebContents } from "electron";
 import { createLogger } from "@lxe/core";
-import { TEAM_SKILLS_URL, isTeamSkillsPage, validTeamSkillId, validTeamVersion, type TeamInstallResult, type TeamSkillsBrowserState } from "@lxe/desktop-protocol/team-skills";
+import { TEAM_SKILLS_URL, isTeamSkillsPage, validTeamSkillId, parseTeamInstallTicket, type TeamInstallTicket, type TeamInstallResult, type TeamSkillsBrowserState } from "@lxe/desktop-protocol/team-skills";
 import { IPC_CHANNELS } from "../ipc-channels";
 import { WindowTabBudget } from "./manual-tools/tab-budget";
 import type { ManualBrowsers } from "./manual-tools/browsers";
@@ -12,7 +12,7 @@ const partition = "persist:lxe-workbench-team-skills";
 interface CatalogHost {
   preload: string;
   versions(ids: string[]): Promise<Record<string, string>>;
-  install(id: string, version: string, fingerprint?: string): Promise<TeamInstallResult>;
+  install(ticket: TeamInstallTicket, fingerprint?: string): Promise<TeamInstallResult>;
   confirm(name: string, previousVersion: string | null, version: string): Promise<boolean>;
 }
 
@@ -163,21 +163,30 @@ export function registerTeamSkillsGuest(dashboard: WebContents, browsers?: Manua
         if (!Array.isArray(ids) || ids.length > 100 || !ids.every(validTeamSkillId)) throw new Error("无效的技能 ID 列表");
         return host.versions(ids);
       });
-      guest.ipc.handle(IPC_CHANNELS.teamSkillInstall, async (event, id: unknown, version: unknown) => {
+      const approvals = new Map<string, { token: string; fingerprint: string; version: string; sha256: string }>();
+      guest.on("did-start-navigation", event => { if (event.isMainFrame && !event.isSameDocument) approvals.clear(); });
+      guest.ipc.handle(IPC_CHANNELS.teamSkillInstall, async (event, raw: unknown, token?: unknown) => {
         requireCatalog(event);
-        if (!validTeamSkillId(id) || !validTeamVersion(version)) throw new Error("无效的技能 ID 或版本");
+        const ticket = parseTeamInstallTicket(raw);
+        const { skillId: id, version, sha256 } = ticket;
         if (installing.has(id)) throw new Error("该技能正在安装");
         installing.add(id);
         try {
-          let result = await host.install(id, version);
-          if (result.kind === "confirm") {
-            requireCatalog(event);
-            if (!await host.confirm(result.name, result.previousVersion, version)) return null;
-            requireCatalog(event);
-            result = await host.install(id, version, result.fingerprint);
-          }
-          if (result.kind !== "installed") throw new Error("确认期间本机技能已变化，请重试");
-          return result.version;
+          const approved = approvals.get(id);
+          approvals.delete(id);
+          if (token !== undefined && (!approved || token !== approved.token || approved.version !== version || approved.sha256 !== sha256))
+            throw new Error("安装确认已失效，请重试");
+          const result = await host.install(ticket, token === undefined ? undefined : approved!.fingerprint);
+          if (result.kind === "installed") return result.version;
+          if (token !== undefined) throw new Error("确认期间本机技能已变化，请重试");
+          requireCatalog(event);
+          if (!await host.confirm(result.name, result.previousVersion, version)) return null;
+          requireCatalog(event);
+          const approval = randomUUID();
+          approvals.set(id, { token: approval, version, sha256, fingerprint: result.fingerprint });
+          const timeout = setTimeout(() => { if (approvals.get(id)?.token === approval) approvals.delete(id); }, 120_000);
+          timeout.unref();
+          return { approval };
         } finally { installing.delete(id); budget.enforce(); }
       });
     }
