@@ -885,8 +885,12 @@ app.whenReady().then(async () => {
               assert.ok((await rect(".navigation-rail-button")).top >= 44);
               assert.equal(await js("getComputedStyle(document.querySelector('.sidebar-toggle-button')).webkitAppRegion"), "no-drag");
               if (platform === "darwin") {
-                assert.equal(await js("getComputedStyle(document.querySelector('.conversation-header')).webkitAppRegion"), "no-drag");
-                assert.equal(await js("getComputedStyle(document.querySelector('.conversation-header-copy')).webkitAppRegion"), "drag");
+                const strip = await rect(".desktop-window-drag-region");
+                assert.equal(strip.left, 0);
+                assert.equal(strip.right, await js("innerWidth"));
+                assert.equal(strip.bottom, (await rect(".app-content-frame")).top);
+                assert.equal(await js("getComputedStyle(document.querySelector('.desktop-window-drag-region')).webkitAppRegion"), "drag");
+                assert.equal(await js("getComputedStyle(document.querySelector('.conversation-header')).webkitAppRegion"), "none");
                 assert.equal(await js("getComputedStyle(document.querySelector('.conversation-header button')).webkitAppRegion"), "no-drag");
               }
               if (platform === "win32") {

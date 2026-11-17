@@ -81,6 +81,10 @@ module.exports = async ({ win, js, step, load, waitFor, click, settle, delay }) 
         await settle();
         assert.deepEqual(await checkFrame(), first);
         const pane = await rect(".file-sidebar"), strip = await rect(".file-tab-strip");
+        if (platform === "darwin") {
+          assert.equal(await js("getComputedStyle(document.querySelector('.file-tab-strip')).webkitAppRegion"), "none");
+          assert.equal(await js("getComputedStyle(document.querySelector('.file-tab [role=tab]')).webkitAppRegion"), "no-drag");
+        }
         assert.equal(await js("document.querySelectorAll('.file-header-actions button, .file-panel-hide').length"), 1, "split and full-width tools each have one toggle");
         assert.ok(Math.abs(pane.right - first.right + 1) < 0.02);
         assert.ok(Math.abs(strip.right - pane.right) < 0.02, "tool caption aligns with its pane");
