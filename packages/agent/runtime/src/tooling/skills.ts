@@ -18,6 +18,7 @@ export interface SkillReference extends JsonObject {
 }
 
 export interface SkillManifest {
+  teamRelease?: { id: string; version: string };
   name: string;
   type: string;
   description: string;
@@ -165,7 +166,12 @@ export const parseSkillManifest = (path: string, source: SkillManifest["source"]
   if (new Set(commands).size !== commands.length) {
     throw new SkillCatalogError(`duplicate command within skill ${name}`);
   }
+  const release = object(metadata.metadata);
+  const id = release["team-skills-id"], version = release["team-skills-version"];
   return {
+    ...((id !== undefined || version !== undefined) && { teamRelease: {
+      id: typeof id === "string" ? id : "", version: typeof version === "string" ? version : "",
+    } }),
     name,
     type: String(metadata.type ?? "default").trim() || "default",
     description: String(metadata.description ?? "").trim().replaceAll(/\s+/g, " "),
@@ -237,7 +243,7 @@ export class SkillCatalog {
   ) {
     this.sharedSkillsRoot = options.sharedSkillsRoot ?? join(homedir(), ".agents", "skills");
     this.statePath = options.statePath;
-    this.excludedRoots = options.excludedRoots ?? [];
+    this.excludedRoots = [...(options.excludedRoots ?? []), join(userSkillsRoot, ".lxe-team-install")];
     this.onChanged = options.onChanged;
     this.repositorySkillsRoot = resolve(options.repositorySkillsRoot ?? join(projectRoot, "skills"));
   }

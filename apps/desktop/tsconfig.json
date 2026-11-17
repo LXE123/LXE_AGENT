@@ -7,6 +7,7 @@
   "include": [
     "src/main.ts",
     "src/preload.ts",
+    "src/team-skills-preload.ts",
     "src/ipc-channels.ts",
     "src/main",
     "src/mcp",

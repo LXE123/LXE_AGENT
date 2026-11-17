@@ -431,7 +431,9 @@ export class ProcessAgentRuntime implements DirectAgentRuntime {
   async dashboardCall<O extends AgentDashboardRpcOperation>(
     call: AgentDashboardRpcCall<O>,
   ): Promise<DashboardRpcResult<O>> {
-    return await this.request("dashboard_call", call) as DashboardRpcResult<O>;
+    // The signed ZIP request can take 60 seconds before extraction and catalog refresh.
+    const timeout = call.operation === "skills.team.install" ? Math.max(this.options.requestTimeoutMs ?? 0, 90_000) : undefined;
+    return await this.request("dashboard_call", call, timeout) as DashboardRpcResult<O>;
   }
   async sessionStatus(request: import("@lxe/desktop-protocol").SessionStatusRequest): Promise<import("@lxe/desktop-protocol").SessionRunSummary[]> {
     return await this.request("session_status", request) as import("@lxe/desktop-protocol").SessionRunSummary[];
