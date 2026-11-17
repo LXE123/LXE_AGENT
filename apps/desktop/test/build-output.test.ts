@@ -33,6 +33,9 @@ describe("Desktop build output", () => {
     expect(main).toContain("ERR_UPDATER_NO_FILES_PROVIDED");
     expect(main).not.toMatch(/(?:require\(|from\s+)["']electron-updater(?:["'/])/);
 
+    const catalog = readFileSync(join(outputRoot, "team-skills-preload.cjs"), "utf8");
+    expect(catalog).toContain('require("electron")');
+    expect(catalog).toContain("lxeTeamSkills");
     expect(preload).toContain('require("electron")');
     expect(preload).not.toMatch(/^\s*import\s/m);
   }, 30_000);

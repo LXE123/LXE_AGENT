@@ -37,6 +37,8 @@ import {
   type PermissionApprovalService,
 } from "@lxe/runtime";
 
+import { TeamSkillInstaller } from "./team-skill-installer";
+
 type Environment = Record<string, string | undefined>;
 
 /** Agent-process dependencies required by the Dashboard query service. */
@@ -233,6 +235,7 @@ function rpcError(code: ConstructorParameters<typeof DashboardRpcError>[0], mess
 
 export class DashboardService {
   private readonly skillCatalog: SkillCatalog;
+  private readonly teamSkills: TeamSkillInstaller;
   private readonly userSkillFiles: UserSkillFiles;
   private readonly handlers: AgentDashboardRpcHandlers = {
     "sessions.turn.lookup": input => this.options.store.lookupTurn(input.session_id, input.turn_id),
@@ -301,6 +304,8 @@ export class DashboardService {
     "skills.user.content": input => this.userSkillFiles.content(input.id, this.skillOptions(), input.path),
     "skills.user.setEnabled": input => this.userSkillFiles.setEnabled(input.id, input.version, input.enabled, this.skillOptions()),
     "skills.user.delete": input => this.userSkillFiles.delete(input.id, input.version),
+    "skills.team.versions": input => this.teamSkills.versions(input.ids),
+    "skills.team.install": input => this.teamSkills.install(input.ticket, input.replaceLocalName),
     "skills.list": async input => this.listPayload((await this.sessionSkills(input.session_id)).map(manifest => this.skillPayload(manifest))) as DashboardRpcResult<"skills.list">,
     "skills.content": async input => {
       const skill = (await this.sessionSkills(input.session_id)).find(item => item.name === input.name);
@@ -342,6 +347,7 @@ export class DashboardService {
       statePath: join(options.stateRoot, "config", "skill-states.local.json"),
     excludedRoots: [join(options.stateRoot, "trash", "skills")],
     });
+    this.teamSkills = new TeamSkillInstaller(this.skillCatalog);
     this.userSkillFiles = new UserSkillFiles(this.skillCatalog, options.stateRoot);
   }
 

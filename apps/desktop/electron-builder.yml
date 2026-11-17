@@ -13,6 +13,7 @@ directories:
 files:
   - dist/main.js
   - dist/preload.cjs
+  - dist/team-skills-preload.cjs
   - dist/desktop-mcp.mjs
   - dist/automation-time-worker.mjs
   - dist/pty-host.cjs
