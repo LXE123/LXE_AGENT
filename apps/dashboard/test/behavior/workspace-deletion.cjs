@@ -53,7 +53,8 @@ module.exports = async ({win,js,step,load,waitFor,click,key,focus,settle,state})
     assert.equal(await selected(),'Default chat'); assert.equal(await draft(),'Keep this draft');
     assert.equal((await state()).sessions.find(s=>s.session_id==='Default chat').workspace_id,null);
     assert.equal(await js("document.querySelector('.conversation-send-button').dataset.mode"),'stop');
-    assert.match(await js("document.querySelector('.conversation-queue-status').textContent"), /1/);
+    assert.equal(await js(`document.querySelector('[data-conversation-row="user:queued-input"] .message-card [role="status"]')?.textContent`), 'Queued');
+    assert.equal(await js(`document.querySelector('[data-conversation-row="status:queued"], .conversation-queue-status') !== null`), false);
     assert.equal((await state()).calls.some(c=>c.operation==='sessions.stop'||c.operation==='sessions.delete'),false);
     await waitFor("document.activeElement?.classList.contains('session-new-button')", 'focus restored to new conversation');
   });

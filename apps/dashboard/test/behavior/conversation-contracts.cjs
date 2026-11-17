@@ -27,6 +27,17 @@ module.exports = async ({suite,win,url,js,step,load,waitFor,click,key,focus,sett
       assert.equal(await js(`document.querySelector('${card("write")} .tool-op-summary').getAttribute('aria-expanded')`), 'true');
       assert.equal(await js(`firstTool === document.querySelector('${card("c")}') && firstTool.querySelector('button').getAttribute('aria-expanded') === 'false'`), true);
       assert.equal(await js(`document.querySelector('${card("check")} .tool-op-summary').getAttribute('aria-expanded')`), 'false');
+      await textClick('Show thinking between calls');
+      await js(`{ const transcript = document.querySelector('.conversation-transcript');
+        transcript.dispatchEvent(new WheelEvent('wheel', { bubbles: true, deltaY: -600 }));
+        transcript.scrollTop = 0; }`);
+      await waitFor(`Boolean(document.querySelector('${card("c")}') && document.querySelector('${card("check")}'))`, 'tool cards around visible thinking');
+      for (const id of ['c', 'write', 'check']) {
+        assert.equal(await js(`document.querySelector('${card(id)}').closest('[data-conversation-row]').matches('[data-tool-joins-previous], [data-tool-joins-next]')`), false);
+      }
+      assert.equal(await js(`document.querySelector('[data-conversation-row="next:0"]').textContent`), 'Checking a detail.');
+      assert.ok(await js(`document.querySelector('[data-conversation-row="next:4"] .redacted')?.textContent`));
+      assert.equal(await js(`document.querySelector('${card("write")} .tool-op-summary').getAttribute('aria-expanded')`), 'true');
     });
     await step('resize compensation and row positions agree before the same paint',async()=>{
       for(const theme of ['light','dark']){

@@ -15,13 +15,21 @@ function Fixture(){
   const [attached,setAttached]=useState(false);
   const [extraFile,setExtraFile]=useState(false);
   const [moreTools,setMoreTools]=useState(false);
+  const [visibleThinking,setVisibleThinking]=useState(false);
   const files=[{artifact_id:"sheet",turn_id:"t",tool_call_id:"c",name:"备货建议.xlsx"},...(extraFile?[{artifact_id:"notes",turn_id:"t",tool_call_id:"c",name:"补充说明.md"}]:[])];
   const messages=[
     {role:"user",content:longUser?"请检查这个文件并给出建议。".repeat(30):"Inspect the file",attachments:attached?[{attachment_id:"input",kind:"file",name:"input.xlsx",mime_type:"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",size_bytes:20}]:undefined,display_id:"u",client_message_id:"u"},
     {role:"assistant",id:"a",content:[{type:"thinking",thinking:"I will inspect the file before answering.\n\nSecond paragraph with\n  indentation preserved.\n\n\nThird paragraph."},{type:"text",text:"Checking the implementation now."},{type:"tool_call",id:"c",name:"read",arguments:{path:"example.ts"}}]},
     {role:"tool",artifacts:files,content:[{type:"tool_result",tool_call_id:"c",content:"Example source\n".repeat(100)}]},
     ...(moreTools ? [
-      {role:"assistant",id:"next",content:[{type:"tool_call",id:"write",name:"write",arguments:{path:"notes.md"}},{type:"tool_call",id:"check",name:"exec",arguments:{cmd:"ls notes.md"}}]},
+      {role:"assistant",id:"next",content:[
+        {type:"thinking",thinking:visibleThinking ? "Checking a detail." : "",signature:"fixture"},
+        {type:"tool_call",id:"write",name:"write",arguments:{path:"notes.md"}},
+        {type:"thinking",thinking:"  \n"},
+        {type:"text",text:"\t\n"},
+        ...(visibleThinking ? [{type:"redacted_thinking",data:"fixture"}] : []),
+        {type:"tool_call",id:"check",name:"exec",arguments:{cmd:"ls notes.md"}},
+      ]},
       {role:"assistant",id:"after",content:[{type:"text",text:"Checking the output."},{type:"tool_call",id:"last",name:"read",arguments:{path:"notes.md"}}]},
     ] : []),
     {role:"assistant",id:"b",content:[{type:"thinking",thinking:"The result is consistent.\n".repeat(40)},{type:"text",text:"**Final answer** stays outside the process."}]},
@@ -29,6 +37,7 @@ function Fixture(){
   const process=useProcessRows(conversationRows(messages,[],[]),"fixture");
   return <div style={{width:narrow?390:"100%",maxWidth:"100%",height:"100vh",display:"flex",flexDirection:"column"}}>
     <button onClick={()=>setMoreTools(true)}>Append tool calls</button>
+    {moreTools && <button onClick={()=>setVisibleThinking(true)}>Show thinking between calls</button>}
     <div><button onClick={()=>setNarrow(v=>!v)}>Toggle narrow column</button><button onClick={()=>setLongUser(v=>!v)}>Toggle long user</button><button onClick={()=>setAttached(v=>!v)}>Toggle attachment</button><button onClick={()=>setExtraFile(v=>!v)}>Toggle extra file</button><button onClick={()=>setStatus("completed")}>Complete</button><button onClick={()=>setStatus("error")}>Fail</button><button onClick={()=>setStatus("running")}>Run again</button></div>
     <ConversationWindow rows={process.rows} hasOlder={false} hasNewer={false} loadOlder={noop} loadNewer={noop} jumpToLatest={()=>{}} onVisibleGroups={()=>{}} pageError=""
       renderRow={row=><UnifiedConversationRow row={row} expanded={row.kind==="process"?process.states.get(row.id)?.expanded??false:tools.get(row.id)??false}

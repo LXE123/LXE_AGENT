@@ -158,9 +158,13 @@ export function composeConversationRows(projection: ConversationHistoryProjectio
     const groupId = history.find((row) => row.message?.role === "assistant" || row.kind === "tool")?.groupId ?? `live:${turn.turn_id}`;
     const base = { groupId, turnId: turn.turn_id, createdAt: turn.created_at ?? turn.started_at };
     const userId = userDisplayId(turn);
-    if (!rows.some((row) => row.id === userId || (row.turnId === turn.turn_id && row.message?.role === "user"))) {
+    const userIndex = rows.findIndex((row) => row.id === userId || (row.turnId === turn.turn_id && row.message?.role === "user"));
+    if (userIndex < 0) {
       rows.push({ ...base, id: userId, kind: "message", status: turn.state, message: { display_group_id: groupId, role: "user", content: turn.text, attachments: turn.attachments, created_at: base.createdAt / 1000 } });
+    } else if (turn.state === "queued") {
+      rows[userIndex] = { ...rows[userIndex]!, status: "queued" };
     }
+    if (turn.state === "queued") continue;
     const parts: ConversationRow[] = (turn.stream?.process_parts ?? []).map((part) => part.type === "tool"
       ? { ...base, id: toolDisplayId(turn.turn_id, groupId, part.tool_step.id), kind: "tool", presentation: "process", liveTool: part.tool_step }
       : { ...base, id: part.part_id, kind: "message", presentation: part.type === "text" && part.presentation === "final" ? "final" : "process", status: part.status, message: { display_group_id: groupId, role: "assistant", content: [part.type === "thinking" ? { type: "thinking", thinking: part.text, redacted: part.redacted_count > 0 } : { type: "text", text: part.text }] } });

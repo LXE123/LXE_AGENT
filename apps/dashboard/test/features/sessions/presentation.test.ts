@@ -17,6 +17,18 @@ describe("unified conversation identity", () => {
     }
     expect(conversationRows([], [], [pending, {...pending, pendingId:"other"}]).length).toBe(2);
   });
+  test("only waiting user messages carry a queue label, including after history loads", () => {
+    const first = { ...turn, state: "queued" as const, started_at: 0, settled_at: 0 };
+    const next = { ...first, turn_id: "next", message_id: "next-server", client_message_id: "next-client", created_at: 11 };
+    const savedInput = { ...stored, created_at: pending.createdAt / 1000, turn: { turn_id: first.turn_id, status: null, elapsed_ms: null } };
+    for (const history of [[], [savedInput]]) {
+      const waiting = conversationRows(history, [first, next], [pending]);
+      expect(waiting.map(row => [row.id, row.status])).toEqual([["user:client", "queued"], ["user:next-client", "queued"]]);
+      const running = conversationRows(history, [{ ...first, state: "running" }, next], []);
+      expect(running.filter(row => row.status === "queued").map(row => row.id)).toEqual(["user:next-client"]);
+      expect(running.find(row => row.id === "status:turn")?.status).toBe("running");
+    }
+  });
   test("failed sends stay visible; timestamps alone never retire a bubble", () => {
     expect(conversationRows([], [turn], [pending]).some(r=>r.id === "user:client")).toBe(true);
     expect(conversationRows([], [], [{...pending,error:"actual transport failure"}])[0]?.error).toBe("actual transport failure");

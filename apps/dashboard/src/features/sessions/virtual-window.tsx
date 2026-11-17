@@ -4,6 +4,7 @@ import { ChevronDown } from "lucide-react";
 import { useScrollFollowInput } from "./use-scroll-follow-input";
 import { processId } from "./process";
 import type { ConversationRow } from "./presentation";
+import { isRecord } from "../../shared/content";
 import { useUiText } from "../../shared/i18n";
 import "./conversation-theme.css";
 
@@ -14,7 +15,34 @@ function toolCardGroup(row: ConversationRow | undefined) {
   if (tool && tool.name !== "ask_user_question") return processId(row);
 }
 
-export function ConversationWindow({ rows, renderRow, hasOlder, hasNewer, loadOlder, loadNewer, jumpToLatest, onVisibleGroups, pageError, empty, connection = "attached", onFollowingChange, followingIntent = true, historyTarget, jumpVersion = 0, retryLatest = false }: {
+function isBlankToolSeparator(row: ConversationRow) {
+  const message = row.message;
+  if (row.kind !== "message" || message?.role !== "assistant" || row.status === "error"
+    || message.attachments?.length || message.tool_calls) return false;
+  const content = message.content;
+  if (typeof content === "string") return !content.trim();
+  if (!Array.isArray(content) || content.length !== 1) return false;
+  const block = content[0];
+  if (!isRecord(block)) return false;
+  if (block.type === "thinking" && !block.redacted) return !String(block.thinking ?? "").trim();
+  return block.type === "text" && !String(block.text ?? "").trim();
+}
+
+function omitBlankRowsBetweenTools(source: ConversationRow[]) {
+  const rows: ConversationRow[] = [];
+  for (let i = 0; i < source.length; i++) {
+    const row = source[i]!;
+    rows.push(row);
+    const group = toolCardGroup(row);
+    if (!group) continue;
+    let next = i + 1;
+    while (next < source.length && isBlankToolSeparator(source[next]!) && processId(source[next]!) === group) next++;
+    if (toolCardGroup(source[next]) === group) i = next - 1;
+  }
+  return rows;
+}
+
+export function ConversationWindow({ rows: sourceRows, renderRow, hasOlder, hasNewer, loadOlder, loadNewer, jumpToLatest, onVisibleGroups, pageError, empty, connection = "attached", onFollowingChange, followingIntent = true, historyTarget, jumpVersion = 0, retryLatest = false }: {
   connection?: "attached" | "detached"; onFollowingChange?: (following: boolean) => void; jumpVersion?: number; retryLatest?: boolean;
   followingIntent?: boolean; historyTarget?: { turnId: string; version: number };
   rows: ConversationRow[]; renderRow: (row: ConversationRow) => React.ReactNode;
@@ -22,6 +50,7 @@ export function ConversationWindow({ rows, renderRow, hasOlder, hasNewer, loadOl
   jumpToLatest: () => void; onVisibleGroups: (groups: string[]) => void; pageError: string; empty?: React.ReactNode;
 }) {
   const t = useUiText();
+  const rows = React.useMemo(() => omitBlankRowsBetweenTools(sourceRows), [sourceRows]);
   const root = useRef<HTMLDivElement>(null);
   const initial = useRef(false);
   const feed = useRef<HTMLDivElement>(null);
