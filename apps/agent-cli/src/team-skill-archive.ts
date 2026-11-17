@@ -1,9 +1,9 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { ZipReader, Uint8ArrayReader, type Entry } from "@zip.js/zip.js";
+import { parseDocument } from "yaml";
 import { parseSkillManifest } from "@lxe/runtime";
 
-export const TEAM_RECEIPT = ".lxe-team-release.json";
 const maxExpanded = (30 * 1024 + 128) * 1024;
 
 export function safeComponent(name: string): boolean {
@@ -35,7 +35,7 @@ export async function extractTeamSkill(bytes: Buffer, stage: string, id: string,
       const raw = entry.filename.slice(prefix.length);
       if (!raw && entry.directory) continue;
       const parts = (entry.directory && raw.endsWith("/") ? raw.slice(0, -1) : raw).split("/");
-      if (!parts.every(safeComponent) || parts.some(p => /^(?:\.git|\.env(?:\..*)?|\.lxe-team-release\.json)$/i.test(p))) throw new Error("ZIP 包含不支持的路径");
+      if (!parts.every(safeComponent) || parts.some(p => /^(?:\.git|\.env(?:\..*)?)$/i.test(p))) throw new Error("ZIP 包含不支持的路径");
       for (let i = 1; i <= parts.length; i++) {
         const part = parts.slice(0, i).join("/");
         const key = part.normalize("NFKC").toLowerCase(), prior = types.get(key);
@@ -60,7 +60,18 @@ export async function extractTeamSkill(bytes: Buffer, stage: string, id: string,
     }
     const manifest = parseSkillManifest(join(stage, "SKILL.md"), "user");
     if (!safeComponent(manifest.name) || manifest.name.startsWith(".") || manifest.name.length > 160) throw new Error("技能名称不能用作本地目录");
-    if (manifest.teamRelease && (manifest.teamRelease.id !== id || manifest.teamRelease.version !== version)) throw new Error("SKILL.md 的平台 ID 或版本与下载凭据不符");
-    return manifest;
+    if (manifest.teamRelease) {
+      if (manifest.teamRelease.id !== id || manifest.teamRelease.version !== version) throw new Error("SKILL.md 的平台 ID 或版本与下载凭据不符");
+      return manifest;
+    }
+    // Historical releases have no stamp in storage. Add it only to the staged local copy.
+    const header = /^---[ \t]*(\r?\n)([\s\S]*?\r?\n)(?=---[ \t]*(?:\r?\n|$))/.exec(manifest.content);
+    if (!header) throw new Error("无法读取 SKILL.md 的 YAML 信息");
+    const doc = parseDocument(header[2]!);
+    doc.setIn(["metadata", "team-skills-id"], id);
+    doc.setIn(["metadata", "team-skills-version"], version);
+    const yaml = doc.toString({ lineWidth: 0 }).replace(/\n/g, header[1]!);
+    writeFileSync(manifest.location, "---" + header[1] + yaml + manifest.content.slice(header[0].length));
+    return parseSkillManifest(manifest.location, "user");
   } finally { await archive.close(); }
 }

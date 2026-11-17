@@ -35,10 +35,6 @@ export function isTeamSkillsPage(raw: string): boolean {
     (url.pathname === library.pathname || url.pathname.startsWith(library.pathname + "/"));
 }
 
-export type TeamInstallResult =
-  | { kind: "installed"; version: string }
-  | { kind: "confirm"; fingerprint: string; name: string; previousVersion: string | null };
-
 export type TeamSkillsBrowserCommand = "state" | "back" | "forward" | "reload" | { url: string };
 export interface TeamSkillsBrowserState {
   url: string;

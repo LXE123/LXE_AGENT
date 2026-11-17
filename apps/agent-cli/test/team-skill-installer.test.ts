@@ -20,8 +20,9 @@ function ticket(version: string): TeamInstallTicket {
 const manifest = (version?: string, name = "demo") => `---
 name: ${name}
 description: A team skill
-${version ? `metadata:
-  team-skills-id: "${id}"
+metadata:
+  author: Support
+${version ? `  team-skills-id: "${id}"
   team-skills-version: "${version}"
 ` : ""}---
 Run demo.
@@ -42,24 +43,24 @@ function setup(download: (id: string, version: string) => Promise<Buffer>) {
   return { root, skills, catalog, installer: new TeamSkillInstaller(catalog, t => download(t.skillId, t.version)) };
 }
 
-test("legacy install, confirmed update and rediscovery after restart", async () => {
+test("legacy card installs stamp local metadata and updates replace local edits", async () => {
   const { root, skills, catalog, installer } = setup((_, version) => archive(version === "1.0.0" ? undefined : version));
   expect(await installer.versions([id])).toEqual({});
-  expect(await installer.install(ticket("1.0.0"))).toEqual({ kind: "installed", version: "1.0.0" });
+  expect(await installer.install(ticket("1.0.0"))).toBe("1.0.0");
   expect(await installer.versions([id])).toEqual({ [id]: "1.0.0" });
   const target = join(skills, "demo");
-  expect(readFileSync(join(target, "SKILL.md"), "utf8")).toBe(manifest());
-  writeFileSync(join(target, "notes.txt"), "keep me");
-  const prompt = await installer.install(ticket("1.0.1"));
-  if (prompt.kind !== "confirm") throw new Error("Expected replacement prompt");
-  writeFileSync(join(target, "personal.txt"), "local edit");
-  const changed = await installer.install(ticket("1.0.1"), prompt.fingerprint);
-  if (changed.kind !== "confirm") throw new Error("Stale confirmation replaced a local edit");
-  expect(readFileSync(join(target, "personal.txt"), "utf8")).toBe("local edit");
-  expect(await installer.install(ticket("1.0.1"), changed.fingerprint)).toEqual({ kind: "installed", version: "1.0.1" });
+  const stamped = readFileSync(join(target, "SKILL.md"), "utf8");
+  expect(stamped).toContain("author: Support");
+  expect(stamped.endsWith("---\nRun demo.\n")).toBe(true);
+  expect(catalog.get("demo")?.teamRelease).toEqual({ id, version: "1.0.0" });
+  writeFileSync(join(target, "assets/example.txt"), "locally modified");
+  writeFileSync(join(target, "personal.txt"), "local addition");
+  expect(await installer.install(ticket("1.0.1"))).toBe("1.0.1");
+  expect(existsSync(join(target, "personal.txt"))).toBe(false);
+  expect(readFileSync(join(target, "SKILL.md"), "utf8")).toBe(manifest("1.0.1"));
   expect(readFileSync(join(target, "assets/example.txt"), "utf8")).toBe("1.0.1");
   expect(catalog.get("demo")?.teamRelease?.version).toBe("1.0.1");
-  expect(await installer.install(ticket("1.0.2"))).toEqual({ kind: "installed", version: "1.0.2" });
+  expect(await installer.install(ticket("1.0.2"))).toBe("1.0.2");
   const restarted = new TeamSkillInstaller(new SkillCatalog(root, skills, { repositorySkillsRoot: join(root, "repo"), sharedSkillsRoot: false }));
   expect(await restarted.versions([id])).toEqual({ [id]: "1.0.2" });
   await expect(installer.install(ticket("1.0.0"))).rejects.toThrow("本机版本较新");
@@ -74,7 +75,7 @@ test.each(["install", "update"])("a shared namesake present before %s yields to 
   writeFileSync(join(shared, "SKILL.md"), sharedManifest);
 
   expect(await installer.versions([id])).toEqual(phase === "install" ? {} : { [id]: "1.0.0" });
-  expect(await installer.install(ticket("1.0.1"))).toEqual({ kind: "installed", version: "1.0.1" });
+  expect(await installer.install(ticket("1.0.1"))).toBe("1.0.1");
   expect(await installer.versions([id])).toEqual({ [id]: "1.0.1" });
   expect(catalog.get("demo")).toMatchObject({ source: "user", teamRelease: { id, version: "1.0.1" } });
   expect(readFileSync(join(shared, "SKILL.md"), "utf8")).toBe(sharedManifest);
@@ -98,8 +99,9 @@ test("manually imported releases and unrelated directories retain their identity
   writeFileSync(join(target, "SKILL.md"), manifest("1.0.0").replace(id, randomUUID()));
   await expect(installer.install(ticket("1.0.1"))).rejects.toThrow("其他内容占用");
   writeFileSync(join(target, "SKILL.md"), manifest());
-  expect(await installer.install(ticket("1.0.1"))).toMatchObject({ kind: "confirm", previousVersion: null });
-  expect(readFileSync(join(target, "SKILL.md"), "utf8")).toBe(manifest());
+  expect(await installer.versions([id])).toEqual({});
+  expect(await installer.install(ticket("1.0.1"))).toBe("1.0.1");
+  expect(readFileSync(join(target, "SKILL.md"), "utf8")).toBe(manifest("1.0.1"));
 });
 
 test("download or metadata validation failure leaves the previously installed tree intact", async () => {

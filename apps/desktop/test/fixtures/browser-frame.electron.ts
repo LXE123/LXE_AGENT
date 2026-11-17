@@ -25,16 +25,13 @@ void app.whenReady().then(async () => {
   });
   const skillId = "e522e0c9-4891-439f-826a-467b6f312478";
   const installed: Record<string, string> = {};
-  let approve = false;
   registerTeamSkillsGuest(win.webContents, browsers, {
     preload: join(process.argv[2]!, "team-skills-preload.cjs"),
     versions: async ids => Object.fromEntries(ids.filter(id => installed[id]).map(id => [id, installed[id]!])),
-    install: async ({ skillId: id, version }, fingerprint) => {
-      if (installed[id] && !fingerprint) return { kind: "confirm", fingerprint: "fixture", previousVersion: installed[id]!, name: "demo" };
+    install: async ({ skillId: id, version }) => {
       installed[id] = version;
-      return { kind: "installed", version };
+      return version;
     },
-    confirm: async () => approve,
   });
   session.fromPartition("persist:lxe-workbench-team-skills").protocol.handle("https", () =>
     new Response("<title>Catalog</title><input>", { headers: { "Content-Type": "text/html" } }));
@@ -90,12 +87,9 @@ void app.whenReady().then(async () => {
     }; void 0`);
     assert.equal(await catalog.executeJavaScript(install("1.0.0"), true), "1.0.0");
     await catalog.executeJavaScript("window.requestVersion = '1.0.1'");
-    assert.equal(await catalog.executeJavaScript(install("1.0.1"), true), null);
-    assert.equal(installed[skillId], "1.0.0");
-    approve = true;
     assert.equal(await catalog.executeJavaScript(install("1.0.1"), true), "1.0.1");
     assert.deepEqual(await catalog.executeJavaScript(host + ".installedVersions([" + id + "])"), { [skillId]: "1.0.1" });
-    assert.equal(await catalog.executeJavaScript("window.ticketCalls"), 4, "confirmed overwrite obtains a fresh web grant");
+    assert.equal(await catalog.executeJavaScript("window.ticketCalls"), 2, "one web grant per install or update");
     const catalogId = catalog.id;
     const detail = new URL("/skill/detail", TEAM_SKILLS_URL).href;
     await catalog.loadURL(detail);
