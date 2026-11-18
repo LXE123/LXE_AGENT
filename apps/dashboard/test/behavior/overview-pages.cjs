@@ -100,6 +100,22 @@ module.exports = async ({ win, js, step, load, waitFor, click, key, focus, settl
         await waitFor(listed(group.index, group.count), "back returns to the tool's sub-page");
       }
     }
+    const toggle = index => `.workbench-layout-toggle button:nth-child(${index})`;
+    await click(tab(2));
+    await waitFor(listed(2, 4), "tools before card view");
+    assert.equal(await js(`document.querySelector('${toggle(2)}').getAttribute('aria-pressed')`), "true");
+    await click(toggle(1));
+    await waitFor("document.querySelector('.workbench-tool-grid')?.dataset.layout==='grid'", "card view");
+    assert.deepEqual(await js("(() => { const [a, b] = [...document.querySelectorAll('.workbench-tool-card')].map(card => card.getBoundingClientRect()); return [Math.round(a.top) === Math.round(b.top), b.left > a.right]; })()"), [true, true]);
+    for (const theme of ["light", "dark"]) {
+      await js(`document.documentElement.dataset.theme='${theme}'`); await settle();
+      await noOverflow(".content-panel, .workbench-index, .workbench-tool-card, .workbench-index-bar");
+      await screenshot(`workbench-cards-${theme}`);
+    }
+    await open("workbench");
+    await waitFor("document.querySelector('.workbench-tool-grid')?.dataset.layout==='grid'", "card view is remembered");
+    await click(toggle(2));
+    await waitFor("document.querySelector('.workbench-tool-grid')?.dataset.layout==='list'", "back to list view");
     await win.setContentSize(480, 900);
     await open("workbench", "en");
     await waitFor(listed(1, 1), "narrow directory");

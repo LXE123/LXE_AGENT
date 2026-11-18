@@ -63,3 +63,37 @@
   .content-panel.workbench-theme { padding: 20px 12px 72px; }
 }
 .workbench-theme .workbench-directory > .workbench-index-subtitle { margin: 0 0 8px; }
+
+/* Sub-pages on the left, card/list switch on the right, one shared underline. */
+.workbench-theme .workbench-index-bar {
+  display: flex; align-items: center; gap: 16px; min-width: 0;
+  justify-self: stretch; border-bottom: 1px solid var(--border);
+}
+.workbench-theme .workbench-index-bar .workspace-subnav { flex: 1; border-bottom: 0; }
+.workbench-theme .workbench-layout-toggle {
+  display: flex; flex: 0 0 auto; gap: 2px; padding: 2px; border-radius: 8px; background: var(--cds-alpha-1);
+}
+.workbench-theme .workbench-layout-toggle button {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 30px; height: 28px; padding: 0; border: 0; border-radius: 6px;
+  background: transparent; color: var(--text-soft); cursor: pointer;
+}
+.workbench-theme .workbench-layout-toggle button:hover { color: var(--text); }
+.workbench-theme .workbench-layout-toggle button[aria-pressed="true"] {
+  background: var(--cds-surface-panel); color: var(--text); box-shadow: 0 0 0 1px var(--border);
+}
+.workbench-theme .workbench-layout-toggle button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+/* Card view: two columns of the same rows, summary and status stacked, no chevron. */
+.workbench-theme .workbench-tool-grid[data-layout="grid"] {
+  grid-template-columns: repeat(2, minmax(0, 1fr)); column-gap: 28px;
+}
+.workbench-theme .workbench-tool-grid[data-layout="grid"] .workbench-tool-card {
+  grid-template-columns: 36px minmax(0, 1fr); align-items: start; align-content: start;
+}
+.workbench-theme .workbench-tool-grid[data-layout="grid"] .workbench-tool-card .workbench-tool-status {
+  grid-column: 2; justify-self: start;
+}
+.workbench-theme .workbench-tool-grid[data-layout="grid"] .workbench-tool-chevron { display: none; }
+@media (max-width: 800px) {
+  .workbench-theme .workbench-tool-grid[data-layout="grid"] { grid-template-columns: minmax(0, 1fr); }
+}

@@ -213,6 +213,7 @@ export const ZH_TEXT = {
   workbenchIndex: {
     eyebrow: "工作台",
     views: { tasks: "技能任务", tools: "设置与工具" },
+    layouts: { label: "显示方式", grid: "卡片视图", list: "列表视图" },
     summaries: {
       tasks: "选好参数后在后台对话里运行技能，进度和结果回到这里。",
       tools: "管理技能用到的设置和资料，或直接处理文件，不经过 AI。",
@@ -1177,6 +1178,7 @@ export const UI_TEXT: Record<Language, UiText> = {
     workbenchIndex: {
       eyebrow: "Workbench",
       views: { tasks: "Skill tasks", tools: "Settings & tools" },
+      layouts: { label: "Layout", grid: "Card view", list: "List view" },
       summaries: {
         tasks: "Pick the inputs and a skill runs in a background conversation; progress and results come back here.",
         tools: "Manage the settings and data skills use, or process files directly without AI.",
