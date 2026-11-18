@@ -24,6 +24,10 @@ from pptx import Presentation
 from pptx.chart.data import CategoryChartData
 from pptx.enum.chart import XL_CHART_TYPE
 from pptx.util import Inches
+import pdfplumber
+from pypdf import PdfReader, PdfWriter
+from pypdf.generic import (ArrayObject, DecodedStreamObject, DictionaryObject, FloatObject, NameObject,
+                           NumberObject, TextStringObject)
 
 
 def fixtures(root: Path) -> dict[str, Path]:
@@ -105,6 +109,124 @@ def fixtures(root: Path) -> dict[str, Path]:
     return {"xlsx": xlsx, "docx": docx, "pptx": pptx}
 
 
+def foreground_pixels(image_path: Path, box: tuple[int, int, int, int] | None = None) -> int:
+    image = Image.open(image_path).convert("RGBA")
+    visible = Image.alpha_composite(Image.new("RGBA", image.size, "white"), image).convert("RGB")
+    if box:
+        visible = visible.crop(box)
+    histogram = visible.getcolors(visible.width * visible.height)
+    return visible.width * visible.height - max(count for count, _ in histogram)
+
+
+def form_fixture(path: Path) -> None:
+    """A text field, a checkbox with on/off appearances and a widget left out of /Fields."""
+    writer = PdfWriter()
+    page = writer.add_blank_page(612, 792)
+    font = writer._add_object(DictionaryObject({
+        NameObject("/Type"): NameObject("/Font"), NameObject("/Subtype"): NameObject("/Type1"),
+        NameObject("/BaseFont"): NameObject("/Helvetica"), NameObject("/Encoding"): NameObject("/WinAnsiEncoding")}))
+
+    def widget(name: str, field_type: str, rect: list[float], **extra) -> object:
+        entries = {NameObject("/Type"): NameObject("/Annot"), NameObject("/Subtype"): NameObject("/Widget"),
+                   NameObject("/FT"): NameObject(field_type), NameObject("/T"): TextStringObject(name),
+                   NameObject("/Rect"): ArrayObject([FloatObject(value) for value in rect]), NameObject("/F"): NumberObject(4)}
+        entries.update({NameObject("/" + key): value for key, value in extra.items()})
+        return writer._add_object(DictionaryObject(entries))
+
+    def appearance(content: bytes) -> object:
+        stream = DecodedStreamObject()
+        stream.set_data(content)
+        stream.update({NameObject("/Type"): NameObject("/XObject"), NameObject("/Subtype"): NameObject("/Form"),
+                       NameObject("/BBox"): ArrayObject([FloatObject(0), FloatObject(0), FloatObject(14), FloatObject(14)])})
+        return writer._add_object(stream)
+
+    text_style = TextStringObject("/Helv 12 Tf 0 g")
+    shipper = widget("shipper", "/Tx", [72, 600, 400, 630], DA=text_style, V=TextStringObject(""))
+    invoice = widget("invoice", "/Tx", [72, 540, 400, 570], DA=text_style, V=TextStringObject(""))
+    agree = widget("agree", "/Btn", [72, 500, 86, 514], V=NameObject("/Off"), AS=NameObject("/Off"),
+                   AP=DictionaryObject({NameObject("/N"): DictionaryObject({
+                       NameObject("/Yes"): appearance(b"0 g 2 2 10 10 re f"), NameObject("/Off"): appearance(b"")})}))
+    remark = widget("remark", "/Tx", [72, 440, 400, 470], DA=text_style, V=TextStringObject(""))
+    page[NameObject("/Annots")] = ArrayObject([shipper, invoice, agree, remark])
+    writer.root_object[NameObject("/AcroForm")] = DictionaryObject({
+        NameObject("/Fields"): ArrayObject([shipper, invoice, agree]), NameObject("/DA"): text_style,
+        NameObject("/DR"): DictionaryObject({NameObject("/Font"): DictionaryObject({NameObject("/Helv"): font})})})
+    with open(path, "wb") as stream:
+        writer.write(stream)
+
+
+def pdf_cases(root: Path, runtime: Path, run, exported_docx: Path) -> list[str]:
+    """PDF input for the office-pdf skill: extraction, scans, page edits, render and forms."""
+    failures = []
+    with pdfplumber.open(exported_docx) as pdf:
+        text = "".join(page.extract_text() or "" for page in pdf.pages)
+    assert "修改完成" in text and "中文表格" in text, text
+    rendered = run("render", "--input", exported_docx.name, "--output-dir", "预览 pdf", "--pages", "1", "--dpi", "96")
+    assert rendered["rasterEngine"] == "pdfium", rendered
+    if foreground_pixels(Path(rendered["images"][0]["path"])) < 100:
+        failures.append(f"Blank PDF render: {rendered['images'][0]['path']}")
+
+    scan = root / "扫描 页面.pdf"
+    Image.init()
+    image = Image.new("RGB", (600, 800), "white")
+    ImageDraw.Draw(image).rectangle((60, 60, 540, 120), fill="black")
+    image.save(scan)
+    with pdfplumber.open(scan) as pdf:
+        assert not pdf.pages[0].chars and pdf.pages[0].images
+
+    merged = root / "合并 旋转.pdf"
+    writer = PdfWriter()
+    for source in (exported_docx, root / "导出 pptx.pdf"):
+        writer.append(PdfReader(source))
+    writer.pages[-1].rotate(90)
+    with open(merged, "wb") as stream:
+        writer.write(stream)
+    reopened = PdfReader(merged)
+    assert len(reopened.pages) == len(PdfReader(exported_docx).pages) + len(PdfReader(root / "导出 pptx.pdf").pages)
+    assert reopened.pages[-1].rotation == 90
+
+    skills = runtime.parent / "skills"
+    if not skills.is_dir():
+        skills = Path(__file__).resolve().parents[1] / "skills"
+    script = skills / "office-pdf" / "scripts" / "pdf_form.py"
+    blank = root / "表单 空白.pdf"
+    form_fixture(blank)
+
+    def form(*arguments: str | Path) -> tuple[int, dict]:
+        result = subprocess.run([sys.executable, "-I", str(script), *map(str, arguments)], cwd=root,
+                                capture_output=True, text=True, encoding="utf-8", timeout=120)
+        return result.returncode, json.loads(result.stdout)
+
+    code, report = form("inspect", blank)
+    assert code == 0 and [item["name"] for item in report["orphaned_widgets"]] == ["remark"], report
+    values = root / "表单 取值.json"
+    values.write_text(json.dumps({"shipper": "深圳发货 ACME", "invoice": "INV-001", "agree": True, "remark": "OK"},
+                                 ensure_ascii=False), encoding="utf-8")
+    filled = root / "表单 已填写.pdf"
+    code, report = form("fill", blank, filled, "--values", values)
+    assert code == 0 and report["reattached"] and report["reader_generated_appearance"] == ["shipper"], report
+    code, report = form("verify", filled, "--values", values)
+    assert code == 0 and report["ok"] and report["reader_generated_appearance"] == ["shipper"], report
+    rendered = run("render", "--input", filled.name, "--output-dir", "预览 表单", "--dpi", "72")
+    preview = Path(rendered["images"][0]["path"])
+    for name, (left, bottom, right, top) in {"shipper": (72, 600, 400, 630), "agree": (72, 500, 86, 514)}.items():
+        if foreground_pixels(preview, (left, 792 - top, right, 792 - bottom)) < 10:
+            failures.append(f"Form field {name} not drawn: {preview}")
+    assert form("fill", blank, root / "表单 中文静态.pdf", "--values", values, "--flatten")[0] == 1
+    assert not (root / "表单 中文静态.pdf").exists()
+
+    ascii_values = root / "表单 西文取值.json"
+    ascii_values.write_text(json.dumps({"shipper": "ACME LTD", "invoice": "INV-001", "agree": True}), encoding="utf-8")
+    flattened = root / "表单 静态.pdf"
+    code, report = form("fill", blank, flattened, "--values", ascii_values, "--flatten")
+    assert code == 0, report
+    code, report = form("verify", flattened, "--values", ascii_values, "--flattened")
+    assert code == 0 and report["ok"], report
+    code, report = form("verify", filled, "--values", ascii_values)
+    assert code == 1 and any("shipper" in problem for problem in report["problems"]), report
+    return failures
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--runtime-root", type=Path, required=True)
@@ -141,15 +263,11 @@ def main() -> None:
         assert rendered["images"]
         for item in rendered["images"]:
             image_path = Path(item["path"])
-            image = Image.open(image_path).convert("RGBA")
-            white = Image.new("RGBA", image.size, "white")
-            visible = Image.alpha_composite(white, image).convert("RGB")
             # A single non-background pixel is not document content. These
             # known fixtures each contain multiple lines of text or a chart.
-            histogram = visible.getcolors(visible.width * visible.height)
-            foreground_pixels = visible.width * visible.height - max(count for count, _ in histogram)
-            if foreground_pixels < 100:
-                failures.append(f"Blank or near-uniform preview ({foreground_pixels} foreground pixels): {image_path}")
+            foreground = foreground_pixels(image_path)
+            if foreground < 100:
+                failures.append(f"Blank or near-uniform preview ({foreground} foreground pixels): {image_path}")
             rendered_images.append(str(image_path))
         existing_preview = root / f"预览 {extension}"
         before_images = {p.name: hashlib.sha256(p.read_bytes()).hexdigest() for p in existing_preview.iterdir()}
@@ -158,6 +276,7 @@ def main() -> None:
         before = pdf.read_bytes()
         assert run("convert", "--input", path.name, "--output", pdf.name, failure=True)["code"]
         assert pdf.read_bytes() == before
+    failures += pdf_cases(root, runtime, run, root / "导出 docx.pdf")
     recalculated = root / "已重算 表格.xlsx"
     run("recalculate", "--input", files["xlsx"].name, "--output", recalculated.name)
     assert load_workbook(recalculated, data_only=False)["汇总"]["B4"].value == "=SUM(B2:B3)"

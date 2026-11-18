@@ -66,6 +66,6 @@ test("all Office skills load under the existing default permission without busin
   catalog.forceRefresh();
   const available = catalog.list({ allowedTypes: new Set(["default"]) });
   const office = available.filter(skill => skill.name.startsWith("office-"));
-  expect(office.map(skill => skill.name).sort()).toEqual(["office-docx", "office-pptx", "office-xlsx"]);
+  expect(office.map(skill => skill.name).sort()).toEqual(["office-docx", "office-pdf", "office-pptx", "office-xlsx"]);
   for (const skill of office) expect(skill.commands).toEqual([]);
 });
