@@ -135,6 +135,7 @@ module.exports = async ({ win, js, step, load, waitFor, click, settle, state }) 
     assert.ok(send.input.text.includes("- Amazon-XIUTAI-US\n- Amazon-YYH-US\n"), "stores keep page order");
     assert.ok(send.input.text.includes("站点：US CA SA AE UK DE AU\n"));
     assert.equal(await js("document.querySelector('.fba-capacity-start button').disabled"), true, "one run at a time");
+    assert.equal(await js("getComputedStyle(document.querySelector('.fba-capacity-state .spin')).animationName"), "workbench-spin", "the running badge spins");
     await capture("fba-running-dark");
     await js("behavior.fba.phase('completed')");
     await waitFor("document.querySelector('.fba-capacity-state').dataset.state==='completed'", "run completed");

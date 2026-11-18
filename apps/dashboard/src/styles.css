@@ -10843,7 +10843,8 @@ pre {
   line-height: 1.65;
 }
 
-.workbench-page .spin {
+/* Every workbench view shares the spinner, not only the media tagging page. */
+.workbench-theme .spin {
   animation: workbench-spin 0.9s linear infinite;
 }
 
@@ -10887,7 +10888,7 @@ pre {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .workbench-page .spin {
+  .workbench-theme .spin {
     animation: none;
   }
 
