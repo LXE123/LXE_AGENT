@@ -9,6 +9,7 @@ import { Pencil } from "lucide-react";
 import { ApprovalGate, PermissionPicker } from "./permissions";
 import { ReferenceComposer } from "./ReferenceComposer";
 import { UserReferenceText } from "./UserReferenceText";
+import { UserMessagePreview } from "./UserMessagePreview";
 import { FileAvailabilityBadge } from "../file-preview/FileFailure";
 import { PreviewHeaderActions, usePreviewSidebar } from "../file-preview/Sidebar";
 import { OpenFileButton } from "../file-preview/OpenFileButton";
@@ -1456,14 +1457,20 @@ export const UnifiedConversationRow = React.memo(function UnifiedConversationRow
     return <div className="message-with-meta role-user has-sent-attachments conversation-chrome-theme">
       <SentAttachmentList attachments={message.attachments} sessionId={attachmentSessionId}
         ready={row.status !== "sending" && !row.error} onOpen={onOpenAttachment} />
-      {text.trim() ? <article className="message-card role-user"><UserReferenceText text={text} skills={Array.isArray(message.invoked_skills) ? message.invoked_skills : []} />{deliveryStatus}</article> : deliveryStatus}
+      {text.trim() ? <article className="message-card role-user">
+        <UserMessagePreview expanded={expanded} onToggle={() => onToggle(row.id)}>
+          <UserReferenceText text={text} skills={Array.isArray(message.invoked_skills) ? message.invoked_skills : []} />
+        </UserMessagePreview>
+        {deliveryStatus}
+      </article> : deliveryStatus}
       {row.error ? <div role="alert">{row.error}</div> : row.status === "error" ? <div role="status">{stateLabel}</div> : null}
       <MessageMeta createdAt={Number(message.created_at ?? row.createdAt / 1000)} role={role} text={text} />
     </div>;
   }
+  const content = <MessageContent content={message.content} message={message} isStreaming={isStreaming} />;
   return <div className={`message-with-meta role-${role}${role === "user" ? " conversation-chrome-theme" : ""}`}>
     <article className={`message-card role-${role}${row.presentation === "final" ? " response-final-answer" : ""}${message.attachments?.length ? " has-attachments" : ""}`}>
-      <MessageContent content={message.content} message={message} isStreaming={isStreaming} />
+      {role === "user" ? <UserMessagePreview expanded={expanded} onToggle={() => onToggle(row.id)}>{content}</UserMessagePreview> : content}
       {message.attachments?.length ? <InputAttachmentList attachments={message.attachments} onOpen={onOpenAttachment} /> : null}
       {row.error ? <div role="alert">{row.error}</div> : row.status === "error" ? <div role="status">{stateLabel}</div> : null}
       {deliveryStatus}
