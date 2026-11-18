@@ -11,6 +11,9 @@
   display: grid; grid-template-columns: minmax(300px, 380px) minmax(0, 1fr); gap: 40px; align-items: start; min-width: 0;
 }
 .fba-capacity-side, .fba-capacity-main { display: grid; min-width: 0; }
+/* A full-height rule between the columns: the left column stretches to the row so the line
+   reaches the bottom even when the results are taller. */
+.fba-capacity-side { align-self: stretch; align-content: start; margin-right: -20px; padding-right: 20px; border-right: 1px solid var(--border); }
 .workbench-theme .fba-capacity-main > .workbench-settings-card:last-child,
 .workbench-theme .fba-capacity-side > .workbench-settings-card:last-child { border-bottom: 0; }
 .workbench-theme .fba-capacity .workbench-settings-card { padding-block: 24px; }
@@ -167,6 +170,7 @@
 
 @container (max-width: 860px) {
   .fba-capacity-layout { grid-template-columns: minmax(0, 1fr); gap: 0; }
+  .fba-capacity-side, .fba-capacity-main { margin: 0; padding: 0; border: 0; }
   .workbench-theme .fba-capacity-side > .workbench-settings-card:last-child { border-bottom: 1px solid var(--border); }
   .fba-capacity-main { position: static; }
   .workbench-theme .fba-capacity-run:has(> .fba-capacity-report) { height: auto; }
