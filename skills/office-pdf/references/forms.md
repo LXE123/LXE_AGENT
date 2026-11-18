@@ -8,11 +8,11 @@ PDF 表单里同一个值存两份：字段树里的值（`/V`），以及页面
 2. 填写前先看两边：`reader.get_fields()` 给出字段树里的字段；每页 `/Annots` 里 `/Subtype` 为 `/Widget` 的是控件，顺着 `/Parent` 拼出完整字段名。
 3. 把用户给的信息对应到完整字段名。文本和下拉字段写字符串；勾选框写该控件 `/AP` `/N` 里除 `/Off` 以外的状态名（常见 `/Yes`、`/On`、`/1`），不选写 `/Off`；单选组写选中项的状态名。
 
-下面的写法用 pypdf 填写全部页面。只接回真正游离的控件：页面上有、字段树里没有，并且不和已有字段重名。重名时接回会造出第二个同名字段，向用户说明，或在用户同意后只做静态副本。
+下面的写法用 pypdf 填写全部页面。已登记的同一字段可以在多页有控件，按字段名填写一次即可。只接回游离的独立字段，发现它与已登记字段或另一个独立游离字段重名时就报错。带父子关系但未登记的控件需先核对归属。
 
 ```python
 from pypdf import PdfReader, PdfWriter
-from pypdf.generic import NameObject
+from pypdf.generic import ArrayObject, DictionaryObject, NameObject
 
 
 def full_name(node):
@@ -25,31 +25,43 @@ def full_name(node):
     return ".".join(reversed(parts))
 
 
-def field_tree_ids(root):
+def field_tree(root):
     acro_form = root.get("/AcroForm")
-    pending = list(acro_form.get_object().get("/Fields", [])) if acro_form else []
-    seen = set()
+    pending = list(acro_form.get_object().get("/Fields", ArrayObject()).get_object()) if acro_form else []
+    nodes = {}
     while pending:
         reference = pending.pop()
-        if reference.idnum not in seen:
-            seen.add(reference.idnum)
-            pending.extend(reference.get_object().get("/Kids", []))
-    return seen
+        if reference.idnum not in nodes:
+            node = reference.get_object()
+            nodes[reference.idnum] = node
+            pending.extend(node.get("/Kids", ArrayObject()).get_object())
+    return nodes
 
 
 reader = PdfReader(input_pdf)
 writer = PdfWriter()
 writer.clone_document_from_reader(reader)
 
-tree = field_tree_ids(writer.root_object)
+tree = field_tree(writer.root_object)
 known = set(writer.get_fields() or {})
-orphans = [full_name(ref.get_object()) for page in writer.pages for ref in page.get("/Annots", [])
-           if ref.get_object().get("/Subtype") == "/Widget" and ref.idnum not in tree]
-duplicates = sorted(set(orphans) & known)
-if duplicates:
-    raise ValueError(f"Widgets share names with separate fields: {duplicates}")
+known.update(full_name(node) for node in tree.values() if "/T" in node)
+orphans = {}
+for page in writer.pages:
+    for ref in page.get("/Annots", ArrayObject()).get_object():
+        widget = ref.get_object()
+        if widget.get("/Subtype") != "/Widget" or ref.idnum in tree or ref.idnum in orphans:
+            continue
+        if "/Parent" in widget or "/Kids" in widget or "/FT" not in widget or not widget.get("/T"):
+            raise ValueError(f"Cannot determine orphan widget ownership: object {ref.idnum}")
+        names = {str(widget["/T"]), str(widget.get("/TM", widget["/T"]))}
+        duplicates = names & known
+        if duplicates:
+            raise ValueError(f"Widgets share names with separate fields: {sorted(duplicates)}")
+        known.update(names)
+        orphans[ref.idnum] = ref
 if orphans:
-    writer.reattach_fields()
+    form = writer.root_object.setdefault(NameObject("/AcroForm"), DictionaryObject()).get_object()
+    form.setdefault(NameObject("/Fields"), ArrayObject()).get_object().extend(orphans.values())
 
 fields = writer.get_fields() or {}
 missing = set(expected_values) - set(fields)
