@@ -1,6 +1,6 @@
 export * from "./manual-tools";
 export * from "./team-skills";
-import type { TeamSkillsBrowserCommand, TeamSkillsBrowserState, TeamUseTarget } from "./team-skills";
+import type { TeamSkillsBrowserCommand, TeamSkillsBrowserState, TeamUseRequest } from "./team-skills";
 export type * from "./file-preview";
 import { parseManagedState, type ManagedLlmState } from "@lxe/core/managed-llm";
 import { parseJsonRpcEnvelope, parseJsonRpcJson, JsonRpcError,
@@ -747,6 +747,8 @@ export interface LxeDesktopBridge {
     exportVietnamTemplate(): Promise<DesktopVietnamTemplateExportResult | null>;
     teamSkillsBrowser(mountSrc: string, command: TeamSkillsBrowserCommand): Promise<TeamSkillsBrowserState | null>;
     teamSkillsView(action: "show" | "hide" | "retry"): Promise<string | null>;
+    /** Answer a team catalog use request: no error once the draft is written, otherwise the actual error. */
+    teamSkillUseResult(requestId: string, error?: string): Promise<void>;
     getAmazonV2Settings(): Promise<DesktopAmazonV2Settings>;
     saveAmazonV2Settings(input: DesktopAmazonV2Settings): Promise<DesktopAmazonV2Settings>;
     onSyntheticPerformerTaskChanged(
@@ -759,7 +761,7 @@ export interface LxeDesktopBridge {
     onExecUpdate(listener: (update: BackgroundTaskChangedPayload) => void): () => void;
     onDashboardInvalidated(listener: (invalidation: DesktopDashboardInvalidation) => void): () => void;
     /** A team catalog card asked to start a conversation with this installed skill. */
-    onTeamSkillUse(listener: (target: TeamUseTarget) => void): () => void;
+    onTeamSkillUse(listener: (request: TeamUseRequest) => void): () => void;
     onStatusChanged(listener: (health: DesktopHealth) => void): () => void;
   };
 }

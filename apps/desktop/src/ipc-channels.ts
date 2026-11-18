@@ -6,6 +6,7 @@ export const IPC_CHANNELS = {
   teamSkillInstall: "lxe:catalog:install",
   teamSkillUse: "lxe:catalog:use",
   teamSkillUseRequested: "lxe:workbench:team-skill-use",
+  teamSkillUseResult: "lxe:workbench:team-skill-use-result",
   teamSkillsView: "lxe:workbench:team-skills-view",
   manualToolCall: "lxe:manual-tools:call",
   manualToolEvent: "lxe:manual-tools:event",

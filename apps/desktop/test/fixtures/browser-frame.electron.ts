@@ -96,6 +96,9 @@ void app.whenReady().then(async () => {
     await wait(() => catalog.getURL() === TEAM_SKILLS_URL && !catalog.isLoading(), "catalog home");
     const host = "window.lxeTeamSkills";
     const id = JSON.stringify(skillId);
+    // Before any simulated click on this page, so no transient user activation remains.
+    const unclicked = await catalog.executeJavaScript("(async () => { try { await " + host + ".use(" + id + "); return 'resolved'; } catch (error) { return error.message; } })()");
+    assert.match(unclicked, /请点击「开始使用」/);
     assert.deepEqual(await catalog.executeJavaScript(host + ".installedVersions([" + id + "])"), {});
     const install = (version: string) => host + ".install(" + id + ", " + JSON.stringify(version) + ", window.getTicket)";
     await catalog.executeJavaScript(`window.ticketCalls = 0; window.requestVersion = '1.0.0'; window.getTicket = async () => {
@@ -112,10 +115,16 @@ void app.whenReady().then(async () => {
     assert.deepEqual(await catalog.executeJavaScript(host + ".installedVersions([" + id + "])"), { [skillId]: "1.0.1" });
     assert.equal(prompts, 2, "only the unmarked namesake prompts; the same-ID update completes directly");
     assert.equal(await catalog.executeJavaScript("window.ticketCalls"), 4, "confirmed overwrite renews its grant");
-    await js("window.teamUse = []; window.lxe.desktop.onTeamSkillUse(target => window.teamUse.push(target)); void 0");
+    await js(`window.teamUse = []; window.teamUseError = undefined;
+      window.lxe.desktop.onTeamSkillUse(({ requestId, name }) => {
+        window.teamUse.push(name);
+        void window.lxe.desktop.teamSkillUseResult(requestId, window.teamUseError);
+      }); void 0`);
     await catalog.executeJavaScript(host + ".use(" + id + ")", true);
-    await wait(async () => (await js("window.teamUse.length")) === 1, "dashboard receives the use request");
-    assert.deepEqual(await js("window.teamUse[0]"), { name: "demo" });
+    assert.deepEqual(await js("window.teamUse"), ["demo"], "use resolves only after the dashboard answers");
+    await js("window.teamUseError = '请先选择工作区'");
+    const failed = await catalog.executeJavaScript("(async () => { try { await " + host + ".use(" + id + "); return 'resolved'; } catch (error) { return error.message; } })()", true);
+    assert.match(failed, /请先选择工作区/);
     const uninstall = host + ".uninstall(" + id + ", '1.0.1')";
     approve = false;
     assert.equal(await catalog.executeJavaScript(uninstall, true), false);

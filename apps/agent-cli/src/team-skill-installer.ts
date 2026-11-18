@@ -1,7 +1,7 @@
 import { existsSync, lstatSync, mkdirSync, readFileSync, realpathSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import lockfile from "proper-lockfile";
-import { SkillCatalog } from "@lxe/runtime";
+import { SkillCatalog, type UserSkillFiles } from "@lxe/runtime";
 import { parseTeamInstallTicket, validTeamVersion, type TeamInstallTicket, type TeamInstallResult, type TeamUseTarget } from "@lxe/desktop-protocol/team-skills";
 import { downloadTeamSkill } from "./team-skill-download";
 import { extractTeamSkill } from "./team-skill-archive";
@@ -68,13 +68,23 @@ export class TeamSkillInstaller {
     return { id: entry.id, version: entry.version, name: manifest.name };
   }
 
-  useTarget(id: string): TeamUseTarget {
+  /**
+   * Resolve a catalog card to its installed skill. Availability is the Skills page's own
+   * verdict, so a card cannot start a conversation that the page would refuse.
+   */
+  useTarget(id: string, listUserSkills: () => ReturnType<UserSkillFiles["list"]>): TeamUseTarget {
     const entry = userRelease(this.inventory(), id);
     const manifest = entry?.manifest;
     if (!entry || !manifest?.teamRelease) throw new Error("本机未安装该技能，请刷新后重试");
-    const problem = entry.diagnostics.map(item => item.message).join("\n") || (entry.enabled ? "" : "该技能已禁用");
-    if (problem) throw new Error(`本机技能暂不可用：${problem}`);
-    return { name: manifest.name };
+    const skill = listUserSkills().find(item => item.id === entry.id);
+    if (!skill) throw new Error("本机未安装该技能，请刷新后重试");
+    if (!skill.available) {
+      const reason = skill.unavailable_reason === "disabled" ? "该技能已停用"
+        : skill.unavailable_reason === "permission" ? `当前设备不允许使用「${skill.type}」类型的技能`
+          : skill.unavailable_reason;
+      throw new Error(`本机技能暂不可用：${reason}`);
+    }
+    return { name: skill.name };
   }
 
   async install(raw: TeamInstallTicket, replaceLocalName?: string): Promise<TeamInstallResult> {

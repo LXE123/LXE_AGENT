@@ -18,6 +18,9 @@ export type TeamUninstallTarget = { id: string; version: string; name: string };
 /** The installed skill a catalog card asks to use; LXE writes the conversation draft itself. */
 export type TeamUseTarget = { name: string };
 
+/** Sent to the dashboard, which answers with the request ID once the draft is written or has failed. */
+export type TeamUseRequest = TeamUseTarget & { requestId: string };
+
 export function parseTeamInstallTicket(raw: unknown): TeamInstallTicket {
   if (!raw || typeof raw !== "object") throw new Error("无效的技能安装凭据");
   const { skillId, version, downloadUrl, expiresAt, size, sha256 } = raw as Partial<TeamInstallTicket>;
