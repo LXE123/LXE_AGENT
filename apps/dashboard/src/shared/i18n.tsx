@@ -208,6 +208,10 @@ export const ZH_TEXT = {
     openConversation: "打开对话", stop: "停止", refresh: "刷新",
     report: "结果页", workbooks: "Excel 报告", noOutput: "产出目录里还没有文件。",
     noReport: "这次运行没有生成结果页，打开对话查看原因。",
+    fullAccess: "以 Full access 运行",
+    fullAccessHint: "后台对话不再逐条请求审批，可修改工作区以外的文件。只在信任这次任务时打开。",
+    fullAccessTag: "Full access",
+    noWorkspace: "找不到默认工作区，请先在设置里确认工作区目录。",
   },
   teamSkills: { name: "团队技能目录", backToCatalog: "回到技能目录", retry: "重试", openInBrowser: "在浏览器中打开团队技能目录" },
   workbenchIndex: {
@@ -1173,6 +1177,10 @@ export const UI_TEXT: Record<Language, UiText> = {
       openConversation: "Open conversation", stop: "Stop", refresh: "Refresh",
       report: "Result page", workbooks: "Excel reports", noOutput: "No files in the output folder yet.",
       noReport: "This run produced no result page. Open the conversation to see why.",
+      fullAccess: "Run with Full access",
+      fullAccessHint: "The background conversation stops asking for each approval and can change files outside the workspace. Turn on only when you trust the task.",
+      fullAccessTag: "Full access",
+      noWorkspace: "No default workspace found. Check the workspace folder in Settings first."
     },
     teamSkills: { name: "Team skills catalog", backToCatalog: "Return to catalog", retry: "Retry", openInBrowser: "Open team skills catalog in browser" },
     workbenchIndex: {

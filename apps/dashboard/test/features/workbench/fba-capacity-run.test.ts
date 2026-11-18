@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import {
-  FBA_CAPACITY_SITES, capacityPrompt, loadRuns, loadSelection, outputFolder, recordRun, resultFiles, runState, saveSelection,
+  FBA_CAPACITY_SITES, capacityPrompt, loadFullAccess, loadRuns, loadSelection, outputFolder, recordRun, resultFiles, runState, saveFullAccess, saveSelection,
   type FbaCapacityRun,
 } from "../../../src/features/workbench/fba-capacity-run";
 
@@ -67,5 +67,18 @@ describe("FBA capacity run", () => {
     expect(loadSelection(storage)).toEqual({ stores: [], sites: [...FBA_CAPACITY_SITES] });
     saveSelection({ stores: ["Amazon-YRZ-US", "Gone-Store"], sites: ["JP", "US"] }, storage);
     expect(loadSelection(storage)).toEqual({ stores: ["Amazon-YRZ-US"], sites: ["US", "JP"] });
+  });
+
+  test("Full access is off until confirmed and is kept on runs that used it", () => {
+    const storage = memoryStorage();
+    expect(loadFullAccess(storage)).toBe(false);
+    expect(loadFullAccess(memoryStorage({ "lxe.workbench.fba-capacity.full-access.v1": "\"true\"" }))).toBe(false);
+    saveFullAccess(true, storage);
+    expect(loadFullAccess(storage)).toBe(true);
+    saveFullAccess(false, storage);
+    expect(loadFullAccess(storage)).toBe(false);
+    recordRun({ ...run("a"), full_access: true }, storage);
+    recordRun(run("b"), storage);
+    expect(loadRuns(storage).map(item => item.full_access ?? false)).toEqual([false, true]);
   });
 });

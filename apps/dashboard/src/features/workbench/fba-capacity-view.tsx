@@ -8,10 +8,11 @@ import { failureOf, filesApi } from "../file-preview/api";
 import { DocumentViewer } from "../file-preview/DocumentViewer";
 import { OpenFileButton } from "../file-preview/OpenFileButton";
 import { readingState } from "../file-preview/reading-state";
+import { FullAccessConfirmation } from "../sessions/permissions";
 import { WorkbenchPageHeader } from "./page-header";
 import {
-  FBA_CAPACITY_SITES, FBA_CAPACITY_SKILL, FBA_CAPACITY_STORES, capacityPrompt, loadRuns, loadSelection, orderedSelection,
-  outputFolder, recordRun, resultFiles, runState, saveSelection, settled,
+  FBA_CAPACITY_SITES, FBA_CAPACITY_SKILL, FBA_CAPACITY_STORES, capacityPrompt, loadFullAccess, loadRuns, loadSelection, orderedSelection,
+  outputFolder, recordRun, resultFiles, runState, saveFullAccess, saveSelection, settled,
   type FbaCapacityRun, type FbaCapacityRunState, type FbaCapacitySelection,
 } from "./fba-capacity-run";
 import "./detail-theme.css";
@@ -24,8 +25,26 @@ const time = (value: number) => new Date(value).toLocaleString(undefined, { mont
 
 type Results = { report: string | null; workbooks: Array<{ name: string; path: string }> };
 
-export function FbaCapacityWorkbench({ ready, onBack, onOpenSession, onInstallSkill }: {
+/**
+ * A Full access run gets its session first so the mode is set before the task starts:
+ * register the default workspace, open a blank session there, raise it, then send.
+ */
+async function fullAccessSession(directory: string): Promise<string> {
+  const workspace = await sessionActions.registerWorkspace(directory);
+  const session = await sessionActions.create(workspace.workspace_id);
+  try {
+    await sessionActions.setPermission(session.session_id, "danger-full-access");
+  } catch (cause) {
+    await sessionActions.delete(session.session_id).catch(() => undefined);
+    throw cause;
+  }
+  return session.session_id;
+}
+
+export function FbaCapacityWorkbench({ ready, defaultDirectory, onBack, onOpenSession, onInstallSkill }: {
   ready: boolean;
+  /** The configured default workspace; Full access runs open their session there. */
+  defaultDirectory: string;
   onBack(): void;
   onOpenSession(session: SessionPayload, turnId: string): Promise<void>;
   onInstallSkill(): void;
@@ -39,6 +58,8 @@ export function FbaCapacityWorkbench({ ready, onBack, onOpenSession, onInstallSk
   const [results, setResults] = useState<Results | null>(null);
   const [resultError, setResultError] = useState("");
   const [busy, setBusy] = useState(false);
+  const [fullAccess, setFullAccess] = useState(() => loadFullAccess());
+  const [confirmFullAccess, setConfirmFullAccess] = useState(false);
   const [error, setError] = useState("");
   const active = runs.find(run => run.id === activeId) ?? null;
   const latest = runs[0] ?? null;
@@ -94,9 +115,13 @@ export function FbaCapacityWorkbench({ ready, onBack, onOpenSession, onInstallSk
     setBusy(true); setError("");
     try {
       const output = outputFolder(new Date());
-      // No directory: the session opens in the default workspace, like the sidebar's 新对话.
-      const sent = await sessionActions.send({ text: capacityPrompt(chosen, output) });
-      const run: FbaCapacityRun = { id: sent.turn_id, created_at: Date.now(), ...chosen, session_id: sent.session_id, turn_id: sent.turn_id, output };
+      const text = capacityPrompt(chosen, output);
+      if (fullAccess && !defaultDirectory) throw new Error(copy.noWorkspace);
+      // Without Full access there is no session yet: the send opens one in the default workspace.
+      const sent = fullAccess
+        ? await sessionActions.send({ session_id: await fullAccessSession(defaultDirectory), text })
+        : await sessionActions.send({ text });
+      const run: FbaCapacityRun = { id: sent.turn_id, created_at: Date.now(), ...chosen, session_id: sent.session_id, turn_id: sent.turn_id, output, ...(fullAccess ? { full_access: true } : {}) };
       setRuns(recordRun(run)); setActiveId(run.id);
     } catch (cause) { setError(errorText(cause)); }
     finally { setBusy(false); }
@@ -146,6 +171,17 @@ export function FbaCapacityWorkbench({ ready, onBack, onOpenSession, onInstallSk
           </label>)}
         </div>
       </fieldset>
+      <div className="fba-capacity-access">
+        <label className="fba-capacity-switch">
+          <input type="checkbox" role="switch" checked={fullAccess} disabled={busy}
+            onChange={event => {
+              if (event.target.checked) { setConfirmFullAccess(true); return; }
+              setFullAccess(false); saveFullAccess(false);
+            }} />
+          <span>{copy.fullAccess}</span>
+        </label>
+        <p className="workbench-note">{copy.fullAccessHint}</p>
+      </div>
       <div className="fba-capacity-start">
         <button className="workbench-primary-button" type="button" disabled={!canStart} onClick={() => void start()}>
           {busy ? <LoaderCircle className="spin" size={14} aria-hidden /> : <Play size={14} aria-hidden />}{busy ? copy.starting : copy.start}
@@ -172,7 +208,7 @@ export function FbaCapacityWorkbench({ ready, onBack, onOpenSession, onInstallSk
       <header className="fba-capacity-run-header">
         <div>
           <h2 id="fba-capacity-run-title">{copy.current}</h2>
-          <p className="workbench-note">{time(active.created_at)} · {copy.storeCount(active.stores.length)} · {active.sites.length === FBA_CAPACITY_SITES.length ? copy.allSites : active.sites.join(" ")}</p>
+          <p className="workbench-note">{time(active.created_at)} · {copy.storeCount(active.stores.length)} · {active.sites.length === FBA_CAPACITY_SITES.length ? copy.allSites : active.sites.join(" ")}{active.full_access ? ` · ${copy.fullAccessTag}` : ""}</p>
         </div>
         <span className="fba-capacity-state" data-state={state ?? "loading"} role="status">
           {state === null || (!settled(state) && state !== "unknown") ? <LoaderCircle className={state === null || state === "queued" || state === "running" ? "spin" : ""} size={14} aria-hidden /> : null}
@@ -203,5 +239,8 @@ export function FbaCapacityWorkbench({ ready, onBack, onOpenSession, onInstallSk
     </article> : <p className="fba-capacity-empty">{copy.noRuns}</p>}
     </div>
     </div>
+    {confirmFullAccess ? <FullAccessConfirmation pending={false} ready error=""
+      onCancel={() => setConfirmFullAccess(false)}
+      onConfirm={() => { setFullAccess(true); saveFullAccess(true); setConfirmFullAccess(false); }} /> : null}
   </section>;
 }

@@ -22,6 +22,7 @@ export const FBA_CAPACITY_REPORT_FILE = "report.html";
 const OUTPUT_ROOT = "FBA库容报告";
 const RUNS_KEY = "lxe.workbench.fba-capacity.runs.v1";
 const SELECTION_KEY = "lxe.workbench.fba-capacity.selection.v1";
+const FULL_ACCESS_KEY = "lxe.workbench.fba-capacity.full-access.v1";
 const MAX_RUNS = 10;
 
 export interface FbaCapacityRun {
@@ -33,6 +34,8 @@ export interface FbaCapacityRun {
   turn_id: string;
   /** Workspace-relative folder for the workbooks and report.html. */
   output: string;
+  /** The session was set to Full access before the task was sent. */
+  full_access?: boolean;
 }
 
 export interface FbaCapacitySelection { stores: string[]; sites: FbaCapacitySite[] }
@@ -119,7 +122,8 @@ function validRun(value: unknown): FbaCapacityRun | null {
   const text = (key: string) => typeof run[key] === "string" && run[key] ? run[key] as string : null;
   const id = text("id"), session = text("session_id"), turn = text("turn_id"), output = text("output");
   if (!id || !session || !turn || !output || typeof run.created_at !== "number") return null;
-  return { id, created_at: run.created_at, stores: textList(run.stores), sites: siteList(run.sites), session_id: session, turn_id: turn, output };
+  return { id, created_at: run.created_at, stores: textList(run.stores), sites: siteList(run.sites), session_id: session, turn_id: turn, output,
+    ...(run.full_access === true ? { full_access: true } : {}) };
 }
 
 /** Newest first. Stored per machine; losing it only hides the shortcut, the conversations remain. */
@@ -144,4 +148,13 @@ export function loadSelection(storage: Storage | null = browserStorage()): FbaCa
 
 export function saveSelection(selection: FbaCapacitySelection, storage: Storage | null = browserStorage()): void {
   writeJson(SELECTION_KEY, orderedSelection(selection), storage);
+}
+
+/** Off unless the person confirmed Full access on this device. */
+export function loadFullAccess(storage: Storage | null = browserStorage()): boolean {
+  return readJson(FULL_ACCESS_KEY, storage) === true;
+}
+
+export function saveFullAccess(value: boolean, storage: Storage | null = browserStorage()): void {
+  writeJson(FULL_ACCESS_KEY, value, storage);
 }

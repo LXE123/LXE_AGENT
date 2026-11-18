@@ -79,3 +79,21 @@
   .fba-capacity-layout { grid-template-columns: minmax(0, 1fr); gap: 0; }
   .workbench-theme .fba-capacity-side > .workbench-settings-card:last-child { border-bottom: 1px solid var(--border); }
 }
+
+/* Full access is opt-in per device and confirmed once, like the conversation picker. */
+.fba-capacity-access { display: grid; gap: 4px; }
+.workbench-theme .fba-capacity-access .workbench-note { margin: 0 0 0 42px; font-size: .75rem; }
+.fba-capacity-switch { display: inline-flex; align-items: center; gap: 10px; width: fit-content; font-size: .8125rem; color: var(--text); cursor: pointer; }
+.fba-capacity-switch input {
+  appearance: none; position: relative; width: 32px; height: 18px; margin: 0; flex-shrink: 0;
+  border-radius: 999px; background: var(--cds-alpha-2, var(--border)); cursor: pointer; transition: background-color .15s;
+}
+.fba-capacity-switch input::after {
+  content: ""; position: absolute; top: 2px; left: 2px; width: 14px; height: 14px; border-radius: 50%;
+  background: var(--cds-surface-panel); box-shadow: 0 0 0 1px var(--border); transition: transform .15s;
+}
+.fba-capacity-switch input:checked { background: var(--warning); }
+.fba-capacity-switch input:checked::after { transform: translateX(14px); }
+.fba-capacity-switch input:focus-visible { outline: 2px solid var(--accent-strong); outline-offset: 2px; }
+.fba-capacity-switch input:disabled { opacity: .5; cursor: default; }
+@media (prefers-reduced-motion: reduce) { .fba-capacity-switch input, .fba-capacity-switch input::after { transition: none; } }

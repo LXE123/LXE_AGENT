@@ -56,6 +56,10 @@ export function createFbaCapacityFixture(calls: { operation: string; input?: unk
     rpc(call: { operation: string; input: Record<string, unknown> }): unknown {
       if (call.operation === "skills.user.list") return { items: [{ id: "fba", version: "1", source: "user", name: "amazon-fba-capacity-report", enabled: true, available: true, unavailable_reason: "" }], total: 1 };
       if (call.operation === "sessions.send" && !call.input.session_id) return { session_id: "fba-session", turn_id: "fba-turn", message_id: "fba-message", created: true, state: "queued" };
+      if (call.operation === "workspaces.register") return { workspace_id: "fba-workspace", directory: call.input.directory, display_name: null, created_at: 1, session_count: 0, last_active_at: 1 };
+      if (call.operation === "sessions.create") return { session_id: "fba-full-session", workspace_id: call.input.workspace_id };
+      if (call.operation === "sessions.permission.set") return { session_id: call.input.session_id, permission_mode: call.input.permission_mode };
+      if (call.operation === "sessions.send" && call.input.session_id === "fba-full-session") return { session_id: "fba-full-session", turn_id: "fba-full-turn", message_id: "fba-full-message", created: false, state: "queued" };
       if (call.operation === "sessions.turn.lookup") return { state: phase };
       if (call.operation === "sessions.questions" || call.operation === "sessions.approvals") return { items: [] };
       return undefined;

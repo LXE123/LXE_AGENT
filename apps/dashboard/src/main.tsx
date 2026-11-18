@@ -293,6 +293,7 @@ function App({
             {activeSection === "workbench" && workbenchView === "fba-capacity" ? (
               <FbaCapacityWorkbench
                 ready={dashboardRuntimeReady}
+                defaultDirectory={desktopHealth.workspace_root}
                 onBack={() => openWorkbenchView(workbenchParent(workbenchView))}
                 onOpenSession={workspace.actions.openSessionRun}
                 onInstallSkill={() => openDashboardSection("team-skills")}

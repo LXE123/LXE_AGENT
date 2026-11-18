@@ -7,6 +7,8 @@ export const sessionActions = {
   registerWorkspace: (directory: string) => callDashboard({ operation: "workspaces.register", input: { directory } }),
   renameWorkspace: (workspace_id: string, display_name: string) => callDashboard({ operation: "workspaces.rename", input: { workspace_id, display_name } }),
   deleteWorkspace: (workspace_id: string) => callDashboard({ operation: "workspaces.delete", input: { workspace_id } }),
+  setPermission: (session_id: string, permission_mode: DashboardRpcCall<"sessions.permission.set">["input"]["permission_mode"]) =>
+    callDashboard({ operation: "sessions.permission.set", input: { session_id, permission_mode } }),
   send: (input: DashboardRpcCall<"sessions.send">["input"]) => callDashboard({ operation: "sessions.send", input }),
   turnState: (session_id: string, turn_id: string) => callDashboard({ operation: "sessions.turn.lookup", input: { session_id, turn_id } }),
   questions: () => callDashboard({ operation: "sessions.questions", input: {} }),

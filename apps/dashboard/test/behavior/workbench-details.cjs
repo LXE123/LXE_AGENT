@@ -116,7 +116,7 @@ module.exports = async ({ win, js, step, load, waitFor, click, settle, state }) 
   });
   await step("FBA capacity starts a background run, follows its status and lists the results", async () => {
     await open(1, "zh", "tasks");
-    await js("localStorage.removeItem('lxe.workbench.fba-capacity.runs.v1'); localStorage.removeItem('lxe.workbench.fba-capacity.selection.v1'); behavior.fba.phase('running'); behavior.fba.report(false)");
+    await js("localStorage.removeItem('lxe.workbench.fba-capacity.runs.v1'); localStorage.removeItem('lxe.workbench.fba-capacity.selection.v1'); localStorage.removeItem('lxe.workbench.fba-capacity.full-access.v1'); behavior.fba.phase('running'); behavior.fba.report(false)");
     await open(1, "zh", "tasks");
     await waitFor("document.querySelectorAll('.fba-capacity-chip').length===15", "choices ready");
     await waitFor("!document.querySelector('.fba-capacity-start button').disabled", "skill checked");
@@ -146,11 +146,39 @@ module.exports = async ({ win, js, step, load, waitFor, click, settle, state }) 
     await themes("fba-complete", true);
     await js("behavior.fba.report(true)"); await click(".fba-capacity-actions button:last-of-type");
     await waitFor("Boolean(document.querySelector('.fba-capacity-report'))", "result page mounted");
+
+    // Full access is confirmed once, then the session is raised before the task is sent.
+    const toggle = ".fba-capacity-switch input";
+    assert.equal(await js(`document.querySelector('${toggle}').checked`), false, "Full access starts off");
+    await click(toggle);
+    await waitFor("Boolean(document.querySelector('.permission-confirm-dialog'))", "Full access asks first");
+    await capture("fba-full-access-confirm-dark");
+    await click(".permission-confirm-dialog footer button:first-child");
+    await waitFor("!document.querySelector('.permission-confirm-dialog')", "cancel closes the dialog");
+    assert.equal(await js(`document.querySelector('${toggle}').checked`), false, "cancel keeps it off");
+    await click(toggle);
+    await waitFor("Boolean(document.querySelector('.permission-confirm-dialog'))", "Full access asks again");
+    await click(".permission-confirm-primary");
+    await waitFor(`document.querySelector('${toggle}').checked`, "Full access on");
+    await js("behavior.fba.phase('running')");
+    const before = (await state()).calls.length;
+    await click(".fba-capacity-start button");
+    await waitFor("document.querySelector('.fba-capacity-run .workbench-note')?.textContent.includes('Full access')", "run marked Full access");
+    const sequence = (await state()).calls.slice(before)
+      .filter(call => ["workspaces.register", "sessions.create", "sessions.permission.set", "sessions.send"].includes(call.operation));
+    assert.deepEqual(sequence.map(call => call.operation), ["workspaces.register", "sessions.create", "sessions.permission.set", "sessions.send"]);
+    assert.equal(sequence[0].input.directory, "/fixture/default", "the session opens in the default workspace");
+    assert.deepEqual(sequence[2].input, { session_id: "fba-full-session", permission_mode: "danger-full-access" });
+    assert.equal(sequence[3].input.session_id, "fba-full-session", "the task goes to the raised session");
+    await capture("fba-full-access-dark");
+    await js("behavior.fba.phase('completed')");
+    await waitFor("document.querySelector('.fba-capacity-state')?.dataset.state==='completed'", "Full access run completed");
     await win.setContentSize(480, 900); await open(1, "en", "tasks");
     // A reload recreates the in-memory fixture; the run itself comes back from local history.
     await js("behavior.fba.phase('completed')");
     await waitFor("document.querySelector('.fba-capacity-state')?.dataset.state==='completed'", "history restored");
-    assert.equal(await js("document.querySelectorAll('.fba-capacity-form input:checked').length"), 9, "last selection is remembered");
+    assert.equal(await js("document.querySelectorAll('.fba-capacity-chip input:checked').length"), 9, "last selection is remembered");
+    assert.equal(await js("document.querySelector('.fba-capacity-switch input').checked"), true, "Full access choice is remembered");
     await capture("fba-narrow-en", true);
     await win.setContentSize(1200, 900);
   });
