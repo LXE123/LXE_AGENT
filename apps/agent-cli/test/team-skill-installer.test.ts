@@ -142,6 +142,17 @@ test("uninstall resolves only the displayed user release and recycles its local 
   expect(await installer.install(ticket("1.0.1"))).toBe("1.0.1");
 });
 
+test("use resolves the installed release and follows the Skills page's availability", async () => {
+  const { root, catalog, installer } = setup((_, version) => archive(version, "assets/example.txt", "fba-report"));
+  const files = new UserSkillFiles(catalog, root);
+  const allowing = (types?: string[]) => () => files.list(types ? { allowedTypes: new Set(types) } : {});
+  expect(() => installer.useTarget(id, allowing())).toThrow("本机未安装该技能");
+  await installer.install(ticket("1.0.1"));
+  expect(installer.useTarget(id, allowing())).toEqual({ name: "fba-report" });
+  expect(installer.useTarget(id, allowing(["default"]))).toEqual({ name: "fba-report" });
+  expect(() => installer.useTarget(id, allowing(["replenishment"]))).toThrow("当前设备不允许使用「default」类型的技能");
+});
+
 test("checking versions restores an interrupted directory replacement", async () => {
   const { skills, installer } = setup((_, v) => archive(v));
   await installer.install(ticket("1.0.0"));

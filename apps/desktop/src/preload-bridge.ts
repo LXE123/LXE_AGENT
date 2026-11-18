@@ -119,6 +119,7 @@ export function createDesktopBridge(
       saveVietnamParameters: (input) => ipc.invoke(IPC_CHANNELS.saveVietnamParameters, input),
       teamSkillsBrowser: (mountSrc, command) => ipc.invoke(IPC_CHANNELS.teamSkillsBrowser, mountSrc, command),
       teamSkillsView: action => ipc.invoke(IPC_CHANNELS.teamSkillsView, action),
+      teamSkillUseResult: (requestId, error) => ipc.invoke(IPC_CHANNELS.teamSkillUseResult, requestId, error),
       getAmazonV2Settings: () => ipc.invoke(IPC_CHANNELS.getAmazonV2Settings),
       saveAmazonV2Settings: (input) => ipc.invoke(IPC_CHANNELS.saveAmazonV2Settings, input),
       onCloudStateChanged: (listener) => {
@@ -153,6 +154,11 @@ export function createDesktopBridge(
           listener(invalidation as DesktopDashboardInvalidation);
         ipc.on(IPC_CHANNELS.dashboardInvalidated, handler);
         return () => ipc.removeListener(IPC_CHANNELS.dashboardInvalidated, handler);
+      },
+      onTeamSkillUse: (listener) => {
+        const handler: IpcListener = (_event, request) => listener(request as import("@lxe/desktop-protocol").TeamUseRequest);
+        ipc.on(IPC_CHANNELS.teamSkillUseRequested, handler);
+        return () => ipc.removeListener(IPC_CHANNELS.teamSkillUseRequested, handler);
       },
       onStatusChanged: (listener) => {
         const handler: IpcListener = (_event, health) => listener(health as DesktopHealth);
