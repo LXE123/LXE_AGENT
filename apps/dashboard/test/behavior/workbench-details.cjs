@@ -136,6 +136,7 @@ module.exports = async ({ win, js, step, load, waitFor, click, settle, state }) 
     assert.ok(send.input.text.includes("站点：US CA SA AE UK DE AU\n"));
     assert.equal(await js("document.querySelector('.fba-capacity-start button').disabled"), true, "one run at a time");
     assert.equal(await js("getComputedStyle(document.querySelector('.fba-capacity-state .spin')).animationName"), "workbench-spin", "the running badge spins");
+    assert.equal(await js("(() => { const form = document.querySelector('.fba-capacity-form').getBoundingClientRect(); const run = document.querySelector('.fba-capacity-run').getBoundingClientRect(); return run.left > form.right && Math.abs(run.top - form.top) < 4; })()"), true, "start on the left, results on the right");
     await capture("fba-running-dark");
     await js("behavior.fba.phase('completed')");
     await waitFor("document.querySelector('.fba-capacity-state').dataset.state==='completed'", "run completed");

@@ -125,6 +125,8 @@ export function FbaCapacityWorkbench({ ready, onBack, onOpenSession, onInstallSk
       {copy.skillMissing}<button type="button" onClick={onInstallSkill}>{copy.installSkill}<ArrowUpRight size={14} aria-hidden /></button>
     </p> : null}
 
+    <div className="fba-capacity-layout">
+    <div className="fba-capacity-side">
     <article className="workbench-settings-card fba-capacity-form">
       <fieldset>
         <legend>{copy.stores}<button type="button" className="fba-capacity-link" onClick={() => change({ ...selection, stores: storesAll ? [] : [...FBA_CAPACITY_STORES] })}>{storesAll ? copy.clear : copy.selectAll}</button></legend>
@@ -154,6 +156,18 @@ export function FbaCapacityWorkbench({ ready, onBack, onOpenSession, onInstallSk
       </div>
     </article>
 
+    {runs.length > 1 ? <article className="workbench-settings-card fba-capacity-history" aria-labelledby="fba-capacity-history-title">
+      <h2 id="fba-capacity-history-title">{copy.history}</h2>
+      <ul>{runs.map(run => <li key={run.id}>
+        <button type="button" aria-current={run.id === activeId ? "true" : undefined} onClick={() => setActiveId(run.id)}>
+          <span>{time(run.created_at)}</span>
+          <span>{run.stores.join("、")}</span>
+        </button>
+      </li>)}</ul>
+    </article> : null}
+    </div>
+
+    <div className="fba-capacity-main">
     {active ? <article className="workbench-settings-card fba-capacity-run" aria-labelledby="fba-capacity-run-title">
       <header className="fba-capacity-run-header">
         <div>
@@ -186,16 +200,8 @@ export function FbaCapacityWorkbench({ ready, onBack, onOpenSession, onInstallSk
             name="report.html" state={readingState(active.session_id, `fba-capacity:${active.id}`)} />
         </section> : <p className="workbench-note">{results.workbooks.length ? copy.noReport : copy.noOutput}</p>}
       </> : null}
-    </article> : null}
-
-    {runs.length > 1 ? <article className="workbench-settings-card fba-capacity-history" aria-labelledby="fba-capacity-history-title">
-      <h2 id="fba-capacity-history-title">{copy.history}</h2>
-      <ul>{runs.map(run => <li key={run.id}>
-        <button type="button" aria-current={run.id === activeId ? "true" : undefined} onClick={() => setActiveId(run.id)}>
-          <span>{time(run.created_at)}</span>
-          <span>{run.stores.join("、")}</span>
-        </button>
-      </li>)}</ul>
-    </article> : null}
+    </article> : <p className="fba-capacity-empty">{copy.noRuns}</p>}
+    </div>
+    </div>
   </section>;
 }
