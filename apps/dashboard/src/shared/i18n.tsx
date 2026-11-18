@@ -20,6 +20,7 @@ export const ZH_TEXT = {
     shared: "共享技能", official: "官方技能",
     createPrompt: "请帮我创建一个可复用的技能。我的需求是：",
     usePrompt: (name: string) => `请使用 ${name} 技能。我的任务是：`,
+    useInterrupted: "打开对话时已切换到其他对话，未写入技能草稿，请重新点击「开始使用」。",
   },
 
   skillDisplayName: (name: string) => skillDisplayName(name, "zh"),
@@ -961,6 +962,7 @@ export const UI_TEXT: Record<Language, UiText> = {
       shared: "Shared skill", official: "Official skill",
       createPrompt: "Help me create a reusable skill. My requirements are:",
       usePrompt: (name: string) => `Use the ${name} skill. My task is:`,
+      useInterrupted: "The conversation changed before the skill draft was written. Click 开始使用 again.",
     },
     skillDisplayName: (name: string) => skillDisplayName(name, "en"),
     sessionStatus: {waiting_input:"Waiting for answer",running:"Running",stopping:"Stopping",queued:"Queued",completed:"Completed, not viewed",error:"Failed, not viewed",cancelled:"Stopped",idle:"No unviewed results",unknown:"Previous run result unconfirmed",unavailable:"Status unavailable",syncError:"Status sync failed"},

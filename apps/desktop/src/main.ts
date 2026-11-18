@@ -717,6 +717,7 @@ async function bootstrap(): Promise<void> {
     versions: ids => gateway.dashboardCall({ operation: "skills.team.versions", input: { ids } }),
     install: (ticket, replaceLocalName) => gateway.dashboardCall({ operation: "skills.team.install", input: { ticket, ...(replaceLocalName && { replaceLocalName }) } }),
     uninstallTarget: (id, version) => gateway.dashboardCall({ operation: "skills.team.uninstallTarget", input: { id, version } }),
+    useTarget: id => gateway.dashboardCall({ operation: "skills.team.useTarget", input: { id } }),
     confirmUninstall: async (name, version) => (await dialog.showMessageBox(catalogWindow, {
       type: "question", title: "从本机卸载", message: `从这台电脑卸载「${name}」v${version}？`,
       detail: "LXE 会将本机技能文件夹和其中的修改一起移入回收目录。团队成员仍可使用技能库中的版本。",

@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { app, session, shell, type DownloadItem, type NavigationEntry, type WebContents } from "electron";
 import { createLogger } from "@lxe/core";
-import { TEAM_SKILLS_URL, isTeamSkillsPage, validTeamSkillId, validTeamVersion, type TeamUninstallTarget, parseTeamInstallTicket, type TeamInstallTicket, type TeamInstallResult, type TeamSkillsBrowserState } from "@lxe/desktop-protocol/team-skills";
+import { TEAM_SKILLS_URL, isTeamSkillsPage, validTeamSkillId, validTeamVersion, type TeamUninstallTarget, type TeamUseTarget, type TeamUseRequest, parseTeamInstallTicket, type TeamInstallTicket, type TeamInstallResult, type TeamSkillsBrowserState } from "@lxe/desktop-protocol/team-skills";
 import { IPC_CHANNELS } from "../ipc-channels";
 import { WindowTabBudget } from "./manual-tools/tab-budget";
 import type { ManualBrowsers } from "./manual-tools/browsers";
@@ -14,6 +14,7 @@ interface CatalogHost {
   versions(ids: string[]): Promise<Record<string, string>>;
   install(ticket: TeamInstallTicket, replaceLocalName?: string): Promise<TeamInstallResult>;
   uninstallTarget(id: string, version: string): Promise<TeamUninstallTarget>;
+  useTarget(id: string): Promise<TeamUseTarget>;
   confirmUninstall(name: string, version: string): Promise<boolean>;
   recycle(target: TeamUninstallTarget): Promise<void>;
   confirmOverwrite(name: string): Promise<boolean>;
@@ -31,6 +32,11 @@ export function registerTeamSkillsGuest(dashboard: WebContents, browsers?: Manua
   let history: { entries: NavigationEntry[]; index: number } | undefined;
   let restoring = false;
   const changingSkills = new Set<string>();
+  /** Use requests waiting for the dashboard to write the draft, by request ID. */
+  const useRequests = new Map<string, (error?: Error) => void>();
+  function abandonUseRequests(reason: string): void {
+    for (const settle of [...useRequests.values()]) settle(new Error(reason));
+  }
 
   function targetUrl(raw: string): URL | undefined {
     const target = URL.parse(raw);
@@ -72,6 +78,11 @@ export function registerTeamSkillsGuest(dashboard: WebContents, browsers?: Manua
     if (!mountSrc) pendingSrc = mountSrc = `about:blank#${randomUUID()}`;
     return mountSrc;
   });
+  dashboard.ipc.handle(IPC_CHANNELS.teamSkillUseResult, (event, requestId: unknown, error: unknown) => {
+    if (event.senderFrame !== dashboard.mainFrame) throw new Error("Team skills requires the desktop main frame");
+    if (typeof requestId !== "string" || (error !== undefined && typeof error !== "string")) throw new Error("Invalid team skill use result");
+    useRequests.get(requestId)?.(error === undefined ? undefined : new Error(error.slice(0, 2000) || "LXE 未能打开对话"));
+  });
   dashboard.ipc.handle(IPC_CHANNELS.teamSkillsBrowser, async (event, ticket: unknown, command: unknown): Promise<TeamSkillsBrowserState | null> => {
     if (event.senderFrame !== dashboard.mainFrame) throw new Error("Team skills requires the desktop main frame");
     const guest = contents;
@@ -99,6 +110,7 @@ export function registerTeamSkillsGuest(dashboard: WebContents, browsers?: Manua
   });
   dashboard.on("did-start-navigation", event => {
     if (event.isMainFrame && !event.isSameDocument) {
+      abandonUseRequests("LXE 主窗口已重新加载，未写入对话草稿，请重新点击「开始使用」");
       release();
       history = undefined;
       page.setVisible(false);
@@ -118,6 +130,7 @@ export function registerTeamSkillsGuest(dashboard: WebContents, browsers?: Manua
   };
   profile.on("will-download", onDownload);
   dashboard.once("destroyed", () => {
+    abandonUseRequests("LXE 主窗口已关闭，未写入对话草稿");
     profile.off("will-download", onDownload);
     release();
     page.remove();
@@ -179,6 +192,27 @@ export function registerTeamSkillsGuest(dashboard: WebContents, browsers?: Manua
           await host.recycle(target);
           return true;
         } finally { changingSkills.delete(id); budget.enforce(); }
+      });
+      guest.ipc.handle(IPC_CHANNELS.teamSkillUse, async (event, id: unknown) => {
+        requireCatalog(event);
+        if (!validTeamSkillId(id)) throw new Error("无效的技能 ID");
+        // The page names only the catalog ID; LXE resolves the local skill and writes the draft.
+        const { name }: TeamUseTarget = await host.useTarget(id);
+        requireCatalog(event);
+        if (dashboard.isDestroyed()) throw new Error("LXE 主窗口已关闭，未写入对话草稿");
+        // Resolve only when the dashboard confirms the draft, so the card reports real failures.
+        const requestId = randomUUID();
+        const written = new Promise<void>((resolve, reject) => {
+          const timer = setTimeout(() => settle(new Error("30 秒内没有收到 LXE 主窗口的结果，对话草稿可能未写入")), 30_000);
+          function settle(error?: Error) {
+            clearTimeout(timer);
+            useRequests.delete(requestId);
+            if (error) reject(error); else resolve();
+          }
+          useRequests.set(requestId, settle);
+        });
+        dashboard.send(IPC_CHANNELS.teamSkillUseRequested, { requestId, name } satisfies TeamUseRequest);
+        await written;
       });
       const approvals = new Map<string, { token: string; version: string; sha256: string; localName: string }>();
       guest.on("did-start-navigation", event => { if (event.isMainFrame && !event.isSameDocument) approvals.clear(); });
