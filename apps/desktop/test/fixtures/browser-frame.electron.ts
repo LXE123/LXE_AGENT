@@ -34,6 +34,11 @@ void app.whenReady().then(async () => {
       assert.equal(id, skillId); assert.equal(version, installed[id]);
       return { id: "local-entry", version: "file-revision", name: "demo" };
     },
+    useTarget: async id => {
+      assert.equal(id, skillId);
+      if (!installed[id]) throw new Error("本机未安装该技能");
+      return { name: "demo" };
+    },
     confirmUninstall: async (name, version) => { assert.equal(name, "demo"); assert.equal(version, "1.0.1"); return approve; },
     recycle: async target => {
       assert.deepEqual(target, { id: "local-entry", version: "file-revision", name: "demo" });
@@ -107,6 +112,10 @@ void app.whenReady().then(async () => {
     assert.deepEqual(await catalog.executeJavaScript(host + ".installedVersions([" + id + "])"), { [skillId]: "1.0.1" });
     assert.equal(prompts, 2, "only the unmarked namesake prompts; the same-ID update completes directly");
     assert.equal(await catalog.executeJavaScript("window.ticketCalls"), 4, "confirmed overwrite renews its grant");
+    await js("window.teamUse = []; window.lxe.desktop.onTeamSkillUse(target => window.teamUse.push(target)); void 0");
+    await catalog.executeJavaScript(host + ".use(" + id + ")", true);
+    await wait(async () => (await js("window.teamUse.length")) === 1, "dashboard receives the use request");
+    assert.deepEqual(await js("window.teamUse[0]"), { name: "demo" });
     const uninstall = host + ".uninstall(" + id + ", '1.0.1')";
     approve = false;
     assert.equal(await catalog.executeJavaScript(uninstall, true), false);
@@ -114,6 +123,7 @@ void app.whenReady().then(async () => {
     approve = true;
     assert.equal(await catalog.executeJavaScript(uninstall, true), true);
     assert.deepEqual(await catalog.executeJavaScript(host + ".installedVersions([" + id + "])"), {});
+    await assert.rejects(catalog.executeJavaScript(host + ".use(" + id + ")", true), /本机未安装/);
     const catalogId = catalog.id;
     const detail = new URL("/skill/detail", TEAM_SKILLS_URL).href;
     await catalog.loadURL(detail);

@@ -15,6 +15,9 @@ export type TeamInstallResult = string | { localName: string };
 /** Local user entry and content revision used for a confirmed recycle operation. */
 export type TeamUninstallTarget = { id: string; version: string; name: string };
 
+/** The installed skill a catalog card asks to use; LXE writes the conversation draft itself. */
+export type TeamUseTarget = { name: string };
+
 export function parseTeamInstallTicket(raw: unknown): TeamInstallTicket {
   if (!raw || typeof raw !== "object") throw new Error("无效的技能安装凭据");
   const { skillId, version, downloadUrl, expiresAt, size, sha256 } = raw as Partial<TeamInstallTicket>;

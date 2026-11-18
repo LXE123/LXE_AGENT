@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { app, session, shell, type DownloadItem, type NavigationEntry, type WebContents } from "electron";
 import { createLogger } from "@lxe/core";
-import { TEAM_SKILLS_URL, isTeamSkillsPage, validTeamSkillId, validTeamVersion, type TeamUninstallTarget, parseTeamInstallTicket, type TeamInstallTicket, type TeamInstallResult, type TeamSkillsBrowserState } from "@lxe/desktop-protocol/team-skills";
+import { TEAM_SKILLS_URL, isTeamSkillsPage, validTeamSkillId, validTeamVersion, type TeamUninstallTarget, type TeamUseTarget, parseTeamInstallTicket, type TeamInstallTicket, type TeamInstallResult, type TeamSkillsBrowserState } from "@lxe/desktop-protocol/team-skills";
 import { IPC_CHANNELS } from "../ipc-channels";
 import { WindowTabBudget } from "./manual-tools/tab-budget";
 import type { ManualBrowsers } from "./manual-tools/browsers";
@@ -14,6 +14,7 @@ interface CatalogHost {
   versions(ids: string[]): Promise<Record<string, string>>;
   install(ticket: TeamInstallTicket, replaceLocalName?: string): Promise<TeamInstallResult>;
   uninstallTarget(id: string, version: string): Promise<TeamUninstallTarget>;
+  useTarget(id: string): Promise<TeamUseTarget>;
   confirmUninstall(name: string, version: string): Promise<boolean>;
   recycle(target: TeamUninstallTarget): Promise<void>;
   confirmOverwrite(name: string): Promise<boolean>;
@@ -179,6 +180,15 @@ export function registerTeamSkillsGuest(dashboard: WebContents, browsers?: Manua
           await host.recycle(target);
           return true;
         } finally { changingSkills.delete(id); budget.enforce(); }
+      });
+      guest.ipc.handle(IPC_CHANNELS.teamSkillUse, async (event, id: unknown) => {
+        requireCatalog(event);
+        if (!validTeamSkillId(id)) throw new Error("无效的技能 ID");
+        // The page names only the catalog ID; LXE resolves the local skill and writes the draft.
+        const { name } = await host.useTarget(id);
+        requireCatalog(event);
+        if (dashboard.isDestroyed()) return;
+        dashboard.send(IPC_CHANNELS.teamSkillUseRequested, { name } satisfies TeamUseTarget);
       });
       const approvals = new Map<string, { token: string; version: string; sha256: string; localName: string }>();
       guest.on("did-start-navigation", event => { if (event.isMainFrame && !event.isSameDocument) approvals.clear(); });

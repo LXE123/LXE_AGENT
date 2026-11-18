@@ -154,6 +154,11 @@ export function createDesktopBridge(
         ipc.on(IPC_CHANNELS.dashboardInvalidated, handler);
         return () => ipc.removeListener(IPC_CHANNELS.dashboardInvalidated, handler);
       },
+      onTeamSkillUse: (listener) => {
+        const handler: IpcListener = (_event, target) => listener(target as import("@lxe/desktop-protocol").TeamUseTarget);
+        ipc.on(IPC_CHANNELS.teamSkillUseRequested, handler);
+        return () => ipc.removeListener(IPC_CHANNELS.teamSkillUseRequested, handler);
+      },
       onStatusChanged: (listener) => {
         const handler: IpcListener = (_event, health) => listener(health as DesktopHealth);
         ipc.on(IPC_CHANNELS.statusChanged, handler);

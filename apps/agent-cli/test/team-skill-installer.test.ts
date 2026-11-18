@@ -142,6 +142,13 @@ test("uninstall resolves only the displayed user release and recycles its local 
   expect(await installer.install(ticket("1.0.1"))).toBe("1.0.1");
 });
 
+test("use resolves the installed release to its local skill name", async () => {
+  const { installer } = setup((_, version) => archive(version, "assets/example.txt", "fba-report"));
+  expect(() => installer.useTarget(id)).toThrow("本机未安装该技能");
+  await installer.install(ticket("1.0.1"));
+  expect(installer.useTarget(id)).toEqual({ name: "fba-report" });
+});
+
 test("checking versions restores an interrupted directory replacement", async () => {
   const { skills, installer } = setup((_, v) => archive(v));
   await installer.install(ticket("1.0.0"));

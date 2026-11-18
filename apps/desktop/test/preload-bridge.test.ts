@@ -42,6 +42,7 @@ describe("preload bridge", () => {
       "onConversationStreamEvent",
       "onExecUpdate",
       "onDashboardInvalidated",
+      "onTeamSkillUse",
       "onSessionStatus",
       "onStatusChanged",
       "onSyntheticPerformerTaskChanged",

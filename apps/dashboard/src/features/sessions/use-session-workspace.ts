@@ -203,7 +203,7 @@ export function useSessionWorkspace({ activeSection, runtimeReady: dashboardRunt
     void queryClient.invalidateQueries({ queryKey: dashboardQueryKeys.sessions.lists });
   }
 
-  async function startSkillConversation(action: SkillConversationAction, skill?: SkillPayload) {
+  async function startSkillConversation(action: SkillConversationAction, skill?: Pick<SkillPayload, "name">) {
     const prompt = action === "create" ? t.userSkills.createPrompt : skill ? t.userSkills.usePrompt(skill.name) : "";
     if (!prompt) return;
     try {
@@ -211,6 +211,12 @@ export function useSessionWorkspace({ activeSection, runtimeReady: dashboardRunt
       if (session) appendComposerDraftPrompt(window.sessionStorage, session.session_id, prompt);
     } catch (cause) { onError(queryError(cause)); }
   }
+  const startSkillConversationRef = useRef(startSkillConversation);
+  startSkillConversationRef.current = startSkillConversation;
+  // 「开始使用」 on a team catalog card: the same draft as the Skills page's use button.
+  useEffect(() => window.lxe?.desktop?.onTeamSkillUse?.(target => {
+    void startSkillConversationRef.current("use", target);
+  }), []);
 
   async function sendConversation(text: string, attachments: DesktopInputAttachmentPayload[]): Promise<void> {
     if (!selectedSessionId) throw new Error(t.workspaces.required);

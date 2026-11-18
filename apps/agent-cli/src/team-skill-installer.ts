@@ -2,7 +2,7 @@ import { existsSync, lstatSync, mkdirSync, readFileSync, realpathSync, renameSyn
 import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import lockfile from "proper-lockfile";
 import { SkillCatalog } from "@lxe/runtime";
-import { parseTeamInstallTicket, validTeamVersion, type TeamInstallTicket, type TeamInstallResult } from "@lxe/desktop-protocol/team-skills";
+import { parseTeamInstallTicket, validTeamVersion, type TeamInstallTicket, type TeamInstallResult, type TeamUseTarget } from "@lxe/desktop-protocol/team-skills";
 import { downloadTeamSkill } from "./team-skill-download";
 import { extractTeamSkill } from "./team-skill-archive";
 
@@ -66,6 +66,15 @@ export class TeamSkillInstaller {
     if (!entry || !manifest?.teamRelease || manifest.teamRelease.version !== installedVersion)
       throw new Error("本机技能或版本已变化，请刷新后重试");
     return { id: entry.id, version: entry.version, name: manifest.name };
+  }
+
+  useTarget(id: string): TeamUseTarget {
+    const entry = userRelease(this.inventory(), id);
+    const manifest = entry?.manifest;
+    if (!entry || !manifest?.teamRelease) throw new Error("本机未安装该技能，请刷新后重试");
+    const problem = entry.diagnostics.map(item => item.message).join("\n") || (entry.enabled ? "" : "该技能已禁用");
+    if (problem) throw new Error(`本机技能暂不可用：${problem}`);
+    return { name: manifest.name };
   }
 
   async install(raw: TeamInstallTicket, replaceLocalName?: string): Promise<TeamInstallResult> {

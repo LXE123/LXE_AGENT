@@ -9,6 +9,10 @@ if (process.isMainFrame && isTeamSkillsPage(location.href)) {
       if (!navigator.userActivation.isActive) throw new Error("请点击详情页的「从本机卸载」");
       return ipcRenderer.invoke(IPC_CHANNELS.teamSkillUninstall, id, installedVersion);
     },
+    use: (id: string) => {
+      if (!navigator.userActivation.isActive) throw new Error("请点击「开始使用」");
+      return ipcRenderer.invoke(IPC_CHANNELS.teamSkillUse, id);
+    },
     install: async (id: string, version: string, getTicket: () => Promise<TeamInstallTicket>) => {
       // Check the click before waiting for the authenticated web request.
       if (!navigator.userActivation.isActive) throw new Error("请点击安装或更新按钮");

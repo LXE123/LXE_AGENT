@@ -1,6 +1,6 @@
 export * from "./manual-tools";
 export * from "./team-skills";
-import type { TeamSkillsBrowserCommand, TeamSkillsBrowserState } from "./team-skills";
+import type { TeamSkillsBrowserCommand, TeamSkillsBrowserState, TeamUseTarget } from "./team-skills";
 export type * from "./file-preview";
 import { parseManagedState, type ManagedLlmState } from "@lxe/core/managed-llm";
 import { parseJsonRpcEnvelope, parseJsonRpcJson, JsonRpcError,
@@ -758,6 +758,8 @@ export interface LxeDesktopBridge {
     onConversationStreamEvent(listener: (event: DesktopConversationStreamEvent) => void): () => void;
     onExecUpdate(listener: (update: BackgroundTaskChangedPayload) => void): () => void;
     onDashboardInvalidated(listener: (invalidation: DesktopDashboardInvalidation) => void): () => void;
+    /** A team catalog card asked to start a conversation with this installed skill. */
+    onTeamSkillUse(listener: (target: TeamUseTarget) => void): () => void;
     onStatusChanged(listener: (health: DesktopHealth) => void): () => void;
   };
 }
