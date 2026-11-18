@@ -30,5 +30,6 @@
   "ziniao-browser": "紫鸟浏览器",
   "office-xlsx": "Excel 工作簿",
   "office-docx": "Word 文档",
-  "office-pptx": "PowerPoint 演示文稿"
+  "office-pptx": "PowerPoint 演示文稿",
+  "office-pdf": "PDF 文档"
 }
