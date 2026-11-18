@@ -203,6 +203,24 @@
 /* A quiet, flat user-message surface; references and metadata inherit the
    same semantic colors without changing assistant messages or bubble geometry. */
 .message-with-meta.role-user.conversation-chrome-theme { --focus-ring: var(--cds-accent); }
+.user-message-preview[data-truncated] {
+  overflow: clip;
+  mask-image: linear-gradient(to bottom, black calc(100% - 2.5em), transparent);
+}
+.user-message-toggle {
+  display: block;
+  margin-top: 6px;
+  padding: 3px 0;
+  border: 0;
+  border-radius: 3px;
+  background: transparent;
+  color: var(--cds-ink);
+  font: inherit;
+  font-size: .8125rem;
+  cursor: pointer;
+}
+.user-message-toggle:hover { text-decoration: underline; }
+.user-message-toggle:focus-visible { outline: 2px solid var(--cds-accent); outline-offset: 2px; }
 :root .conversation-feed .message-with-meta.role-user.conversation-chrome-theme > .message-card.role-user {
   background: color-mix(in srgb, var(--cds-surface-nav) 94%, var(--cds-ink));
   border-color: var(--cds-alpha-1);

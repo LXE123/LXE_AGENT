@@ -2,6 +2,40 @@ const assert = require('node:assert/strict');
 module.exports = async ({suite,win,url,js,step,load,waitFor,click,key,focus,settle,state}) => {
   const textClick = async text => { await js(`Array.from(document.querySelectorAll('button')).find(e=>e.textContent===${JSON.stringify(text)}).click()`); await settle(); };
   if (suite === 'conversation-window') {
+    await step('long user messages fold by rendered height and keep the full text available', async () => {
+      await win.loadURL(new URL('../features/sessions/process-fixture.html', url).href);
+      const preview = "document.querySelector('.user-message-preview')";
+      const toggle = '.user-message-toggle';
+      await waitFor(`Boolean(${preview})`, 'user message');
+      assert.equal(await js(`${preview}.parentElement.querySelector('button')`), null);
+      await textClick('Complete');
+      await textClick('Toggle long user');
+      await textClick('Toggle narrow column');
+      await waitFor(`Boolean(${preview}.dataset.truncated)`, 'wrapped message is collapsed');
+      const fullText = await js(`${preview}.textContent`);
+      const collapsedHeight = await js(`${preview}.clientHeight`);
+      await js("Object.defineProperty(navigator, 'clipboard', { configurable:true, value:{writeText:async text=>{window.copiedText=text}} })");
+      await click('.message-meta.role-user .message-meta-copy');
+      assert.equal(await js('window.copiedText'), fullText);
+      for (const theme of ['light', 'dark']) {
+        await js(`document.documentElement.dataset.theme = '${theme}'`);
+        assert.match(await js(`getComputedStyle(${preview}).maskImage`), /linear-gradient/);
+        await focus(toggle);
+        await key('Enter');
+        assert.equal(await js(`document.querySelector('${toggle}').getAttribute('aria-expanded')`), 'true');
+        assert.ok(await js(`${preview}.clientHeight`) > collapsedHeight);
+        assert.equal(await js(`getComputedStyle(${preview}).maskImage`), 'none');
+        assert.ok(await js("Boolean(document.querySelector('.conversation-jump-latest'))"), 'reading suspends follow');
+        await key('Enter');
+        assert.equal(await js(`${preview}.clientHeight`), collapsedHeight);
+      }
+      await textClick('Toggle narrow column');
+      await waitFor(`!document.querySelector('${toggle}')`, 'wider text fits without a toggle');
+      await textClick('Toggle narrow column');
+      await textClick('Toggle attachment');
+      await waitFor(`Boolean(${preview}.dataset.truncated)`, 'attachment caption folds');
+      assert.ok(await js(`!document.querySelector('.sent-attachments').closest('.user-message-preview')`));
+    });
     await step('adjacent tool calls share an outline and expand independently', async () => {
       await win.loadURL(new URL('../features/sessions/process-fixture.html', url).href);
       const card = id => `[data-conversation-row="tool:t:${id}"] .tool-op-list`;

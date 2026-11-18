@@ -275,12 +275,17 @@ export function ConversationWindow({ rows: sourceRows, renderRow, hasOlder, hasN
       onBlurCapture={(event) => setFocusedAnswer(answerAt(event.relatedTarget))}
       onClickCapture={(event) => {
       const target = event.target as HTMLElement;
-      const button = target.closest(".conversation-process-toggle");
+      const button = target.closest(".conversation-process-toggle, .user-message-toggle");
       const row = button?.closest<HTMLElement>("[data-conversation-row]");
-      if (row && root.current) {
+      if (button && row && root.current) {
         scrollInput.clear();
         stopFollowing();
-        manualAnchor.current = {id: row.dataset.conversationRow!, offset: row.getBoundingClientRect().top - root.current.getBoundingClientRect().top, bottom: false};
+        const offset = row.getBoundingClientRect().top - root.current.getBoundingClientRect().top;
+        if (button.matches(".conversation-process-toggle")) {
+          manualAnchor.current = {id: row.dataset.conversationRow!, offset, bottom: false};
+        } else if (offset < 0) {
+          virtual.scrollToIndex(Number(row.dataset.index), { align: "start" });
+        }
       }
     }} onScroll={(event) => {
       if (event.target !== root.current) return;
