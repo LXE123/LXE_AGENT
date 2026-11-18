@@ -1,0 +1,49 @@
+/* Shared CDS underline tabs for workspace pages and settings panels. */
+.workspace-subnav {
+  display: flex;
+  align-items: stretch;
+  gap: 24px;
+  width: 100%;
+  min-width: 0;
+  overflow-x: auto;
+  border-bottom: 1px solid var(--border);
+}
+
+.workspace-subnav-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex: 0 0 auto;
+  min-height: 40px;
+  padding: 8px 6px 12px;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  border-radius: 0;
+  background: transparent;
+  color: var(--text-soft);
+  font-size: .875rem;
+  font-weight: 400;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.workspace-subnav-item:hover { color: var(--text); }
+.workspace-subnav-item.active {
+  color: var(--text);
+  border-bottom-color: currentColor;
+  font-weight: 600;
+}
+
+/* Keep the focus ring inside the scroll area and clear of the selection underline. */
+.workspace-subnav .workspace-subnav-item:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -4px;
+}
+
+@media (max-width: 800px) {
+  .workspace-subnav { gap: 18px; }
+}
+@media (max-width: 480px) {
+  .workspace-subnav { gap: 12px; }
+  .workspace-subnav-item { font-size: .8125rem; }
+}

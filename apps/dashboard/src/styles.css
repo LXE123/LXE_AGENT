@@ -1,3 +1,5 @@
+@import "./shared/workspace-subnav.css";
+
 @font-face {
   font-family: "HarmonyOS Sans SC";
   src: url("./assets/fonts/HarmonyOS_Sans_SC.ttf") format("truetype");
@@ -2688,45 +2690,6 @@ h1 {
   font-size: 1.25rem;
   font-weight: 700;
   letter-spacing: -0.02em;
-}
-
-.workspace-subnav {
-  display: inline-flex;
-  align-items: center;
-  min-width: 0;
-  gap: 2px;
-  padding: 3px;
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  background: var(--surface-muted);
-}
-
-.workspace-subnav-item {
-  min-height: 30px;
-  padding: 5px 12px;
-  border: 0;
-  border-radius: 7px;
-  background: transparent;
-  color: var(--text-soft);
-  font-size: 0.75rem;
-  font-weight: 600;
-  cursor: pointer;
-}
-
-.workspace-subnav-item:hover,
-.workspace-subnav-item:focus-visible {
-  color: var(--text-strong);
-}
-
-.workspace-subnav-item:focus-visible {
-  outline: 2px solid var(--focus-ring);
-  outline-offset: 1px;
-}
-
-.workspace-subnav-item.active {
-  background: var(--surface);
-  color: var(--accent-strong);
-  box-shadow: 0 1px 4px var(--shadow-soft);
 }
 
 .workspace-view-content {
@@ -11683,8 +11646,6 @@ pre {
 
 /* Skill management uses the existing catalog and modal surfaces. */
 .workspace-header-actions { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-width: 0; width: 100%; }
-.workspace-header-actions .workspace-subnav { overflow-x: auto; }
-.workspace-header-actions .workspace-subnav-item { flex-shrink: 0; }
 .skill-add-menu { position: relative; flex-shrink: 0; }
 .skill-add-menu-popup { position: absolute; z-index: 30; top: calc(100% + 8px); right: 0; min-width: 9rem; padding: 6px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface); box-shadow: 0 8px 24px var(--shadow-soft); }
 .skill-add-menu-popup button { display: block; width: 100%; padding: 8px 12px; border: 0; border-radius: 6px; background: transparent; color: var(--text-strong); font: inherit; text-align: left; cursor: pointer; }
@@ -11696,7 +11657,6 @@ pre {
 @media (max-width: 600px) {
   .workspace-view-header { flex-wrap: wrap; gap: 10px; }
   .workspace-header-actions { gap: 8px; }
-  .workspace-header-actions .workspace-subnav-item { padding-inline: 8px; }
 }
 .user-skill-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin: 12px 0; }
 .user-skill-actions button, .user-skill-actions select { font: inherit; border: 1px solid var(--border); border-radius: 8px; padding: 7px 10px; color: inherit; background: var(--surface); cursor: pointer; }
@@ -11789,17 +11749,7 @@ pre {
 }
 
 .desktop-erp-tabs {
-  max-width: 100%;
-  overflow-x: auto;
-  margin-bottom: 20px;
-}
-
-.desktop-erp-tabs .workspace-subnav-item {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  flex-shrink: 0;
-  white-space: nowrap;
+  margin-bottom: 28px;
 }
 
 .native-cloud-access .native-cloud-clear { justify-self: start; max-width: 100%; white-space: normal; text-align: left; }
