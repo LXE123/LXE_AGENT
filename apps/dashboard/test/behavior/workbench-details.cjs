@@ -137,6 +137,9 @@ module.exports = async ({ win, js, step, load, waitFor, click, settle, state }) 
     assert.equal(await js("document.querySelector('.fba-capacity-start button').disabled"), true, "one run at a time");
     assert.equal(await js("getComputedStyle(document.querySelector('.fba-capacity-state .spin')).animationName"), "workbench-spin", "the running badge spins");
     assert.equal(await js("(() => { const form = document.querySelector('.fba-capacity-form').getBoundingClientRect(); const run = document.querySelector('.fba-capacity-run').getBoundingClientRect(); return run.left > form.right && Math.abs(run.top - form.top) < 4; })()"), true, "start on the left, results on the right");
+    assert.match(await js("document.querySelector('.fba-capacity-elapsed').textContent"), /^已运行 \d+ 秒$/, "elapsed time shows while running");
+    assert.deepEqual(await js("[...document.querySelectorAll('.fba-capacity-scope li > span')].map(item => item.textContent)"), ["Amazon-XIUTAI-US", "Amazon-YYH-US"], "the run lists the stores it covers");
+    assert.notEqual(await js("getComputedStyle(document.querySelector('.fba-capacity-state')).backgroundColor"), await js("getComputedStyle(document.querySelector('.fba-capacity-state[data-state]')).color"), "badge pairs a tint with its text colour");
     await capture("fba-running-dark");
     await js("behavior.fba.phase('completed')");
     await waitFor("document.querySelector('.fba-capacity-state').dataset.state==='completed'", "run completed");
@@ -146,6 +149,8 @@ module.exports = async ({ win, js, step, load, waitFor, click, settle, state }) 
     await themes("fba-complete", true);
     await js("behavior.fba.report(true)"); await click(".fba-capacity-actions button:last-of-type");
     await waitFor("Boolean(document.querySelector('.fba-capacity-report'))", "result page mounted");
+    assert.equal(await js("getComputedStyle(document.querySelector('.fba-capacity-report .file-display-path > span')).display"), "none", "the viewer shows the file name, not the folder");
+    assert.equal(await js("(() => { const run = document.querySelector('.fba-capacity-run').getBoundingClientRect(), report = document.querySelector('.fba-capacity-report').getBoundingClientRect(); return run.bottom <= innerHeight - 80 && innerHeight - 80 - run.bottom < 24 && report.height > 300; })()"), true, "the report fills the window down to just above the floating status button");
 
     // Full access is confirmed once, then the session is raised before the task is sent.
     const toggle = ".fba-capacity-switch input";
@@ -163,7 +168,7 @@ module.exports = async ({ win, js, step, load, waitFor, click, settle, state }) 
     await js("behavior.fba.phase('running')");
     const before = (await state()).calls.length;
     await click(".fba-capacity-start button");
-    await waitFor("document.querySelector('.fba-capacity-run .workbench-note')?.textContent.includes('Full access')", "run marked Full access");
+    await waitFor("document.querySelector('.fba-capacity-meta')?.textContent.includes('Full access')", "run marked Full access");
     const sequence = (await state()).calls.slice(before)
       .filter(call => ["workspaces.register", "sessions.create", "sessions.permission.set", "sessions.send"].includes(call.operation));
     assert.deepEqual(sequence.map(call => call.operation), ["workspaces.register", "sessions.create", "sessions.permission.set", "sessions.send"]);
@@ -173,10 +178,20 @@ module.exports = async ({ win, js, step, load, waitFor, click, settle, state }) 
     await capture("fba-full-access-dark");
     await js("behavior.fba.phase('completed')");
     await waitFor("document.querySelector('.fba-capacity-state')?.dataset.state==='completed'", "Full access run completed");
+    // History rows carry how each run ended; an older run says so and offers the way back.
+    await waitFor("[...document.querySelectorAll('.fba-capacity-dot')].every(dot => dot.dataset.state==='completed')", "history states known");
+    assert.equal(await js("document.querySelector('.fba-capacity-history li:first-child button').getAttribute('aria-current')"), "true");
+    await click(".fba-capacity-history li:nth-child(2) button");
+    await waitFor("Boolean(document.querySelector('.fba-capacity-past'))", "viewing an older run");
+    assert.equal(await js("getComputedStyle(document.querySelector('.fba-capacity-history li:nth-child(2) button')).backgroundColor === getComputedStyle(document.querySelector('.fba-capacity-history li:first-child button')).backgroundColor"), false, "the selected row is filled");
+    await capture("fba-history-dark");
+    await click(".fba-capacity-past button");
+    await waitFor("!document.querySelector('.fba-capacity-past') && document.querySelector('.fba-capacity-history li:first-child button').getAttribute('aria-current')==='true'", "back to the latest run");
     await win.setContentSize(480, 900); await open(1, "en", "tasks");
     // A reload recreates the in-memory fixture; the run itself comes back from local history.
     await js("behavior.fba.phase('completed')");
     await waitFor("document.querySelector('.fba-capacity-state')?.dataset.state==='completed'", "history restored");
+    await waitFor("[...document.querySelectorAll('.fba-capacity-dot')].every(dot => dot.dataset.state==='completed')", "older rows refresh until they settle");
     assert.equal(await js("document.querySelectorAll('.fba-capacity-chip input:checked').length"), 9, "last selection is remembered");
     assert.equal(await js("document.querySelector('.fba-capacity-switch input').checked"), true, "Full access choice is remembered");
     await capture("fba-narrow-en", true);

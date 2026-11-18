@@ -212,6 +212,11 @@ export const ZH_TEXT = {
     fullAccessHint: "后台对话不再逐条请求审批，可修改工作区以外的文件。只在信任这次任务时打开。",
     fullAccessTag: "Full access",
     noWorkspace: "找不到默认工作区，请先在设置里确认工作区目录。",
+    selected: (count: number, total: number) => `已选 ${count}/${total}`,
+    elapsed: (duration: string) => `已运行 ${duration}`,
+    duration: (ms: number) => { const s = Math.max(0, Math.floor(ms / 1000)), h = Math.floor(s / 3600), m = Math.floor(s % 3600 / 60); return h ? `${h} 小时 ${m} 分` : m ? `${m} 分 ${s % 60} 秒` : `${s} 秒`; },
+    scope: "运行范围",
+    viewingPast: (when: string) => `正在查看 ${when} 的运行。`, backToLatest: "回到最新",
   },
   teamSkills: { name: "团队技能目录", backToCatalog: "回到技能目录", retry: "重试", openInBrowser: "在浏览器中打开团队技能目录" },
   workbenchIndex: {
@@ -1180,7 +1185,12 @@ export const UI_TEXT: Record<Language, UiText> = {
       fullAccess: "Run with Full access",
       fullAccessHint: "The background conversation stops asking for each approval and can change files outside the workspace. Turn on only when you trust the task.",
       fullAccessTag: "Full access",
-      noWorkspace: "No default workspace found. Check the workspace folder in Settings first."
+      noWorkspace: "No default workspace found. Check the workspace folder in Settings first.",
+      selected: (count: number, total: number) => `${count}/${total} selected`,
+      elapsed: (duration: string) => `Running for ${duration}`,
+      duration: (ms: number) => { const s = Math.max(0, Math.floor(ms / 1000)), h = Math.floor(s / 3600), m = Math.floor(s % 3600 / 60); return h ? `${h} h ${m} min` : m ? `${m} min ${s % 60} s` : `${s} s`; },
+      scope: "Run scope",
+      viewingPast: (when: string) => `Viewing the run from ${when}.`, backToLatest: "Back to latest"
     },
     teamSkills: { name: "Team skills catalog", backToCatalog: "Return to catalog", retry: "Retry", openInBrowser: "Open team skills catalog in browser" },
     workbenchIndex: {
