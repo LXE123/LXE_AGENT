@@ -80,7 +80,7 @@ flowchart TD
 |---|---|
 | 发货单数据 | `mabang-delivery-export` |
 | 装箱与货件创建 | `mabang-delivery-packing-list-export` -> `ziniao-browser` -> `fba-shipment-create` |
-| ERP 真实发货量 | 本地最新 FBA 发货单 CSV 的 `MSKU发货量` -> `fba-erp-packing-upload` 预览并经用户确认 -> ERP 按采购批次 MSKU 映射展开库存 SKU 并对账 |
+| ERP 真实发货量 | 用户指定或按 SP 选取的 FBA 发货单 CSV 的 `MSKU发货量` -> `fba-erp-packing-upload` 预览并经用户确认 -> ERP 按采购批次 MSKU 映射展开库存 SKU 并对账 |
 | ERP 期初库存 | 历史进销存 xlsx -> 后端管理员 CLI 预览 -> SHA-256 确认 -> FIFO 库存批次 |
 | ERP 历史库存补录 | 历史增量 xlsx -> ERP 留存库存页管理员预览 -> SHA-256 确认 -> FIFO 库存批次 |
 | 发票资料 | 备货单 + FBA 发货单 CSV + 本地 WMS 装箱数据 -> `fba-invoice-template-fill` |
@@ -93,6 +93,6 @@ flowchart TD
 
 马帮下载步骤使用配置的马帮账号，由 CLI 管理认证；后续 Amazon Seller Central 货件创建使用紫鸟中的卖家店铺会话。
 
-ERP 实发量应使用仓库回填后重新导出的 FBA 发货单 CSV；同一 SP 有多份导出时，CLI 取最新一份。WMS 装箱 Excel 用于创建货件、发票和报关。
+ERP 实发量可使用仓库回填后导出的 FBA 发货单 CSV，也可使用用户核对后的修订版。用户指定发货单时用 `--delivery-csv` 传入该文件，只给 SP 时 CLI 取该 SP 的最新导出。WMS 装箱 Excel 用于创建货件、发票和报关。
 
 日常正式采购流程应走 `fba-purchase-summary-create`，默认先由 ERP 确认 FIFO 库存抵扣；只有用户明确要求不使用留存库存或按计划全量采购时才使用 `--inventory-deduction-mode none`。随后由本地一次生成采购汇总表、备货单和正式合同；需要先看结果时用同一 Skill 的 `--preview`，正式执行重新计算并保持同一库存路线。正飞 `均价` 只按整批 SP 的本次新采购量计算。`fba-restock-workbook-create` 作为单 SP 备货单兼容入口。

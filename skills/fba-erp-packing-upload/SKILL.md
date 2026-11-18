@@ -1,6 +1,6 @@
 ---
 name: fba-erp-packing-upload
-description: 按 SP 号读取本地 FBA 发货单 CSV 的实发量，确认后上传到 FBA ERP 并生成库存 SKU 对账与留存库存。用户要求上传真实发货量、同步发货数据、更正发货量或查看留存预览时使用；不要用于下载发货单、生成采购单或采购合同。
+description: 使用用户指定的 FBA 发货单 CSV，或按 SP 号读取本地最新发货单，预览实发量并在确认后上传到 ERP。用户要求上传或更正真实发货量、同步发货数据、查看库存 SKU 对账或留存预览时使用。
 type: amazon_fba
 commands:
   - lxeskill fba erp packing-upload
@@ -13,8 +13,7 @@ commands:
 ## Hard Rules
 
 - 必须通过 exec 调用 frontmatter 中声明的固定 CLI；禁止直接运行 Python 业务模块或调用 ERP API。
-- 实发量只来自本地 FBA 发货单 CSV 的 `MSKU发货量` 列；不接受用户上传的装箱附件。
-- 马帮 WMS 装箱导出会把总量分配到错误的 MSKU 上，已不作为对账来源；它仍用于创建货件、报关和发票。
+- 实发量取自 FBA 发货单 CSV 的 `MSKU发货量` 列。可以使用用户核对并更正过的发货单。马帮 WMS 装箱 Excel 用于创建货件、报关和发票。
 - 不在本地推导库存 SKU、留存量或合同来源；只展示 ERP 返回的正式预览。
 - 首次上传和数据变更都必须等待用户明确确认。禁止在同一轮首次调用后自动携带 quote 提交。
 - ERP 不可用时停止，不排队、不写本地影子数据，也不改走本地对账。
@@ -22,17 +21,23 @@ commands:
 
 ## Initial Preview
 
+用户指定文件、提供发货单附件或已确认本轮修订版时，使用该文件的实际路径。保留发货单表头 `MSKU`、`MSKU发货量` 和 `SKU发货量`。用户确认未发的 MSKU 可以填 0，预览时 CLI 会跳过这些行。
+
+```text
+lxeskill fba erp packing-upload --ship-no <ship_no> --delivery-csv "<发货单 CSV 路径>"
+```
+
+只给 SP 号时，CLI 从本地发货单目录按修改时间取该 SP 最新的一份。
+
 ```text
 lxeskill fba erp packing-upload --ship-no <ship_no>
 ```
-
-同一个 SP 有多份发货单导出时，CLI 取最新的一份——装箱后重新导出的那份才带回填的实发量。
 
 ## Preview Presentation
 
 当 `data.status=confirmation_required` 或 `quote_stale`：
 
-1. 说明文件名、SP、SHA-256，以及预计动作是“首次上传”还是“替换现有版本”。
+1. 展示本次预览的来源路径 `source_file_path`（如有）、文件名、SP、SHA-256，以及预计动作是“首次上传”还是“替换现有版本”。
    - `packing_sp_no` 非空时，必须明确显示 `采购 SP <purchase_sp_no> → 装箱 SP <packing_sp_no>`。
    - `packing_sp_no` 为空时只显示采购 SP，不重复两个相同编号。
 2. 展示 `summary` 中的计划量、实际量、差异量和预计留存量。
@@ -54,7 +59,7 @@ lxeskill fba erp packing-upload --ship-no <ship_no>
 
 当 CLI 返回 `error.code=packing_identical_to_plan` 时：
 
-1. 说明实际发货量与计划完全一致，这通常表示马帮尚未回填真实装箱数据，此时上传不会产生任何对账信息。
+1. 说明本次发货单的实发量与 ERP 计划完全一致。
 2. 询问用户仓库是否确实按计划如数发货。
 3. 用户明确确认后，才追加 `--confirm-identical` 重跑同一条命令；未确认前不要自行添加该参数。
 
@@ -76,7 +81,9 @@ lxeskill fba erp packing-upload --confirm-packing-quote-id <quote_id>
 
 ## Missing Delivery CSV
 
-当 `data.error.code=delivery_csv_missing` 时：
+指定的文件找不到时，展示报错中的路径，请用户核对路径或重新提供该发货单。
+
+按 SP 自动查找时，如返回 `data.error.code=delivery_csv_missing`：
 
 1. 告诉用户本地缺少该 SP 的发货单 CSV。
 2. 询问是否下载；未取得同意前不要下载。

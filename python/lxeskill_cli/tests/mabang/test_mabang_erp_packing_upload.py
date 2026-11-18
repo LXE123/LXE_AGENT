@@ -1,13 +1,16 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 from pathlib import Path
 from typing import Any
 
+import pytest
 import requests
 
-from services.commands.mabang import erp_packing_upload as cli
+from lxeskill import cli as lxeskill
+from services.commands.mabang import erp_packing_upload as cli, shipment_quantity_validation
 
 
 class FakeResponse:
@@ -215,6 +218,77 @@ def _write_delivery(directory: Path, ship_no: str, rows: list[tuple[str, str, st
     )
     path.write_text(DELIVERY_HEADER + body, encoding="utf-8")
     return path
+
+
+def test_preview_uses_the_selected_revision_even_with_a_newer_export(monkeypatch, tmp_path, capsys):
+    _configure(monkeypatch, tmp_path)
+    ship_no = "SP260710001"
+    export_dir = tmp_path / "exports"
+    latest = _write_delivery(export_dir, ship_no, [("MSKU-A", "8", "SKU-A × 8")])
+    monkeypatch.setattr(shipment_quantity_validation, "DELIVERY_CSV_DIR", export_dir)
+    selected = _write_delivery(tmp_path, ship_no, [
+        ("MSKU-A", "2", "SKU-A × 8"), ("MSKU-B", "0", "SKU-B × 6"),
+    ]).rename(tmp_path / "核对后 发货单.csv")
+    os.utime(selected, (1, 1))
+    session = FakeSession([_preview_response(), _preview_response()])
+    _mock_cloud(monkeypatch, session)
+
+    monkeypatch.setenv("LXE_WORKSPACE_ROOT", str(tmp_path))
+    exit_code = lxeskill.main(["fba", "erp", "packing-upload", "--ship-no", ship_no, "--delivery-csv", selected.name])
+    assert exit_code == 0
+    revision = json.loads(capsys.readouterr().out)["data"]
+    default = cli.run({"ship_no": ship_no})
+
+    assert revision["success"] and default["success"]
+    assert revision["source_file_path"] == str(selected)
+    assert revision["source_sha256"] == hashlib.sha256(selected.read_bytes()).hexdigest()
+    assert default["source_file_path"] == str(latest)
+    assert len(session.calls) == 2
+    assert all(call["url"].endswith("/packing-snapshots/preview") for call in session.calls)
+    body = session.calls[0]["json"]
+    assert body["sp_no"] == ship_no
+    assert body["source_file_name"] == selected.name
+    assert body["source_sha256"] == revision["source_sha256"]
+    assert body["lines"] == [{"msku": "MSKU-A", "actual_quantity": "2"}]
+    assert session.calls[1]["json"]["lines"] == [{"msku": "MSKU-A", "actual_quantity": "8"}]
+
+
+@pytest.mark.parametrize(("file_name", "error_text"), [
+    ("找不到.csv", "找不到发货单 CSV"),
+    ("装箱.xlsx", "需要是 CSV 文件"),
+    ("错误表头.csv", "发货单 CSV 缺少列"),
+    ("混合发货单.csv", "第3行发货单号 SP260710099 与指定的 SP260710001 不一致"),
+    ("", "--delivery-csv 需要发货单 CSV 路径"),
+])
+def test_invalid_selection_does_not_fall_back_or_call_erp(monkeypatch, tmp_path, file_name, error_text):
+    _configure(monkeypatch, tmp_path)
+    _write_delivery(tmp_path, "SP260710001", [("MSKU-A", "8", "SKU-A × 8")])
+    monkeypatch.setattr(shipment_quantity_validation, "DELIVERY_CSV_DIR", tmp_path)
+    (tmp_path / "错误表头.csv").write_text("MSKU,装箱数量\nMSKU-A,9\n", encoding="utf-8")
+    (tmp_path / "混合发货单.csv").write_text(
+        DELIVERY_HEADER + "SP260710001,MSKU-A,2,SKU-A × 2\nSP260710099,MSKU-B,3,SKU-B × 3\n",
+        encoding="utf-8",
+    )
+    session = FakeSession()
+    _mock_cloud(monkeypatch, session)
+
+    result = cli.run({"ship_no": "SP260710001", "delivery_csv": str(tmp_path / file_name) if file_name else ""})
+
+    assert result["success"] is False
+    assert error_text in result["error"]["message"]
+    assert "recovery" not in result
+    assert not session.calls
+
+
+def test_confirmation_with_a_new_file_requires_a_new_preview(monkeypatch, tmp_path):
+    _configure(monkeypatch, tmp_path)
+    session = FakeSession()
+    _mock_cloud(monkeypatch, session)
+
+    result = cli.run({"confirm_packing_quote_id": "existing-quote", "delivery_csv": "修订版.csv"})
+
+    assert result["error"]["code"] == "packing_input_conflict"
+    assert not session.calls
 
 
 def test_delivery_source_sends_the_same_shape_as_the_wms_source(

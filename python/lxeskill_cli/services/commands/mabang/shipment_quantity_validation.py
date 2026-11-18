@@ -179,7 +179,9 @@ def _read_delivery_rows(csv_path: str | Path) -> tuple[list[str], list[dict[str,
     raise RuntimeError(f"读取发货单 CSV 失败: {source_path}, error={last_error}") from last_error
 
 
-def read_delivery_msku_infos(csv_path: str | Path) -> OrderedDict[str, DeliveryMskuInfo]:
+def read_delivery_msku_infos(
+    csv_path: str | Path, *, expected_ship_no: str | None = None,
+) -> OrderedDict[str, DeliveryMskuInfo]:
     headers, rows = _read_delivery_rows(csv_path)
     missing = [column for column in (DELIVERY_MSKU_COLUMN, SKU_SHIP_QTY_COLUMN) if column not in headers]
     if missing:
@@ -188,6 +190,12 @@ def read_delivery_msku_infos(csv_path: str | Path) -> OrderedDict[str, DeliveryM
     components: OrderedDict[str, OrderedDict[str, Decimal]] = OrderedDict()
     msku_ship_quantities: dict[str, Decimal] = {}
     for index, row in enumerate(rows, start=2):
+        if expected_ship_no:
+            row_ship_no = row.get("发货单号", "").upper()
+            if row_ship_no and row_ship_no != expected_ship_no:
+                raise ValueError(
+                    f"{csv_path} 第{index}行发货单号 {row_ship_no} 与指定的 {expected_ship_no} 不一致"
+                )
         msku = clean_cell(row.get(DELIVERY_MSKU_COLUMN))
         cell_value = clean_cell(row.get(SKU_SHIP_QTY_COLUMN))
         msku_ship_quantity = (

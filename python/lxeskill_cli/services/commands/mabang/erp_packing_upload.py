@@ -17,6 +17,7 @@ from services.commands.mabang.shipment_quantity_validation import (
     resolve_delivery_csv_path,
 )
 from shared.infra.cloud_client import CloudClient, CloudConnectionError, diagnostic, redact
+from shared.workspace import resolve_workspace_input
 
 
 MAX_RECONCILIATION_LINES = 200
@@ -44,7 +45,7 @@ class PackingUploadError(RuntimeError):
 def _normalize_ship_no(value: Any) -> str:
     ship_no = str(value or "").strip().upper()
     if not ship_no:
-        raise PackingUploadError("invalid_ship_no", "ship_no 不能为空")
+        raise PackingUploadError("packing_input_required", "预览发货单必须提供 ship_no")
     if not ship_no.startswith("SP"):
         raise PackingUploadError("invalid_ship_no", f"ship_no 格式无效: {ship_no}")
     return ship_no
@@ -56,7 +57,9 @@ def _decimal_text(value: Decimal) -> str:
     return format(value.normalize(), "f").rstrip("0").rstrip(".")
 
 
-def _normalized_delivery_quantities(path: Path) -> OrderedDict[str, Decimal]:
+def _normalized_delivery_quantities(
+    path: Path, *, expected_ship_no: str | None = None,
+) -> OrderedDict[str, Decimal]:
     """从发货单 CSV 读出每个 MSKU 的实发量。
 
     ERP 收到的仍是 {msku: 实发量}，接口和下游都不用改——换掉的只是来源。
@@ -65,7 +68,7 @@ def _normalized_delivery_quantities(path: Path) -> OrderedDict[str, Decimal]:
 
     数量为 0 的行代表这个 MSKU 最终没发，不能当成装箱条目传给 ERP。
     """
-    infos = read_delivery_msku_infos(path)
+    infos = read_delivery_msku_infos(path, expected_ship_no=expected_ship_no)
     quantities: dict[str, Decimal] = {}
     for raw_msku, info in infos.items():
         msku = str(raw_msku or "").strip().upper()
@@ -91,16 +94,20 @@ def _normalized_delivery_quantities(path: Path) -> OrderedDict[str, Decimal]:
     return OrderedDict((msku, quantities[msku]) for msku in sorted(quantities))
 
 
-def _resolve_delivery_source(arguments: Mapping[str, Any]) -> tuple[Path, str]:
-    raw_ship_no = str(arguments.get("ship_no") or "").strip()
-    if not raw_ship_no:
-        raise PackingUploadError(
-            "packing_input_required",
-            "source=delivery 时必须提供 ship_no",
-        )
-    ship_no = _normalize_ship_no(raw_ship_no)
+def _resolve_delivery_source(ship_no: str, arguments: Mapping[str, Any]) -> Path:
+    if "delivery_csv" in arguments:
+        delivery_csv = arguments["delivery_csv"]
+        if not isinstance(delivery_csv, str) or not delivery_csv.strip():
+            raise PackingUploadError("delivery_csv_invalid", "--delivery-csv 需要发货单 CSV 路径")
+        path = resolve_workspace_input(delivery_csv)
+        if path.suffix.lower() != ".csv":
+            raise PackingUploadError("delivery_csv_invalid", f"指定的发货单需要是 CSV 文件: {path}")
+        try:
+            return resolve_delivery_csv_path(ship_no, path)
+        except FileNotFoundError as exc:
+            raise PackingUploadError("delivery_csv_missing", str(exc)) from exc
     try:
-        path = resolve_delivery_csv_path(ship_no)
+        return resolve_delivery_csv_path(ship_no)
     except FileNotFoundError as exc:
         raise PackingUploadError(
             "delivery_csv_missing",
@@ -114,7 +121,6 @@ def _resolve_delivery_source(arguments: Mapping[str, Any]) -> tuple[Path, str]:
                 ),
             },
         ) from exc
-    return path, ship_no
 
 
 def _file_sha256(path: Path) -> str:
@@ -282,7 +288,7 @@ def _reject_identical_to_plan(
         "packing_identical_to_plan",
         "实际发货量与计划完全一致（计划 "
         f"{_decimal_text(planned)}，差异 0，留存 0）。"
-        "这通常表示马帮尚未回填真实装箱数据，此时上传不会产生任何对账信息。"
+        "请核对发货单是否已记录仓库实发量。"
         "若确认仓库确实按计划如数发货，请追加 --confirm-identical 重跑。",
     )
 
@@ -399,6 +405,10 @@ def run(arguments: dict[str, Any]) -> dict[str, Any]:
             arguments.get("confirm_packing_quote_id") or ""
         ).strip()
         if confirm_quote_id:
+            if "delivery_csv" in arguments:
+                raise PackingUploadError(
+                    "packing_input_conflict", "--delivery-csv 用于预览，更换文件需先生成新预览",
+                )
             request_id = _confirmation_request_id(confirm_quote_id)
             response = _request_json(
                 "POST",
@@ -420,8 +430,11 @@ def run(arguments: dict[str, Any]) -> dict[str, Any]:
             )
 
         confirm_identical = bool(arguments.get("confirm_identical"))
-        source_path, ship_no = _resolve_delivery_source(arguments)
-        quantities = _normalized_delivery_quantities(source_path)
+        ship_no = _normalize_ship_no(arguments.get("ship_no"))
+        source_path = _resolve_delivery_source(ship_no, arguments)
+        quantities = _normalized_delivery_quantities(
+            source_path, expected_ship_no=ship_no if "delivery_csv" in arguments else None,
+        )
         source_sha256 = _file_sha256(source_path)
         captured_at = _captured_at(source_path)
         request_body: dict[str, Any] = {
