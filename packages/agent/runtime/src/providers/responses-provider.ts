@@ -120,6 +120,7 @@ const toolResultOutput = (content: unknown, supportsVision: boolean): string | J
 export function adaptMessagesForResponses(messages: RuntimeMessage[], supportsVision = false, descriptor?: ProviderDescriptor,
   updates?: ReadonlyMap<number, ToolSchema[]>, currentDirectory?: string): JsonObject[] {
   const input: JsonObject[] = [];
+  const deepseek = descriptor?.name === "deepseek";
   const effort = configurationUpdateEffort(descriptor);
   const directories = descriptor?.compat?.supportsMidConvoSystemMessages === true
     ? new Map(directoryRevisions(messages, currentDirectory).slice(1).map(({ index, directory }) => [index, directory])) : undefined;
@@ -161,6 +162,9 @@ export function adaptMessagesForResponses(messages: RuntimeMessage[], supportsVi
         : [{ type: "text", text: text(message.content) }];
       const replay = canReplayMetadata(message, descriptor);
       const output: JsonObject[] = [];
+      // DeepSeek treats intervening assistant text as a new message. Keep the
+      // calls from this reply together immediately before their recorded results.
+      const callItems: JsonObject[] = deepseek ? [] : output;
       const grouped = new Map<string, JsonObject>();
       const emittedReasoning = new Set<string>();
       for (const [blockIndex, raw] of source.entries()) {
@@ -173,6 +177,8 @@ export function adaptMessagesForResponses(messages: RuntimeMessage[], supportsVi
             emittedReasoning.add(item.id);
           }
         } else if (block.type === "text") {
+          const value = text(block.text);
+          if (deepseek && !value) continue;
           const signature = replay ? replaySignature(block.textSignature) : undefined;
           const id = typeof signature?.id === "string" ? signature.id : `msg_replay_${messageIndex}_${blockIndex}`;
           let item = grouped.get(id);
@@ -182,15 +188,16 @@ export function adaptMessagesForResponses(messages: RuntimeMessage[], supportsVi
             grouped.set(id, item);
             output.push(item);
           }
-          (item.content as JsonObject[]).push({ type: "output_text", text: text(block.text), annotations: [] });
+          (item.content as JsonObject[]).push({ type: "output_text", text: value, annotations: [] });
         } else if (block.type === "tool_call") {
-          output.push({ type: "function_call", call_id: text(block.id), name: text(block.name),
+          callItems.push({ type: "function_call", call_id: text(block.id), name: text(block.name),
             arguments: JSON.stringify(block.arguments),
             ...(replay && typeof block.providerItemId === "string" ? { id: block.providerItemId } : {}),
             ...(replay && typeof block.namespace === "string" ? { namespace: block.namespace } : {}),
           });
         }
       }
+      if (deepseek) output.push(...callItems);
       if (output.length) {
         // The previous request ended with its effort item, immediately before this reply.
         const previous = "providerThinkingLevel" in message ? message.providerThinkingLevel : undefined;
