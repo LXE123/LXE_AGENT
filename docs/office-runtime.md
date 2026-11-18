@@ -6,7 +6,7 @@
 
 openpyxl 读写工作簿，pandas 分析数据，python-docx 和 python-pptx 修改文档，pypdf 和 pdfplumber 读取、拆合 PDF 及填写表单；LibreOffice Kit 负责重算、转换和渲染。它们都随桌面运行环境准备，操作文件时不再下载依赖。
 
-PDF 有几处和另外三类不同：`read` 不能打开 PDF，模型用 Python 读取；`render` 直接接受 PDF（PDFium 出图），`convert` 只能把 Office 文件转成 PDF，不能反向转换。新建 PDF 走“python-docx 写 Word，再用 Kit 导出”，中文字体由 Kit 处理，因此没有引入 reportlab。扫描页没有文字层，环境也没有 OCR，靠渲染后看图读取。表单的填写和核对由 `skills/office-pdf/scripts/pdf_form.py` 完成，它同时检查字段值和页面外观；Kit 会按字段值补画外观，所以渲染图不能证明表单数据正确。表单字体缺中文字形时，可编辑版本交给阅读器重画，静态副本暂不支持。
+PDF 有几处和另外三类不同：`read` 不能打开 PDF，模型用 Python 读取；`render` 直接接受 PDF（PDFium 出图），`convert` 只能把 Office 文件转成 PDF，不能反向转换。新建 PDF 走“python-docx 写 Word，再用 Kit 导出”，中文字体由 Kit 处理，因此没有引入 reportlab。扫描页没有文字层，环境也没有 OCR，靠渲染后看图读取。表单用 pypdf 填写，技能给出示例写法和核对要点，由模型按任务编写脚本。字段值和页面外观都要核对：外观缺失时 Kit 会按字段值补画，渲染图看起来正常，换个阅读器却可能是空白。表单字体缺中文字形时，可编辑版本交给阅读器重画，静态副本暂不支持。
 
 | 使用方 | 接口 | 职责 |
 | --- | --- | --- |
@@ -59,7 +59,7 @@ Office 的 manifest、锁文件、VC++ 安装器锁及准备脚本进入运行�
 
 ## 验收
 
-`scripts/verify-office-runtime.py` 创建并定向修改带中文和空格路径的三类真实文件，验证内容和格式保留、CLI 与业务适配的公式重算、PDF 与图片、已有输出、损坏文件、引擎缺失、超时及取消。PDF 部分另外验证中文文字提取、PDF 直接渲染、扫描页识别、合并与旋转，以及表单的游离控件接回、勾选框、中文字段、扁平化和错误值拒绝；表单脚本从随包 `skills` 目录调用，打包验收会覆盖随包 Python 的原生依赖。预览检查统计主要背景色之外的像素，避免把一个异常像素误当作有效内容；仍需人工查看中文、表格和图表。
+`scripts/verify-office-runtime.py` 创建并定向修改带中文和空格路径的三类真实文件，验证内容和格式保留、CLI 与业务适配的公式重算、PDF 与图片、已有输出、损坏文件、引擎缺失、超时及取消。PDF 部分另外验证中文文字提取、PDF 直接渲染、扫描页识别、合并与旋转，以及 pypdf 填写和扁平化表单后 Kit 能画出字段；打包验收由此覆盖随包 Python 的 PDF 原生依赖。预览检查统计主要背景色之外的像素，避免把一个异常像素误当作有效内容；仍需人工查看中文、表格和图表。
 
 `scripts/verify-office-api.ts` 用 Bun 构建为 Node ESM（`electron` 保持 external）后，由目标平台的 Electron 执行，参数依次为上述样本目录、运行环境目录和输出目录。它验证真实 Node API 预览、缓存、损坏文件、取消后恢复、超时和资源释放，记录 Electron 与 Node 版本。
 

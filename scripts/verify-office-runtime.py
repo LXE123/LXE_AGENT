@@ -119,7 +119,7 @@ def foreground_pixels(image_path: Path, box: tuple[int, int, int, int] | None = 
 
 
 def form_fixture(path: Path) -> None:
-    """A text field, a checkbox with on/off appearances and a widget left out of /Fields."""
+    """A text field and a checkbox with on/off appearances, using the Helvetica form font."""
     writer = PdfWriter()
     page = writer.add_blank_page(612, 792)
     font = writer._add_object(DictionaryObject({
@@ -146,8 +146,7 @@ def form_fixture(path: Path) -> None:
     agree = widget("agree", "/Btn", [72, 500, 86, 514], V=NameObject("/Off"), AS=NameObject("/Off"),
                    AP=DictionaryObject({NameObject("/N"): DictionaryObject({
                        NameObject("/Yes"): appearance(b"0 g 2 2 10 10 re f"), NameObject("/Off"): appearance(b"")})}))
-    remark = widget("remark", "/Tx", [72, 440, 400, 470], DA=text_style, V=TextStringObject(""))
-    page[NameObject("/Annots")] = ArrayObject([shipper, invoice, agree, remark])
+    page[NameObject("/Annots")] = ArrayObject([shipper, invoice, agree])
     writer.root_object[NameObject("/AcroForm")] = DictionaryObject({
         NameObject("/Fields"): ArrayObject([shipper, invoice, agree]), NameObject("/DA"): text_style,
         NameObject("/DR"): DictionaryObject({NameObject("/Font"): DictionaryObject({NameObject("/Helv"): font})})})
@@ -155,8 +154,8 @@ def form_fixture(path: Path) -> None:
         writer.write(stream)
 
 
-def pdf_cases(root: Path, runtime: Path, run, exported_docx: Path) -> list[str]:
-    """PDF input for the office-pdf skill: extraction, scans, page edits, render and forms."""
+def pdf_cases(root: Path, run, exported_docx: Path) -> list[str]:
+    """Runtime support for the office-pdf skill: extraction, scans, page edits, render and forms."""
     failures = []
     with pdfplumber.open(exported_docx) as pdf:
         text = "".join(page.extract_text() or "" for page in pdf.pages)
@@ -185,45 +184,38 @@ def pdf_cases(root: Path, runtime: Path, run, exported_docx: Path) -> list[str]:
     assert len(reopened.pages) == len(PdfReader(exported_docx).pages) + len(PdfReader(root / "导出 pptx.pdf").pages)
     assert reopened.pages[-1].rotation == 90
 
-    skills = runtime.parent / "skills"
-    if not skills.is_dir():
-        skills = Path(__file__).resolve().parents[1] / "skills"
-    script = skills / "office-pdf" / "scripts" / "pdf_form.py"
+    # The runtime can fill and flatten a form with pypdf, and Kit draws the result.
     blank = root / "表单 空白.pdf"
     form_fixture(blank)
-
-    def form(*arguments: str | Path) -> tuple[int, dict]:
-        result = subprocess.run([sys.executable, "-I", str(script), *map(str, arguments)], cwd=root,
-                                capture_output=True, text=True, encoding="utf-8", timeout=120)
-        return result.returncode, json.loads(result.stdout)
-
-    code, report = form("inspect", blank)
-    assert code == 0 and [item["name"] for item in report["orphaned_widgets"]] == ["remark"], report
-    values = root / "表单 取值.json"
-    values.write_text(json.dumps({"shipper": "深圳发货 ACME", "invoice": "INV-001", "agree": True, "remark": "OK"},
-                                 ensure_ascii=False), encoding="utf-8")
-    filled = root / "表单 已填写.pdf"
-    code, report = form("fill", blank, filled, "--values", values)
-    assert code == 0 and report["reattached"] and report["reader_generated_appearance"] == ["shipper"], report
-    code, report = form("verify", filled, "--values", values)
-    assert code == 0 and report["ok"] and report["reader_generated_appearance"] == ["shipper"], report
-    rendered = run("render", "--input", filled.name, "--output-dir", "预览 表单", "--dpi", "72")
-    preview = Path(rendered["images"][0]["path"])
-    for name, (left, bottom, right, top) in {"shipper": (72, 600, 400, 630), "agree": (72, 500, 86, 514)}.items():
-        if foreground_pixels(preview, (left, 792 - top, right, 792 - bottom)) < 10:
-            failures.append(f"Form field {name} not drawn: {preview}")
-    assert form("fill", blank, root / "表单 中文静态.pdf", "--values", values, "--flatten")[0] == 1
-    assert not (root / "表单 中文静态.pdf").exists()
-
-    ascii_values = root / "表单 西文取值.json"
-    ascii_values.write_text(json.dumps({"shipper": "ACME LTD", "invoice": "INV-001", "agree": True}), encoding="utf-8")
-    flattened = root / "表单 静态.pdf"
-    code, report = form("fill", blank, flattened, "--values", ascii_values, "--flatten")
-    assert code == 0, report
-    code, report = form("verify", flattened, "--values", ascii_values, "--flattened")
-    assert code == 0 and report["ok"], report
-    code, report = form("verify", filled, "--values", ascii_values)
-    assert code == 1 and any("shipper" in problem for problem in report["problems"]), report
+    values = {"shipper": "ACME LTD", "agree": "/Yes"}
+    for flatten in (False, True):
+        writer = PdfWriter()
+        writer.clone_document_from_reader(PdfReader(blank))
+        to_write = {**{name: field.get("/V", "/Off" if field.get("/FT") == "/Btn" else "")
+                       for name, field in (writer.get_fields() or {}).items()}, **values} if flatten else values
+        writer.update_page_form_field_values(None, to_write, auto_regenerate=False, flatten=flatten)
+        if flatten:
+            writer.remove_annotations(subtypes="/Widget")
+            writer.root_object.pop(NameObject("/AcroForm"), None)
+        output = root / ("表单 静态.pdf" if flatten else "表单 已填写.pdf")
+        with open(output, "wb") as stream:
+            writer.write(stream)
+        reopened = PdfReader(output)
+        widgets = [annotation.get_object() for annotation in reopened.pages[0].get("/Annots") or []
+                   if annotation.get_object().get("/Subtype") == "/Widget"]
+        if flatten:
+            assert not widgets and "/AcroForm" not in reopened.root_object
+            assert "ACME LTD" in reopened.pages[0].extract_text()
+        else:
+            fields = reopened.get_fields()
+            assert {name: str(fields[name].get("/V")) for name in values} == values, fields
+            filled = {str(widget["/T"]): widget for widget in widgets if str(widget["/T"]) in values}
+            assert all("/N" in widget.get("/AP", {}) for widget in filled.values()) and filled["agree"]["/AS"] == "/Yes"
+        rendered = run("render", "--input", output.name, "--output-dir", f"预览 {output.stem}", "--dpi", "72")
+        preview = Path(rendered["images"][0]["path"])
+        for name, (left, bottom, right, top) in {"shipper": (72, 600, 400, 630), "agree": (72, 500, 86, 514)}.items():
+            if foreground_pixels(preview, (left, 792 - top, right, 792 - bottom)) < 10:
+                failures.append(f"Form field {name} not drawn: {preview}")
     return failures
 
 
@@ -276,7 +268,7 @@ def main() -> None:
         before = pdf.read_bytes()
         assert run("convert", "--input", path.name, "--output", pdf.name, failure=True)["code"]
         assert pdf.read_bytes() == before
-    failures += pdf_cases(root, runtime, run, root / "导出 docx.pdf")
+    failures += pdf_cases(root, run, root / "导出 docx.pdf")
     recalculated = root / "已重算 表格.xlsx"
     run("recalculate", "--input", files["xlsx"].name, "--output", recalculated.name)
     assert load_workbook(recalculated, data_only=False)["汇总"]["B4"].value == "=SUM(B2:B3)"
