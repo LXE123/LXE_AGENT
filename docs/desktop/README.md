@@ -76,6 +76,15 @@ Desktop 启动时在后台运行 `lxeskill list`，独立展示 CLI 入口状态
 
 马帮桌面和独立终端的认证入口见 [浏览器认证手册](../../python/lxeskill_cli/browser_auth_service/README.md)；紫鸟页面操作遵循 [官方配对 Selenium 约束](../harness/skill/reference/ziniao-webdriver-doc-1.0.0/reference/automation-framework-policy.md)。Office 能力分工见 [Office 文件能力](../office-runtime.md)。
 
+### 工作台分区
+
+工作台分两个子页面，默认打开「技能任务」：
+
+- **技能任务**：填好参数后在后台对话里运行技能，进度和结果回到工作台，目前有 FBA 库容报告。以后新增的这类表单都放这里。
+- **设置与工具**：越南备货设置、亚马逊备货旺季加成、亚马逊 AI 人物标签和 FBA 模版与数据源。它们直接读写设置或处理文件，不经过 AI。
+
+从任一卡片点“返回”，回到它所在的子页面。
+
 ### 工作台媒体标签
 
 Windows 桌面以及 macOS 源码、预览版的工作台提供“亚马逊 AI 人物标签”。图片支持 JPG、JPEG、PNG，视频支持 MP4 和 MOV。工具向 XMP `dc:subject` 的 `rdf:Bag` 追加 `contains-synthetic-performer`，再重新读取元数据确认写入。它不判断画面是否包含 AI 人物，也不检查其他上传要求。
@@ -86,7 +95,7 @@ macOS 源码启动自动准备并校验项目自己的 ExifTool，缓存于 `bui
 
 ### 工作台 FBA 库容报告
 
-工作台的“FBA 库容报告”把团队技能 `amazon-fba-capacity-report` 做成表单：在固定的 7 个 Amazon 美国店铺里选店，在默认八站里选站，点“开始”后原地显示进度和结果，不跳到对话页。技能需先从团队技能目录安装；未安装时页面给出安装入口。
+工作台「技能任务」里的“FBA 库容报告”把团队技能 `amazon-fba-capacity-report` 做成表单：在固定的 7 个 Amazon 美国店铺里选店，在默认八站里选站，点“开始”后原地显示进度和结果，不跳到对话页。技能需先从团队技能目录安装；未安装时页面给出安装入口。
 
 点“开始”等于在默认工作区发一条新对话：页面拼好以 `/amazon-fba-capacity-report` 开头的提示词，写明店铺、站点和产出目录 `FBA库容报告/<开始时间>`，用 `sessions.send` 提交。之后的采集、紫鸟操作、提问与审批都走普通 Agent 回合，对话照常出现在侧栏，不加特殊标记。店铺 ID 由会话按技能说明从紫鸟实时列表匹配，页面不直接调用浏览器命令。
 

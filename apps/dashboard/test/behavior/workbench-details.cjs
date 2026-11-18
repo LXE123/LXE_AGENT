@@ -3,9 +3,14 @@ const { mkdirSync, writeFileSync } = require("node:fs");
 const { join } = require("node:path");
 
 module.exports = async ({ win, js, step, load, waitFor, click, settle, state }) => {
-  const open = async (index, language = "zh") => {
+  // Settings and tools sit on the second sub-page; skill tasks open by default.
+  const open = async (index, language = "zh", group = "tools") => {
     await load(`?app=1&workspaces=1&contracts=1&workbench-fixture=1&section=workbench&platform=darwin&language=${language}`);
-    await waitFor("document.querySelectorAll('.workbench-tool-card').length === 5", "directory ready");
+    await waitFor("document.querySelectorAll('.workbench-tool-card').length === 1", "directory ready");
+    if (group === "tools") {
+      await click(".workbench-subnav .workspace-subnav-item:nth-child(2)");
+      await waitFor("document.querySelectorAll('.workbench-tool-card').length === 4", "tools ready");
+    }
     await click(`.workbench-tool-card:nth-child(${index})`);
     await waitFor("Boolean(document.querySelector('.workbench-detail h1'))", "detail ready");
   };
@@ -102,7 +107,7 @@ module.exports = async ({ win, js, step, load, waitFor, click, settle, state }) 
     assert.ok(await js("Boolean(document.querySelector('.workbench-empty[role=status]'))"));
     await capture("assets-empty-dark");
     await click('.workbench-back');
-    await waitFor("document.querySelectorAll('.workbench-tool-card').length===5", "directory restored");
+    await waitFor("document.querySelectorAll('.workbench-tool-card').length===4", "back returns to settings and tools");
     assert.equal(await js("document.querySelector('.workbench-tool-card:nth-child(4) .workbench-tool-name').textContent"), "FBA模版与数据源");
     await win.setContentSize(480, 900); await open(4, "en");
     await waitFor("document.querySelectorAll('.asset-slot').length===5", "narrow assets ready");
@@ -110,9 +115,9 @@ module.exports = async ({ win, js, step, load, waitFor, click, settle, state }) 
     await win.setContentSize(1200, 900);
   });
   await step("FBA capacity starts a background run, follows its status and lists the results", async () => {
-    await open(5);
+    await open(1, "zh", "tasks");
     await js("localStorage.removeItem('lxe.workbench.fba-capacity.runs.v1'); localStorage.removeItem('lxe.workbench.fba-capacity.selection.v1'); behavior.fba.phase('running'); behavior.fba.report(false)");
-    await open(5);
+    await open(1, "zh", "tasks");
     await waitFor("document.querySelectorAll('.fba-capacity-chip').length===15", "choices ready");
     await waitFor("!document.querySelector('.fba-capacity-start button').disabled", "skill checked");
     assert.equal(await js("document.querySelectorAll('.fba-capacity-chip input:checked').length"), 8, "all eight sites start selected");
@@ -139,7 +144,7 @@ module.exports = async ({ win, js, step, load, waitFor, click, settle, state }) 
     await themes("fba-complete", true);
     await js("behavior.fba.report(true)"); await click(".fba-capacity-actions button:last-of-type");
     await waitFor("Boolean(document.querySelector('.fba-capacity-report'))", "result page mounted");
-    await win.setContentSize(480, 900); await open(5, "en");
+    await win.setContentSize(480, 900); await open(1, "en", "tasks");
     // A reload recreates the in-memory fixture; the run itself comes back from local history.
     await js("behavior.fba.phase('completed')");
     await waitFor("document.querySelector('.fba-capacity-state')?.dataset.state==='completed'", "history restored");

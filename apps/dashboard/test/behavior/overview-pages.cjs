@@ -79,24 +79,33 @@ module.exports = async ({ win, js, step, load, waitFor, click, key, focus, settl
     } finally { win.webContents.debugger.detach(); await win.setContentSize(1200, 900); }
   });
   await step("workbench directory preserves all destinations and works in both themes", async () => {
+    const tab = index => `.workbench-subnav .workspace-subnav-item:nth-child(${index})`;
+    const listed = (index, count) => `document.querySelector('${tab(index)}')?.getAttribute('aria-current')==='page' && document.querySelectorAll('.workbench-tool-card').length===${count}`;
+    const groups = [{ index: 1, count: 1, name: "tasks" }, { index: 2, count: 4, name: "tools" }];
     await open("workbench");
-    await waitFor("document.querySelectorAll('.workbench-tool-card').length===5", "tool directory");
-    for (const theme of ["light", "dark"]) {
-      await js(`document.documentElement.dataset.theme='${theme}'`); await settle();
-      await noOverflow(".content-panel, .workbench-index, .workbench-tool-card");
-      await screenshot("workbench-" + theme);
-    }
-    for (let i = 1; i <= 5; i++) {
-      await click(`.workbench-tool-card:nth-child(${i})`);
-      await waitFor("Boolean(document.querySelector('.workbench-back'))", "tool opened");
-      assert.equal(await js("Boolean(document.querySelector('.workbench-index'))"), false);
-      await click(".workbench-back");
-      await waitFor("document.querySelectorAll('.workbench-tool-card').length===5", "directory restored");
+    await waitFor(listed(1, 1), "workbench opens on skill tasks");
+    for (const group of groups) {
+      await click(tab(group.index));
+      await waitFor(listed(group.index, group.count), group.name + " directory");
+      for (const theme of ["light", "dark"]) {
+        await js(`document.documentElement.dataset.theme='${theme}'`); await settle();
+        await noOverflow(".content-panel, .workbench-index, .workbench-tool-card");
+        await screenshot(`workbench-${group.name}-${theme}`);
+      }
+      for (let i = 1; i <= group.count; i++) {
+        await click(`.workbench-tool-card:nth-child(${i})`);
+        await waitFor("Boolean(document.querySelector('.workbench-back'))", "tool opened");
+        assert.equal(await js("Boolean(document.querySelector('.workbench-index'))"), false);
+        await click(".workbench-back");
+        await waitFor(listed(group.index, group.count), "back returns to the tool's sub-page");
+      }
     }
     await win.setContentSize(480, 900);
     await open("workbench", "en");
-    await waitFor("document.querySelectorAll('.workbench-tool-card').length===5", "narrow directory");
-    await noOverflow(".content-panel, .workbench-index, .workbench-tool-card");
+    await waitFor(listed(1, 1), "narrow directory");
+    await click(tab(2));
+    await waitFor(listed(2, 4), "narrow tools");
+    await noOverflow(".content-panel, .workbench-index, .workbench-tool-card, .workbench-subnav");
     await screenshot("workbench-narrow-en");
     await win.setContentSize(1200, 900);
   });
@@ -163,7 +172,7 @@ module.exports = async ({ win, js, step, load, waitFor, click, key, focus, settl
     await waitFor("!document.querySelector('.runtime-status-popover')", "outside click dismisses the status");
     assert.equal(await js("document.querySelector('.team-skills-viewport > iframe')?.contentDocument.querySelector('webview').getWebContentsId()"), guest.id);
     await js("history.back()");
-    await waitFor("document.querySelectorAll('.workbench-tool-card').length===5", "back restores the directory");
+    await waitFor("document.querySelectorAll('.workbench-tool-card').length===1", "back restores the directory");
     assert.ok(!guest.isDestroyed(), "switching away keeps the catalog guest alive");
     assert.ok(await js("document.querySelector('.team-skills-page').hidden"));
     await click(".tab-team-skills");

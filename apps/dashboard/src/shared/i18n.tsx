@@ -212,8 +212,11 @@ export const ZH_TEXT = {
   teamSkills: { name: "团队技能目录", backToCatalog: "回到技能目录", retry: "重试", openInBrowser: "在浏览器中打开团队技能目录" },
   workbenchIndex: {
     eyebrow: "工作台",
-    title: "功能",
-    subtitle: "选择一项功能开始。",
+    views: { tasks: "技能任务", tools: "设置与工具" },
+    summaries: {
+      tasks: "选好参数后在后台对话里运行技能，进度和结果回到这里。",
+      tools: "管理技能用到的设置和资料，或直接处理文件，不经过 AI。",
+    },
     back: "返回工作台",
     tools: {
       syntheticPerformer: {
@@ -1173,8 +1176,11 @@ export const UI_TEXT: Record<Language, UiText> = {
     teamSkills: { name: "Team skills catalog", backToCatalog: "Return to catalog", retry: "Retry", openInBrowser: "Open team skills catalog in browser" },
     workbenchIndex: {
       eyebrow: "Workbench",
-      title: "Features",
-      subtitle: "Choose a feature to get started.",
+      views: { tasks: "Skill tasks", tools: "Settings & tools" },
+      summaries: {
+        tasks: "Pick the inputs and a skill runs in a background conversation; progress and results come back here.",
+        tools: "Manage the settings and data skills use, or process files directly without AI.",
+      },
       back: "Back to workbench",
       tools: {
         syntheticPerformer: {
