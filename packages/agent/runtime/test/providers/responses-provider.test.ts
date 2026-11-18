@@ -161,6 +161,42 @@ describe("direct OpenAI Responses", () => {
 });
 
 describe("DeepSeek Responses provider", () => {
+  test("replays Gemini tool calls next to their results when the assistant also emitted text", () => {
+    const messages = normalizeTranscriptMessages([
+      { role: "assistant", api: "google_generative_ai", provider: "google", model: "gemini-4-hydrogen",
+        content: [
+          { type: "tool_call", id: "call_a", name: "read", arguments: { path: "a" } },
+          { type: "text", text: "Checking both files." },
+          { type: "tool_call", id: "call_b", name: "read", arguments: { path: "b" } },
+          { type: "text", text: "" },
+        ] },
+      { role: "tool", content: [
+        { type: "tool_result", tool_call_id: "call_a", content: "first result" },
+        { type: "tool_result", tool_call_id: "call_b", content: "second result" },
+      ] },
+      { role: "user", content: "Continue" },
+    ]);
+    const original = structuredClone(messages);
+    const request = { system: "", messages, tools: [], toolChoice: "auto" as const };
+    const firstCall = { type: "function_call", call_id: "call_a", name: "read", arguments: '{"path":"a"}' };
+    const secondCall = { type: "function_call", call_id: "call_b", name: "read", arguments: '{"path":"b"}' };
+    const textItem = (value: string) => expect.objectContaining({
+      type: "message", role: "assistant", content: [{ type: "output_text", text: value, annotations: [] }],
+    });
+    const resultsAndUser = [
+      { type: "function_call_output", call_id: "call_a", output: "first result" },
+      { type: "function_call_output", call_id: "call_b", output: "second result" },
+      expect.objectContaining({ role: "user" }),
+    ];
+    expect(buildResponsesRequest(descriptor(), request).input).toEqual([
+      textItem("Checking both files."), firstCall, secondCall, ...resultsAndUser,
+    ]);
+    expect(messages).toEqual(original);
+    expect(buildResponsesRequest(descriptor({ name: "openai" }), request).input).toEqual([
+      firstCall, textItem("Checking both files."), secondCall, textItem(""), ...resultsAndUser,
+    ]);
+  });
+
   test("expands one assistant message into sibling call items and matches results by call id", () => {
     const messages: RuntimeMessage[] = [
       { role: "user", content: "hi" },
