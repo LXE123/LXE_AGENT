@@ -84,6 +84,16 @@ Electron 管理文件选择和输出目录，Renderer 使用一次性的选择�
 
 macOS 源码启动自动准备并校验项目自己的 ExifTool，缓存于 `build/desktop-runtime/darwin-<arch>/`；也可运行 `bun run desktop:tools:mac` 准备资源，无需另装系统 ExifTool。这项支持覆盖源码开发和预览，不代表已有 macOS 正式发布流水线。
 
+### 工作台 FBA 库容报告
+
+工作台的“FBA 库容报告”把团队技能 `amazon-fba-capacity-report` 做成表单：在固定的 7 个 Amazon 美国店铺里选店，在默认八站里选站，点“开始”后原地显示进度和结果，不跳到对话页。技能需先从团队技能目录安装；未安装时页面给出安装入口。
+
+点“开始”等于在默认工作区发一条新对话：页面拼好以 `/amazon-fba-capacity-report` 开头的提示词，写明店铺、站点和产出目录 `FBA库容报告/<开始时间>`，用 `sessions.send` 提交。之后的采集、紫鸟操作、提问与审批都走普通 Agent 回合，对话照常出现在侧栏，不加特殊标记。店铺 ID 由会话按技能说明从紫鸟实时列表匹配，页面不直接调用浏览器命令。
+
+页面每 4 秒用 `sessions.turn.lookup` 和待回答、待审批列表刷新状态；需要用户处理时提示打开对话，运行中可以停止。结束后列出产出目录里的 Excel，可用其他应用打开；AI 按提示词写的 `report.html` 用文件预览的沙箱 HTML 查看器展示。结果页的版式只靠提示词约束。
+
+最近 10 次运行（会话 ID、turn ID、产出目录和所选店铺站点）与上次的选择保存在本机界面存储，只用于回到页面时找到结果；清掉后对话和文件仍在。店铺清单写在 [`fba-capacity-run.ts`](../../apps/dashboard/src/features/workbench/fba-capacity-run.ts)，调整需改代码。
+
 ## 日志与诊断
 
 设置页提供 Gateway、agentcli、lxeskillCLI 的状态、后台重启和日志入口。日志位置、档位、脱敏与保留规则见 [日志与诊断](../logging.md)。关闭窗口隐藏到托盘；完整退出时由 Main 按 [生命周期](gateway/gateway_lifecycle.md)停止后台组件及相关子进程。

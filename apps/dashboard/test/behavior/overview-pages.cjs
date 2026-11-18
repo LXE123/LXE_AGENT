@@ -80,22 +80,22 @@ module.exports = async ({ win, js, step, load, waitFor, click, key, focus, settl
   });
   await step("workbench directory preserves all destinations and works in both themes", async () => {
     await open("workbench");
-    await waitFor("document.querySelectorAll('.workbench-tool-card').length===4", "tool directory");
+    await waitFor("document.querySelectorAll('.workbench-tool-card').length===5", "tool directory");
     for (const theme of ["light", "dark"]) {
       await js(`document.documentElement.dataset.theme='${theme}'`); await settle();
       await noOverflow(".content-panel, .workbench-index, .workbench-tool-card");
       await screenshot("workbench-" + theme);
     }
-    for (let i = 1; i <= 4; i++) {
+    for (let i = 1; i <= 5; i++) {
       await click(`.workbench-tool-card:nth-child(${i})`);
       await waitFor("Boolean(document.querySelector('.workbench-back'))", "tool opened");
       assert.equal(await js("Boolean(document.querySelector('.workbench-index'))"), false);
       await click(".workbench-back");
-      await waitFor("document.querySelectorAll('.workbench-tool-card').length===4", "directory restored");
+      await waitFor("document.querySelectorAll('.workbench-tool-card').length===5", "directory restored");
     }
     await win.setContentSize(480, 900);
     await open("workbench", "en");
-    await waitFor("document.querySelectorAll('.workbench-tool-card').length===4", "narrow directory");
+    await waitFor("document.querySelectorAll('.workbench-tool-card').length===5", "narrow directory");
     await noOverflow(".content-panel, .workbench-index, .workbench-tool-card");
     await screenshot("workbench-narrow-en");
     await win.setContentSize(1200, 900);
@@ -163,7 +163,7 @@ module.exports = async ({ win, js, step, load, waitFor, click, key, focus, settl
     await waitFor("!document.querySelector('.runtime-status-popover')", "outside click dismisses the status");
     assert.equal(await js("document.querySelector('.team-skills-viewport > iframe')?.contentDocument.querySelector('webview').getWebContentsId()"), guest.id);
     await js("history.back()");
-    await waitFor("document.querySelectorAll('.workbench-tool-card').length===4", "back restores the directory");
+    await waitFor("document.querySelectorAll('.workbench-tool-card').length===5", "back restores the directory");
     assert.ok(!guest.isDestroyed(), "switching away keeps the catalog guest alive");
     assert.ok(await js("document.querySelector('.team-skills-page').hidden"));
     await click(".tab-team-skills");

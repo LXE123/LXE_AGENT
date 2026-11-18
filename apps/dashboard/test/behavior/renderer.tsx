@@ -7,7 +7,7 @@ import { MarkdownFixture, type MarkdownSurface } from "./markdown-fixture";
 import { createDashboardContractFixture } from "./dashboard-contract-fixture";
 import { activityFixture } from "./activity-fixture";
 import { createHomeFixture } from "./home-fixture";
-import { createWorkbenchDetailsFixture, workbenchMediaTask } from "./workbench-details-fixture";
+import { createWorkbenchDetailsFixture, createFbaCapacityFixture, workbenchMediaTask } from "./workbench-details-fixture";
 import type { DesktopVietnamSettingsState } from "@lxe/desktop-protocol";
 import { VietnamSettingsWorkbench } from "../../src/features/workbench/vietnam-settings-view";
 import { useApprovalsQuery } from "../../src/api/queries";
@@ -40,6 +40,7 @@ const homeMode = new URLSearchParams(location.search).has("home-fixture");
 const homeFixture = createHomeFixture(new URLSearchParams(location.search).get("home-state") ?? "ready");
 const workbenchDetailsMode = new URLSearchParams(location.search).has("workbench-fixture");
 const workbenchDetailsFixture = createWorkbenchDetailsFixture(calls);
+const fbaCapacityFixture = createFbaCapacityFixture(calls);
 const contractFixture = createDashboardContractFixture(calls);
 const updateRelease: DesktopUpdateRelease = {version:"0.2.0",build_id:"renderer-build",file_name:"fixture.exe",size:100,sha512:"fixture",notes:"Renderer update"};
 let updateState: DesktopUpdateState = {phase:"unsupported"};
@@ -319,6 +320,10 @@ let composerLanguage: "en" | "zh" = "en";
 const dashboard = {
   async call(call: { operation: string; input: Record<string, unknown> }) {
     calls.push(structuredClone(call));
+    if (workbenchDetailsMode) {
+      const result = fbaCapacityFixture.rpc(call);
+      if (result !== undefined) return result;
+    }
     if (call.operation === "automations.list" || call.operation === "skills.user.list") return { items: [], total: 0 };
     if (homeMode) {
       const result = homeFixture.rpc(call.operation, call.input, workspaceSessions);
@@ -394,6 +399,10 @@ const dashboard = {
 const files = {
   async call(call: { operation: string; input: any }) {
     if (["focus-preview", "release"].includes(call.operation)) return { ok: true, value: undefined };
+    if (workbenchDetailsMode) {
+      const result = fbaCapacityFixture.file(call);
+      if (result !== undefined) return result;
+    }
     if (!referenceMode && !fileLinksFixture) throw new Error(`Unexpected fixture file operation: ${call.operation}`);
     calls.push(structuredClone(call));
     const ref = call.input.ref;
@@ -537,6 +546,7 @@ const fixture = {
   },
   vietnamUploadFailure(value: boolean | string) { vietnamUploadError = value; },
   assets: workbenchDetailsFixture.controls,
+  fba: fbaCapacityFixture.controls,
   homeReady() { homeFixture.ready(); },
   workbenchMedia(mode: "scan" | "running" | "apply") { contractFixture.controls.task(workbenchMediaTask(mode)); },
   vietnamExportMode(value: typeof vietnamExportMode) { vietnamExportMode = value; },

@@ -4,7 +4,7 @@
 
 Electron 模块是面向用户的应用层，也是 LXE_AGENT 的用户交互入口。它提供统一的交互界面，通过 JSON-RPC 2.0 对接 agentcli 的 Agent 能力，通过 lxeskillCLI 暴露的命令调用业务能力。
 
-对话入口将用户消息交给 agentcli，由模型推进任务；工作台和设置等明确的功能入口，由 Electron 调用相应应用服务或 lxeskillCLI 暴露的命令。Gateway 负责消息接入、会话绑定、任务调度和结果交付。
+对话入口将用户消息交给 agentcli，由模型推进任务；工作台和设置等明确的功能入口，由 Electron 调用相应应用服务或 lxeskillCLI 暴露的命令。少数工作台表单（如 FBA 库容报告）把参数拼成提示词，在默认工作区新建普通对话交给 agentcli 执行。Gateway 负责消息接入、会话绑定、任务调度和结果交付。
 
 ## 1. 界面与交互模块
 

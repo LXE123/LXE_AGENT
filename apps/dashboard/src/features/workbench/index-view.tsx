@@ -1,4 +1,4 @@
-import { ChevronRight, FolderTree, Tag, SlidersHorizontal, CalendarDays } from "lucide-react";
+import { ChevronRight, FolderTree, Tag, SlidersHorizontal, CalendarDays, Warehouse } from "lucide-react";
 import type { ReactNode } from "react";
 import type { WorkbenchView } from "../../shared/navigation";
 import { useUiText } from "../../shared/i18n";
@@ -40,6 +40,7 @@ export function WorkbenchIndex({
       summary: copy.tools.inputAssets.summary,
       status: assetStatus,
     },
+    { id: "fba-capacity", icon: <Warehouse size={18} />, name: t.fbaCapacity.title, summary: t.fbaCapacity.subtitle, status: "" },
   ];
 
   return (
