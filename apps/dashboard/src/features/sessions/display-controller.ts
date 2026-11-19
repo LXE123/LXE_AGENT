@@ -368,7 +368,7 @@ export async function sendConversationMessage(controller: ConversationDisplayCon
   const ticket = controller.beginSend(text, attachments);
   try {
     const result = await send({ ...(ticket.sessionId ? { session_id: ticket.sessionId } : {}),
-      ...(ticket.sessionId && active && (active.state === "running" || active.state === "stopping") ? { steer_turn_id: active.turn_id } : {}),
+      ...(ticket.sessionId && active?.state === "running" ? { steer_turn_id: active.turn_id } : {}),
       ...(ticket.directory === undefined ? {} : { directory: ticket.directory }), text, client_message_id: ticket.pendingId,
       ...(attachments.length ? { attachment_ids: attachments.map(attachment => attachment.attachment_id) } : {}) });
     return { result, ticket, selected: controller.acceptSend(ticket, result) };

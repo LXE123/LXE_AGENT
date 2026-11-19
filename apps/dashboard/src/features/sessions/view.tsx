@@ -1180,15 +1180,18 @@ export function ConversationComposer({
     tooMany: () => callbacksRef.current.t.conversation.tooManyScreenshots,
   });
   const attachments = attachmentDraft.items;
-  useAutomationEditing(permissionSessionId, runtimeReady && (text.trim().length > 0 || attachments.length > 0));
+  const hasDraft = Boolean(text.trim() || attachments.length);
+  useAutomationEditing(permissionSessionId, runtimeReady && hasDraft);
   const [dragActive, setDragActive] = useState(false);
   const textareaRef = useRef<HTMLDivElement>(null);
   const previousConversationKey = useRef(conversationKey);
   const currentConversationKey = useRef(conversationKey);
   currentConversationKey.current = conversationKey;
   const hasWork = Boolean(activity?.active || activity?.queued.length);
-  const actionLabel = hasWork
-    ? stopping ? t.conversation.stopping : t.conversation.stop
+  const showStop = hasWork && (Boolean(question) || (!hasDraft && !attachmentDraft.pending));
+  const stopPending = stopping || activity?.active?.state === "stopping";
+  const actionLabel = showStop
+    ? stopPending ? t.conversation.stopping : t.conversation.stop
     : sending ? t.conversation.sending : t.conversation.send;
   const showCharacterCount = text.length >= Math.floor(8192 * 0.75);
   const selectFiles = () => {
@@ -1264,7 +1267,7 @@ export function ConversationComposer({
     }
   };
   const stop = async () => {
-    if (!hasWork || stopping) return;
+    if (!hasWork || stopPending) return;
     setStopping(true);
     setError("");
     try {
@@ -1332,22 +1335,20 @@ export function ConversationComposer({
                 {t.conversation.characterCount(formatNumber(text.length), formatNumber(8192))}
               </span>
             ) : null}
-            {/* One button, two modes: it stops the running turn while there is
-                work, and sends otherwise. Enter steers an active turn. */}
             <button
               aria-label={actionLabel}
               className="conversation-send-button"
-              data-mode={hasWork ? "stop" : "send"}
-              disabled={hasWork
-                ? stopping
-                : !runtimeReady || modelSaving || thinkingSaving || sending || attachmentDraft.pending > 0 || (!text.trim() && attachments.length === 0)}
-              onClick={() => void (hasWork ? stop() : submit())}
+              data-mode={showStop ? "stop" : "send"}
+              disabled={showStop
+                ? stopPending
+                : !runtimeReady || Boolean(question) || modelSaving || thinkingSaving || sending || attachmentDraft.pending > 0 || !hasDraft}
+              onClick={() => void (showStop ? stop() : submit())}
               title={actionLabel}
               type="button"
             >
-              {(hasWork ? stopping : sending)
+              {(showStop ? stopPending : sending)
                 ? <LoaderCircle className="conversation-spinner" size={17} />
-                : hasWork
+                : showStop
                   ? <Square aria-hidden fill="currentColor" size={13} strokeWidth={0} />
                   : <ArrowUp aria-hidden size={18} strokeWidth={2.4} />}
             </button>

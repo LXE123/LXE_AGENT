@@ -426,7 +426,7 @@ const files = {
 };
 window.lxe = { desktop, dashboard, files } as unknown as LxeDesktopBridge;
 
-type ComposerOptions = { runtimeReady?: boolean; modelSaving?: boolean; thinkingSaving?: boolean; running?: boolean; holdSend?: boolean };
+type ComposerOptions = { runtimeReady?: boolean; modelSaving?: boolean; thinkingSaving?: boolean; running?: boolean; stopping?: boolean; holdSend?: boolean };
 let composerOptions: ComposerOptions = {};
 let conversationKey = "";
 function composer() { return <ComposerFixture />; }
@@ -437,7 +437,7 @@ function ComposerFixture() {
     onApprovalChanged={() => { void query.refetch(); }} question={fixtureQuestion}
     contextDetail={null} activity={composerOptions.running ? { session_id: "fixture", latest: null, queued: [],
       active: { turn_id: "running", message_id: "running-message", text: "running",
-        state: "running", started_at: 1, user_persisted_at: 1, settled_at: 0 } } : null}
+        state: composerOptions.stopping ? "stopping" : "running", started_at: 1, user_persisted_at: 1, settled_at: 0 } } : null}
     conversationKey={conversationKey} currentModel={currentModel} modelLoading={false} models={[currentModel]}
     modelSaving={composerOptions.modelSaving ?? false} thinkingSaving={composerOptions.thinkingSaving ?? false}
     runtimeReady={composerOptions.runtimeReady ?? true} runtimeUnavailableMessage="Fixture runtime unavailable"

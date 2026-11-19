@@ -30,6 +30,17 @@ test("stopping before consumption settles an accepted steering bubble and clears
   expect(users(controller).find(row => row.id === "user:" + ticket.pendingId)?.status).toBe("cancelled");
 });
 
+test("a fresh submission during stopping is a normal turn with its attachments", async () => {
+  const controller = setup();
+  controller.receiveActivity({ session_id: "s", active: live("original", "stopping"), latest: null, queued: [] });
+  await sendConversationMessage(controller, "", [image], async input => {
+    expect(input.steer_turn_id).toBeUndefined();
+    expect(input.attachment_ids).toEqual(["image"]);
+    return { session_id: "s", turn_id: "next", message_id: "next-message", state: "queued", created: false };
+  });
+  expect(controller.getSnapshot().activity?.queued[0]?.turn_id).toBe("next");
+});
+
 test("sending during a running desktop turn targets it and reconciles the attachment by message identity", async () => {
   const controller = setup();
   controller.receiveActivity(activity(live("original")));

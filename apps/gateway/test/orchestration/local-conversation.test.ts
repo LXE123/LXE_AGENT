@@ -163,6 +163,27 @@ describe("LocalConversationController", () => {
       queued: [{ client_message_id: "client3", text: "", attachments: [{ attachment_id: "pdf" }] }, { turn_id: "waiting" }] });
   });
 
+  test("stopping cancels accepted steering and queues newly submitted messages even with a stale turn id", async () => {
+    const h = harness(["s", "old", "m1", "r1", "unused", "m2", "r2", "next", "m3", "r3", "last", "m4", "r4"]);
+    await h.controller.send({ text: "original" });
+    const send = (text: string) => h.controller.send({ session_id: "s", text, client_message_id: text, steer_turn_id: "old" });
+    expect((await send("before stop")).state).toBe("steered");
+    await h.controller.stop("s", "old");
+    expect(h.controller.activity("s").active?.state).toBe("stopping");
+    expect(await send("during stop")).toMatchObject({ state: "queued", turn_id: "next" });
+    expect(h.runtime.started.map(job => job.job_id)).toEqual(["old"]);
+    h.scheduler.handleRuntimeEvent({ kind: "runtime.turn.completed", run_id: "old",
+      payload: { session_id: "s", status: "cancelled", remaining_steering: h.runtime.steered.map(item => ({ ...item })) } });
+    await tick();
+    expect(h.runtime.started.map(job => job.user_input)).toEqual(["original", "during stop"]);
+    expect(await send("after stop")).toMatchObject({ state: "queued", turn_id: "last" });
+    expect(h.runtime.steered.map(message => message.text)).toEqual(["before stop"]);
+    h.scheduler.handleRuntimeEvent({ kind: "runtime.turn.completed", run_id: "next",
+      payload: { session_id: "s", status: "completed" } });
+    await tick();
+    expect(h.runtime.started.map(job => job.user_input)).toEqual(["original", "during stop", "after stop"]);
+  });
+
   test("applies desktop deltas to canonical activity without publishing full activity frames", async () => {
     const h = harness(["session-1", "turn-1", "message-1", "route-1"]);
     await h.controller.send({ text: "hello" });

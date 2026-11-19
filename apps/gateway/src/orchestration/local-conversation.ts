@@ -249,9 +249,7 @@ export class LocalConversationController {
     const activity = this.sessionActivity(sessionId);
     const targetId = automation ? undefined : input.steer_turn_id;
     const target = expected ?? (targetId ? this.turns.get(targetId) : undefined);
-    if (target?.sessionId === sessionId && targetId) {
-      const stopped = () => ["cancelled", "stopping"].includes(target.payload.state);
-      if (stopped()) throw new Error("当前任务已停止");
+    if (target?.sessionId === sessionId && targetId && target.payload.state === "running") {
       const clientId = input.client_message_id || messageId;
       if (activity.activeTurnId === targetId && await this.options.scheduler.steerActive(sessionId, {
         text, response_route_id: responseRouteId, message_id: messageId, client_message_id: clientId,
@@ -270,7 +268,6 @@ export class LocalConversationController {
         return { session_id: sessionId, turn_id: targetId, message_id: messageId,
           client_message_id: clientId, created: false, state: "steered" };
       }
-      if (stopped()) throw new Error("当前任务已停止");
     }
     this.clearLatest(activity);
     this.registerTurn(job, attachments, createdAtMs);
