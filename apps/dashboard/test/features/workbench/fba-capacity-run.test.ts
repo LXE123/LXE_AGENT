@@ -20,7 +20,7 @@ describe("FBA capacity run", () => {
     expect(prompt.indexOf("- Amazon-XIUTAI-US")).toBeLessThan(prompt.indexOf("- Amazon-HSP-US"));
     expect(prompt).toContain("站点：US DE");
     expect(prompt).toContain("`FBA库容报告/20261118-203015`");
-    expect(prompt).toContain("`report.html`");
+    expect(prompt).not.toContain("report.html");
     expect(prompt).toContain("严格大于 90%");
   });
 
@@ -42,14 +42,14 @@ describe("FBA capacity run", () => {
     expect(runState("completed", { question: true, approval: true })).toBe("completed");
   });
 
-  test("results pick report.html and workbooks, skipping Excel lock files and folders", () => {
+  test("results list the workbooks, skipping Excel lock files, folders and other files", () => {
     expect(resultFiles([
       { name: "shots", path: "out/shots", kind: "directory" },
       { name: "Report.HTML", path: "out/Report.HTML", kind: "file" },
       { name: "A-库容截图-20261118.xlsx", path: "out/A-库容截图-20261118.xlsx", kind: "file" },
       { name: "~$A-库容截图-20261118.xlsx", path: "out/~$A-库容截图-20261118.xlsx", kind: "file" },
-    ])).toEqual({ report: "out/Report.HTML", workbooks: [{ name: "A-库容截图-20261118.xlsx", path: "out/A-库容截图-20261118.xlsx" }] });
-    expect(resultFiles([])).toEqual({ report: null, workbooks: [] });
+    ])).toEqual([{ name: "A-库容截图-20261118.xlsx", path: "out/A-库容截图-20261118.xlsx" }]);
+    expect(resultFiles([])).toEqual([]);
   });
 
   test("history keeps the newest ten runs and ignores damaged entries", () => {

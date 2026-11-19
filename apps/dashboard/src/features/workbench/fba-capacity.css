@@ -110,13 +110,10 @@
 .fba-capacity-dot:is([data-state="error"], [data-state="missing"]) { background: var(--danger); }
 .fba-capacity-dot:is([data-state="waiting_input"], [data-state="waiting_approval"]) { background: var(--warning); }
 
-/* The view measures the room under the result card (--fba-run-height) so only the report
-   scrolls and its end stays clear of the floating status button. */
 .fba-capacity-main { position: sticky; top: 0; }
 .workbench-theme .fba-capacity-run {
   display: flex; flex-direction: column; gap: 14px; min-height: 0;
 }
-.workbench-theme .fba-capacity-run:has(> .fba-capacity-report) { height: max(var(--fba-run-height, 72vh), 560px); }
 .fba-capacity-run > * { flex-shrink: 0; }
 .fba-capacity-past {
   display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin: 0; padding: 8px 12px;
@@ -159,14 +156,6 @@
 .fba-capacity-files li > span { min-width: 0; overflow-wrap: anywhere; }
 .workbench-theme .workbench-detail .fba-capacity-files li button { min-height: 30px; padding-block: 4px; }
 
-/* The report takes whatever height is left; its toolbar shows the file name, the full path stays in the tooltip. */
-.fba-capacity-report {
-  display: flex; flex-direction: column; flex: 1 1 auto; min-height: 280px;
-  border: 1px solid var(--border); border-radius: 8px; overflow: hidden;
-}
-.fba-capacity-run > .fba-capacity-report { flex-shrink: 1; }
-.fba-capacity-report .file-display-path > span { display: none; }
-
 .fba-capacity-empty {
   margin: 24px 0 0; padding: 48px 24px; border: 1px dashed var(--border); border-radius: 8px;
   color: var(--text-soft); font-size: .8125rem; text-align: center;
@@ -177,8 +166,6 @@
   .fba-capacity-side, .fba-capacity-main { margin: 0; padding: 0; background: none; }
   .workbench-theme .fba-capacity-side > .workbench-settings-card:last-child { border-bottom: 1px solid var(--border); }
   .fba-capacity-main { position: static; }
-  .workbench-theme .fba-capacity-run:has(> .fba-capacity-report) { height: auto; }
-  .fba-capacity-run > .fba-capacity-report { flex: none; height: min(72vh, 820px); }
 }
 @container (max-width: 420px) {
   .fba-capacity-chips { grid-template-columns: minmax(0, 1fr); }

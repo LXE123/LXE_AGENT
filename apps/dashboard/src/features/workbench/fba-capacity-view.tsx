@@ -1,13 +1,11 @@
-import { type RefObject, useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { ArrowUpRight, Check, CircleAlert, CircleCheck, CircleX, LoaderCircle, Play, RefreshCw, Square } from "lucide-react";
 import type { SessionPayload } from "@lxe/desktop-protocol";
 import { useUserSkillsQuery } from "../../api/queries";
 import { sessionActions } from "../../api/session-actions";
 import { useUiText } from "../../shared/i18n";
 import { failureOf, filesApi } from "../file-preview/api";
-import { DocumentViewer } from "../file-preview/DocumentViewer";
 import { OpenFileButton } from "../file-preview/OpenFileButton";
-import { readingState } from "../file-preview/reading-state";
 import { FullAccessConfirmation } from "../sessions/permissions";
 import { WorkbenchPageHeader } from "./page-header";
 import {
@@ -23,32 +21,7 @@ const errorText = (error: unknown) => error instanceof Error ? error.message : S
 const toggled = <T,>(items: readonly T[], item: T) => items.includes(item) ? items.filter(value => value !== item) : [...items, item];
 const time = (value: number) => new Date(value).toLocaleString(undefined, { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" });
 
-/** Clear space under the result card for the floating status button. */
-const FLOAT_CLEARANCE = 88;
-
-/**
- * Sizes the result card to the room left in the scrolling panel below where the two columns start
- * (measured on the layout, since the sticky column itself moves),
- * so the report scrolls on its own instead of the page and the report both scrolling.
- */
-function useFitHeight(page: RefObject<HTMLElement | null>, layout: RefObject<HTMLElement | null>) {
-  useEffect(() => {
-    const section = page.current, scroller = section?.closest<HTMLElement>(".content-panel") ?? null;
-    if (!section || !scroller) return;
-    const fit = () => {
-      const target = layout.current;
-      if (!target) return;
-      const top = target.getBoundingClientRect().top - scroller.getBoundingClientRect().top + scroller.scrollTop;
-      section.style.setProperty("--fba-run-height", `${Math.max(0, Math.floor(scroller.clientHeight - top - FLOAT_CLEARANCE))}px`);
-    };
-    fit();
-    const observer = new ResizeObserver(fit);
-    observer.observe(scroller); observer.observe(section);
-    return () => observer.disconnect();
-  }, [page, layout]);
-}
-
-type Results = { report: string | null; workbooks: Array<{ name: string; path: string }> };
+type Workbook = { name: string; path: string };
 
 /**
  * A Full access run gets its session first so the mode is set before the task starts:
@@ -80,7 +53,7 @@ export function FbaCapacityWorkbench({ ready, defaultDirectory, onBack, onOpenSe
   const [runs, setRuns] = useState<FbaCapacityRun[]>(() => loadRuns());
   const [activeId, setActiveId] = useState<string | null>(() => loadRuns()[0]?.id ?? null);
   const [state, setState] = useState<FbaCapacityRunState | null>(null);
-  const [results, setResults] = useState<Results | null>(null);
+  const [results, setResults] = useState<Workbook[] | null>(null);
   const [resultError, setResultError] = useState("");
   const [busy, setBusy] = useState(false);
   const [fullAccess, setFullAccess] = useState(() => loadFullAccess());
@@ -88,8 +61,6 @@ export function FbaCapacityWorkbench({ ready, defaultDirectory, onBack, onOpenSe
   const [error, setError] = useState("");
   const [now, setNow] = useState(() => Date.now());
   const [pastStates, setPastStates] = useState<Record<string, FbaCapacityRunState>>({});
-  const pageRef = useRef<HTMLElement>(null), layoutRef = useRef<HTMLDivElement>(null);
-  useFitHeight(pageRef, layoutRef);
   const active = runs.find(run => run.id === activeId) ?? null;
   const latest = runs[0] ?? null;
   const latestBusy = latest !== null && latest.id === active?.id && state !== null && !settled(state);
@@ -104,7 +75,7 @@ export function FbaCapacityWorkbench({ ready, defaultDirectory, onBack, onOpenSe
     } catch (cause) {
       // A run that has not written anything yet has no folder; that is not an error to show.
       const failure = failureOf(cause, "list");
-      if (failure.kind === "not_found") { setResults({ report: null, workbooks: [] }); setResultError(""); }
+      if (failure.kind === "not_found") { setResults([]); setResultError(""); }
       else setResultError(failure.diagnostic);
     }
   }, []);
@@ -204,7 +175,7 @@ export function FbaCapacityWorkbench({ ready, defaultDirectory, onBack, onOpenSe
   const storesText = (stores: readonly string[]) => stores.length > 2 ? `${stores.slice(0, 2).join("、")} +${stores.length - 2}` : stores.join("、");
   const note = !ready ? copy.notReady : installed === null && desktop ? copy.checkingSkill : latestBusy ? copy.runInProgress : "";
 
-  return <section ref={pageRef} className="workbench-tool-view workbench-detail fba-capacity" aria-labelledby="fba-capacity-title">
+  return <section className="workbench-tool-view workbench-detail fba-capacity" aria-labelledby="fba-capacity-title">
     <WorkbenchPageHeader title={copy.title} titleId="fba-capacity-title" description={copy.subtitle} onBack={onBack} />
     {!desktop ? <p className="workbench-error" role="alert">{copy.unavailable}</p> : null}
     {error ? <p className="workbench-error" role="alert">{error}</p> : null}
@@ -213,7 +184,7 @@ export function FbaCapacityWorkbench({ ready, defaultDirectory, onBack, onOpenSe
       {copy.skillMissing}<button type="button" onClick={onInstallSkill}>{copy.installSkill}<ArrowUpRight size={14} aria-hidden /></button>
     </p> : null}
 
-    <div ref={layoutRef} className="fba-capacity-layout">
+    <div className="fba-capacity-layout">
     <div className="fba-capacity-side">
     <article className="workbench-settings-card fba-capacity-form">
       <fieldset>
@@ -307,19 +278,13 @@ export function FbaCapacityWorkbench({ ready, defaultDirectory, onBack, onOpenSe
         <span className="fba-capacity-output" title={active.output}>{copy.output}：<code>{active.output}</code></span>
       </div>
       {resultError ? <p className="workbench-error" role="alert">{resultError}</p> : null}
-      {results ? <>
-        {results.workbooks.length ? <section className="fba-capacity-files" aria-label={copy.workbooks}>
+      {results ? results.length ? <section className="fba-capacity-files" aria-label={copy.workbooks}>
           <h3>{copy.workbooks}</h3>
-          <ul>{results.workbooks.map(book => <li key={book.path}>
+          <ul>{results.map(book => <li key={book.path}>
             <span>{book.name}</span>
             <OpenFileButton file={{ session_id: active.session_id, kind: "workspace", path: book.path }} label />
           </li>)}</ul>
-        </section> : null}
-        {results.report ? <section className="fba-capacity-report" aria-label={copy.report}>
-          <DocumentViewer key={`${active.id}:${results.report}`} file={{ session_id: active.session_id, kind: "workspace", path: results.report }}
-            name="report.html" state={readingState(active.session_id, `fba-capacity:${active.id}`)} />
-        </section> : <p className="fba-capacity-hint">{results.workbooks.length ? copy.noReport : copy.noOutput}</p>}
-      </> : null}
+        </section> : <p className="fba-capacity-hint">{copy.noOutput}</p> : null}
     </article> : <p className="fba-capacity-empty">{copy.noRuns}</p>}
     </div>
     </div>

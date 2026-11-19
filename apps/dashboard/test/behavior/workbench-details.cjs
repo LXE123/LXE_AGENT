@@ -116,7 +116,7 @@ module.exports = async ({ win, js, step, load, waitFor, click, settle, state }) 
   });
   await step("FBA capacity starts a background run, follows its status and lists the results", async () => {
     await open(1, "zh", "tasks");
-    await js("localStorage.removeItem('lxe.workbench.fba-capacity.runs.v1'); localStorage.removeItem('lxe.workbench.fba-capacity.selection.v1'); localStorage.removeItem('lxe.workbench.fba-capacity.full-access.v1'); behavior.fba.phase('running'); behavior.fba.report(false)");
+    await js("localStorage.removeItem('lxe.workbench.fba-capacity.runs.v1'); localStorage.removeItem('lxe.workbench.fba-capacity.selection.v1'); localStorage.removeItem('lxe.workbench.fba-capacity.full-access.v1'); behavior.fba.phase('running')");
     await open(1, "zh", "tasks");
     await waitFor("document.querySelectorAll('.fba-capacity-chip').length===15", "choices ready");
     await waitFor("!document.querySelector('.fba-capacity-start button').disabled", "skill checked");
@@ -151,13 +151,9 @@ module.exports = async ({ win, js, step, load, waitFor, click, settle, state }) 
     await js("behavior.fba.phase('completed')");
     await waitFor("document.querySelector('.fba-capacity-state').dataset.state==='completed'", "run completed");
     await waitFor("document.querySelectorAll('.fba-capacity-files li').length===2", "workbooks listed");
-    assert.ok(await js("document.querySelector('.fba-capacity-run').textContent.includes('这次运行没有生成结果页')"));
+    assert.equal(await js("document.querySelector('.fba-capacity-report, .fba-capacity-run > .fba-capacity-hint')"), null, "a finished run shows only its workbooks");
     assert.equal(await js("document.querySelector('.fba-capacity-start button').disabled"), false);
     await themes("fba-complete", true);
-    await js("behavior.fba.report(true)"); await click(".fba-capacity-actions button:last-of-type");
-    await waitFor("Boolean(document.querySelector('.fba-capacity-report'))", "result page mounted");
-    assert.equal(await js("getComputedStyle(document.querySelector('.fba-capacity-report .file-display-path > span')).display"), "none", "the viewer shows the file name, not the folder");
-    assert.equal(await js("(() => { const run = document.querySelector('.fba-capacity-run').getBoundingClientRect(), report = document.querySelector('.fba-capacity-report').getBoundingClientRect(); return run.bottom <= innerHeight - 80 && innerHeight - 80 - run.bottom < 24 && report.height > 300; })()"), true, "the report fills the window down to just above the floating status button");
 
     // Full access is confirmed once, then the session is raised before the task is sent.
     const toggle = ".fba-capacity-switch input";

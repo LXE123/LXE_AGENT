@@ -49,10 +49,9 @@ export function workbenchMediaTask(mode: "scan" | "running" | "apply"): DesktopS
 /** FBA capacity runs in memory: the session and output folder exist only in this fixture. */
 export function createFbaCapacityFixture(calls: { operation: string; input?: unknown }[]) {
   let phase: "running" | "completed" = "running";
-  let report = false;
   const output = (path: unknown) => typeof path === "string" && path.startsWith("FBA库容报告/");
   return {
-    controls: { phase(value: typeof phase) { phase = value; }, report(value: boolean) { report = value; } },
+    controls: { phase(value: typeof phase) { phase = value; } },
     rpc(call: { operation: string; input: Record<string, unknown> }): unknown {
       if (call.operation === "skills.user.list") return { items: [{ id: "fba", version: "1", source: "user", name: "amazon-fba-capacity-report", enabled: true, available: true, unavailable_reason: "" }], total: 1 };
       if (call.operation === "sessions.send" && !call.input.session_id) return { session_id: "fba-session", turn_id: "fba-turn", message_id: "fba-message", created: true, state: "queued" };
@@ -71,7 +70,6 @@ export function createFbaCapacityFixture(calls: { operation: string; input?: unk
         return { ok: true, value: { rootPath: "/fixture/default", version: "1", next: null, entries: [
           { name: "shots", path: `${call.input.path}/shots`, kind: "directory" },
           file("Amazon-XIUTAI-US-库容截图-20261118.xlsx"), file("Amazon-YYH-US-库容截图-20261118.xlsx"),
-          ...(report ? [file("report.html")] : []),
         ] } };
       }
       if (call.operation === "applications" && output(call.input.ref?.path)) return { ok: true, value: [] };

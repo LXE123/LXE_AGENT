@@ -18,7 +18,6 @@ export const FBA_CAPACITY_STORES = [
 export const FBA_CAPACITY_SITES = ["US", "CA", "SA", "AE", "UK", "DE", "AU", "JP"] as const;
 export type FbaCapacitySite = typeof FBA_CAPACITY_SITES[number];
 
-export const FBA_CAPACITY_REPORT_FILE = "report.html";
 const OUTPUT_ROOT = "FBA库容报告";
 const RUNS_KEY = "lxe.workbench.fba-capacity.runs.v1";
 const SELECTION_KEY = "lxe.workbench.fba-capacity.selection.v1";
@@ -32,7 +31,7 @@ export interface FbaCapacityRun {
   sites: FbaCapacitySite[];
   session_id: string;
   turn_id: string;
-  /** Workspace-relative folder for the workbooks and report.html. */
+  /** Workspace-relative folder for the workbooks. */
   output: string;
   /** The session was set to Full access before the task was sent. */
   full_access?: boolean;
@@ -77,12 +76,7 @@ export function capacityPrompt(selection: FbaCapacitySelection, output: string):
     "",
     `产出目录：当前工作区下的 \`${output}\`（不存在就创建）。每个店铺的 Excel 报告都保存到这里；采集过程的中间文件按技能要求处理。`,
     "",
-    `全部店铺处理完后，在产出目录写一个 \`${FBA_CAPACITY_REPORT_FILE}\` 作为结果页：`,
-    "- 单个 HTML 文件，样式写在 <style> 里，不引用外部资源，不写脚本；中文排版清晰，适合在桌面窗口里直接阅读。",
-    "- 顶部写采集时间、店铺数和站点。",
-    "- 每个店铺一张表，列出站点和页面上的容量使用率；使用率严格大于 90% 的行标红；未能判断的写明原因。",
-    "- 最后附异常说明：缺项、失败的站点及实际原因。",
-    "某个店铺失败时继续处理其他店铺，并在结果页如实写出。",
+    "某个店铺失败时继续处理其他店铺。全部处理完后在回复里简要说明：每个店铺使用率严格大于 90% 的站点，以及缺项、失败的站点和实际原因。",
   ].join("\n");
 }
 
@@ -95,12 +89,11 @@ export function runState(phase: SessionRunPhase | "missing", waiting: { question
 export const settled = (state: FbaCapacityRunState): boolean =>
   state === "completed" || state === "error" || state === "cancelled" || state === "missing";
 
-export function resultFiles(entries: Array<{ name: string; path: string; kind: string }>): { report: string | null; workbooks: Array<{ name: string; path: string }> } {
-  const files = entries.filter(entry => entry.kind === "file");
-  return {
-    report: files.find(entry => entry.name.toLowerCase() === FBA_CAPACITY_REPORT_FILE)?.path ?? null,
-    workbooks: files.filter(entry => /\.xlsx$/i.test(entry.name) && !entry.name.startsWith("~$")).map(({ name, path }) => ({ name, path })),
-  };
+/** Excel workbooks in the output folder, without Excel's `~$` lock files. */
+export function resultFiles(entries: Array<{ name: string; path: string; kind: string }>): Array<{ name: string; path: string }> {
+  return entries
+    .filter(entry => entry.kind === "file" && /\.xlsx$/i.test(entry.name) && !entry.name.startsWith("~$"))
+    .map(({ name, path }) => ({ name, path }));
 }
 
 type Storage = Pick<globalThis.Storage, "getItem" | "setItem">;
