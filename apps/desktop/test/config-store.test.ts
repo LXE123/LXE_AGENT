@@ -644,6 +644,19 @@ describe("DesktopConfigStore", () => {
     expect(restarted.state()).toMatchObject({ complete: false, managed_model_configured: false });
   });
 
+  test("OpenAI keys default to GPT-6.2 Sol and preserve a saved preference for an older model", () => {
+    const root = createRoot();
+    const store = new DesktopConfigStore(root, join(root, "workspace"), safeStorage);
+    store.saveLocalModelCredential({ provider: "openai", api_key: "first-fixture" });
+    expect(store.environment()).toMatchObject({
+      AGENT_LLM_PROVIDER: "openai", AGENT_LLM_MODEL: "gpt-6.2-sol", AGENT_LLM_THINKING_EFFORT: "medium",
+    });
+    store.saveRuntimePreference("openai", "gpt-6.1-sol", "high");
+    const reopened = new DesktopConfigStore(root, join(root, "workspace"), safeStorage);
+    reopened.saveLocalModelCredential({ provider: "openai", api_key: "second-fixture" });
+    expect(reopened.environment()).toMatchObject({ AGENT_LLM_MODEL: "gpt-6.1-sol", AGENT_LLM_THINKING_EFFORT: "high" });
+  });
+
   test("Google keys initialize Hydrogen once and keep the selected model and effort when replaced", () => {
     const root = createRoot();
     const store = new DesktopConfigStore(root, join(root, "workspace"), safeStorage);
