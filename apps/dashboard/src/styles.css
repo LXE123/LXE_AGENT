@@ -5165,72 +5165,6 @@ h1 {
   color: var(--muted-light);
 }
 
-.conversation-compose-actions {
-  display: flex;
-  align-items: center;
-  flex: 0 0 auto;
-  gap: 6px;
-}
-
-.conversation-send-button,
-.conversation-attach-button {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-height: 34px;
-  /* Beside a flex:1 textarea these would otherwise be squeezed out of their
-     own footprint. */
-  flex: 0 0 auto;
-  gap: 6px;
-  border-radius: 9px;
-  cursor: pointer;
-  font: inherit;
-  font-size: 0.75rem;
-  font-weight: 650;
-  white-space: nowrap;
-}
-
-/* One control with two modes. Send is solid ink once the composer has content
-   and muted grey while it is empty; stop inverts against the surface so it
-   reads as "interrupt". The glyph always keeps the surface color. */
-.conversation-send-button {
-  width: 30.6px;
-  /* Overrides the shared min-height, which would otherwise stretch the circle
-     back into an oval. */
-  min-height: 30.6px;
-  height: 30.6px;
-  border: 1px solid var(--text);
-  border-radius: 50%;
-  background: var(--text);
-  color: var(--surface);
-  transition: background 140ms ease, border-color 140ms ease, color 140ms ease;
-}
-
-.conversation-send-button[data-mode="send"]:disabled {
-  /* 10% lighter than --muted-light: the empty state should whisper, not shout. */
-  border-color: color-mix(in srgb, var(--muted-light) 90%, var(--surface));
-  background: color-mix(in srgb, var(--muted-light) 90%, var(--surface));
-  color: var(--surface);
-  opacity: 1;
-}
-
-.conversation-attach-button {
-  width: 34px;
-  border: 1px solid transparent;
-  background: transparent;
-  color: var(--muted);
-}
-
-.conversation-attach-button:hover:not(:disabled) {
-  background: var(--row-hover);
-  color: var(--text);
-}
-
-.conversation-send-button:disabled,
-.conversation-attach-button:disabled {
-  cursor: default;
-  opacity: 0.5;
-}
 
 .conversation-compose-meta {
   display: flex;
@@ -9325,8 +9259,8 @@ pre {
   align-self: flex-end;
   justify-self: end;
   margin: 22px 0 1px;
-  padding: 9px 13px;
-  border: 1px solid transparent;
+  padding: 10px 14px;
+  border: 0;
   border-radius: 14px;
   background: var(--conversation-muted-fill);
 }
@@ -9720,13 +9654,36 @@ pre {
 }
 
 .conversation-compose-actions {
-  justify-content: space-between;
-  gap: 12px;
+  --composer-control-size: 30px;
+  flex-wrap: wrap;
+  gap: 4px 8px;
 }
 
 .conversation-compose-leading,
 .conversation-compose-trailing {
-  gap: 7px;
+  max-width: 100%;
+}
+
+.conversation-compose-leading {
+  gap: 4px;
+}
+
+.conversation-compose-trailing {
+  --picker-outer-gap: 16px;
+  margin-inline-start: auto;
+}
+
+.conversation-compose-trailing > * + :not(.conversation-thinking-picker) {
+  margin-inline-start: 4px;
+}
+
+.conversation-compose-trailing > .conversation-context-meter + .conversation-model-picker {
+  /* The visible ring already sits about 8px inside its button. */
+  margin-inline-start: calc(var(--picker-outer-gap) - 8px);
+}
+
+.conversation-compose-trailing > :is(.conversation-model-picker, .conversation-thinking-picker) + .conversation-send-button {
+  margin-inline-start: var(--picker-outer-gap);
 }
 
 .conversation-model-picker,
@@ -9735,35 +9692,55 @@ pre {
   min-width: 0;
 }
 
-/* Tighten the model ↔ thinking pair: pull the pair closer while keeping each
-   trigger's padding symmetric, so the hovered pill stays centered. */
-.conversation-model-picker + .conversation-thinking-picker {
-  margin-left: -4.5px;
+.composer-toolbar-control,
+.conversation-send-button {
+  display: inline-flex;
+  height: var(--composer-control-size);
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 0;
+  cursor: pointer;
 }
 
-.conversation-model-trigger,
-.conversation-thinking-trigger {
-  display: inline-flex;
-  min-height: 30px;
-  align-items: center;
-  gap: 6px;
-  padding: 4px 6px;
-  border: 1px solid transparent;
+.composer-toolbar-control {
+  gap: 5px;
   border-radius: 8px;
   background: transparent;
-  color: var(--text-soft);
-  cursor: pointer;
+  color: var(--cds-secondary);
   font: inherit;
-  font-size: 0.6875rem;
-  font-weight: 600;
+  font-size: .75rem;
+  font-weight: 400;
+  line-height: 1.5;
+}
+
+.conversation-attach-button,
+.conversation-context-trigger,
+.conversation-send-button {
+  width: var(--composer-control-size);
+  flex: none;
 }
 
 .conversation-model-trigger {
-  max-width: 180px;
+  padding-inline: 8px;
+  max-width: min(100%, 180px);
+}
+
+.permission-picker > .conversation-model-trigger {
+  padding-inline: 7px;
+}
+
+.conversation-model-picker:has(+ .conversation-thinking-picker) > .conversation-model-trigger,
+.conversation-thinking-trigger {
+  padding-inline: 4px;
+}
+
+.conversation-model-trigger:enabled > .conversation-model-name {
+  color: light-dark(var(--cds-ink), #fff);
 }
 
 .conversation-thinking-trigger {
-  max-width: 112px;
+  max-width: min(100%, 112px);
 }
 
 .conversation-model-trigger > span,
@@ -9780,33 +9757,56 @@ pre {
   flex: 0 0 auto;
 }
 
-.conversation-model-trigger:hover:not(:disabled),
-.conversation-model-trigger:focus-visible,
-.conversation-thinking-trigger:hover:not(:disabled),
-.conversation-thinking-trigger:focus-visible {
-  border-color: transparent;
-  background: #ececea;
+.composer-toolbar-control:hover:not(:disabled) {
+  background: var(--cds-alpha-1);
+  color: var(--cds-ink);
 }
 
-:root[data-theme="dark"] .conversation-model-trigger:hover:not(:disabled),
-:root[data-theme="dark"] .conversation-model-trigger:focus-visible,
-:root[data-theme="dark"] .conversation-thinking-trigger:hover:not(:disabled),
-:root[data-theme="dark"] .conversation-thinking-trigger:focus-visible {
-  background: rgba(255, 255, 255, 0.08);
+.composer-toolbar-control:is(:active, [aria-expanded="true"]):not(:disabled) {
+  background: var(--cds-selected);
+  color: var(--cds-ink);
 }
 
-.conversation-model-trigger:focus-visible,
+.composer-toolbar-control:disabled {
+  color: var(--cds-disabled-ink);
+  cursor: default;
+}
+
+.composer-toolbar-control:disabled .provider-brand-mark {
+  opacity: .4;
+}
+
+.conversation-send-button {
+  border-radius: 50%;
+  background: var(--cds-primary);
+  color: var(--cds-primary-ink);
+}
+
+.conversation-send-button:hover:not(:disabled) {
+  background: var(--cds-primary-hover);
+}
+
+.conversation-send-button[data-mode="stop"] {
+  background: var(--cds-ink);
+  color: var(--cds-surface-popover);
+}
+
+.conversation-send-button[data-mode="stop"]:hover:not(:disabled) {
+  background: var(--cds-secondary);
+}
+
+.conversation-send-button:disabled {
+  background: var(--cds-disabled-fill);
+  color: var(--cds-disabled-ink);
+  cursor: default;
+}
+
+.composer-toolbar-control:focus-visible,
+.conversation-send-button:focus-visible,
 .conversation-model-option:focus-visible,
-.conversation-thinking-trigger:focus-visible,
 .conversation-thinking-level:focus-visible {
   outline: 2px solid var(--focus-ring);
   outline-offset: 1px;
-}
-
-.conversation-model-trigger:disabled,
-.conversation-thinking-trigger:disabled {
-  cursor: default;
-  opacity: 0.58;
 }
 
 .conversation-context-meter {
@@ -9816,33 +9816,9 @@ pre {
   align-items: center;
 }
 
-.conversation-context-trigger {
-  display: inline-flex;
-  width: 30px;
-  height: 30px;
-  align-items: center;
-  justify-content: center;
-  padding: 0;
-  border: 1px solid transparent;
-  border-radius: 8px;
-  background: transparent;
-  cursor: pointer;
-}
-
-.conversation-context-trigger:hover,
-.conversation-context-trigger[aria-expanded="true"] {
-  border-color: var(--border);
-  background: var(--surface-muted);
-}
-
-.conversation-context-trigger:focus-visible {
-  outline: 2px solid var(--focus-ring);
-  outline-offset: 1px;
-}
-
 .conversation-context-ring {
-  width: 16.93px;
-  height: 16.93px;
+  width: 16px;
+  height: 16px;
 }
 
 .conversation-context-ring circle {
@@ -10355,11 +10331,11 @@ pre {
   }
 
   .conversation-model-trigger {
-    max-width: 120px;
+    max-width: min(100%, 120px);
   }
 
   .conversation-thinking-trigger {
-    max-width: 84px;
+    max-width: min(100%, 84px);
   }
 
   .sessions-focus .runtime-status-floating {

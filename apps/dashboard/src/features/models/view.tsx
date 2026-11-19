@@ -166,7 +166,7 @@ function ModelSourceSection({
                         >
                           {group.variants.map(variant => (
                             <option key={variant.option.model} value={variant.option.model}>
-                              {variant.option.model}{providerActive && current?.model === variant.option.model ? ` · ${t.models.current}` : ""}
+                              {variant.option.display_name ?? variant.option.model}{providerActive && current?.model === variant.option.model ? ` · ${t.models.current}` : ""}
                             </option>
                           ))}
                         </select>
