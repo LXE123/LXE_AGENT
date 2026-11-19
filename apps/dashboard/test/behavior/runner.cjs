@@ -336,6 +336,8 @@ app.whenReady().then(async () => {
         await waitFor("document.querySelector('.permission-approval')?.dataset.requestId === 'permission-1'", "next pending approval");
         await click(".permission-approval footer button:first-child");
         await waitFor("!document.querySelector('.permission-approval')", "requests rejected");
+        await click(".conversation-send-button[data-mode='send']");
+        assert.equal((await state()).sends.at(-1).text, "Keep this draft");
         await click(".conversation-send-button[data-mode='stop']");
         assert.equal((await state()).stops, 1, "normal stop is available after rejection");
       });
@@ -527,13 +529,26 @@ app.whenReady().then(async () => {
         await js("behavior.releaseSend()"); await settle();
         assert.equal(await js("(sessionStorage.getItem('lxe.composer-draft.' + document.querySelector('.reference-editor').dataset.session) || '')"), "");
       });
-      await step("running work changes the action button to stop", async () => {
-        await js("behavior.mountComposer({running:true})"); await type("queued draft");
-        await click(".conversation-send-button");
-        assert.equal((await state()).stops, 1); assert.equal((await state()).sends.length, 0);
-        // Enter intentionally queues a new message during an existing turn.
-        await focus(".reference-editor"); await key("Enter");
-        assert.equal((await state()).sends.length, 1);
+      await step("a running turn accepts a draft from the button or Enter and stops with an empty draft", async () => {
+        await js("behavior.mountComposer({running:true})");
+        assert.match(await js("document.querySelector('.reference-editor').dataset.placeholder"), /插话|steer/i);
+        await type("steering draft");
+        await click(".conversation-send-button[data-mode='send']");
+        await type("keyboard draft"); await key("Enter");
+        assert.deepEqual((await state()).sends.map(input => input.text), ["steering draft", "keyboard draft"]);
+        assert.equal((await state()).stops, 0);
+        await click(".conversation-send-button[data-mode='stop']");
+        assert.equal((await state()).stops, 1);
+      });
+      await step("an attachment can be sent while stopping", async () => {
+        await js("behavior.mountComposer({running:true,stopping:true}); behavior.chooseFile('note.txt')");
+        assert.equal(await js("document.querySelector('.conversation-send-button').disabled"), true);
+        await click(".conversation-attach-button");
+        await click(".conversation-send-button[data-mode='send']");
+        assert.deepEqual((await state()).sends, [{ text: "", attachments: [
+          { attachment_id: "note.txt", name: "note.txt", media_type: "text/plain", size_bytes: 1 },
+        ] }]);
+        assert.equal((await state()).stops, 0);
       });
       await step("model/thinking saves block both click and keyboard submission", async () => {
         for (const flag of ["modelSaving", "thinkingSaving"]) {

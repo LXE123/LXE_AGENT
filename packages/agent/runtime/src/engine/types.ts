@@ -2,6 +2,7 @@ import type { AssistantMessage, AssistantMessageEvent } from "../messages/assist
 export type { AssistantMessage, AssistantMessageEvent } from "../messages/assistant-message";
 import type {
   AgentJob,
+  AgentSteeringMessage,
   DesktopStreamBatchRequest,
   EmitRequest,
   JsonObject,
@@ -143,7 +144,7 @@ export interface RuntimeHandle {
   readonly signal: AbortSignal;
   readonly cancelled: boolean;
   readonly cancelReason?: "user_stop" | undefined;
-  drainSteering(): Array<{ text: string; response_route_id?: string; message_id?: string }>;
+  drainSteering(): AgentSteeringMessage[];
   registerProcess(process: { kill(): void | Promise<void>; forceKill(): void | Promise<void> }): () => void;
 }
 

@@ -2,6 +2,14 @@ import type { AgentDiagnostic, JsonObject, WorkspaceContext } from "./generated/
 
 export type * from "./generated/contracts";
 
+export type AgentSteeringMessage = {
+  text: string;
+  response_route_id?: string;
+  message_id?: string;
+  client_message_id?: string;
+  user_content_blocks?: JsonObject[];
+};
+
 export interface SessionWorkspaceRequest {
   session_id: string;
   source: JsonObject;

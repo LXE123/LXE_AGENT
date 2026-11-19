@@ -547,18 +547,21 @@ export class DesktopGateway {
       const attachmentIds = call.input.attachment_ids ?? [];
       let held = false;
       try {
-        const staged = attachmentIds.length > 0 ? this.options.attachments.beginSend(attachmentIds) : [];
-        held = true;
-        const attachments = prepareConversationAttachments(staged,
-          (bytes, mediaType) => this.imageProcessor.prepareModelBlock(bytes, mediaType));
         const result = await this.composition.parts.conversations.send({
           ...(call.input.directory === undefined ? {} : { directory: call.input.directory }),
           ...(call.input.session_id ? { session_id: call.input.session_id } : {}),
           text: call.input.text,
+          ...(call.input.steer_turn_id ? { steer_turn_id: call.input.steer_turn_id } : {}),
           ...(call.input.client_message_id ? { client_message_id: call.input.client_message_id } : {}),
-          attachments,
+          attachments: () => {
+            if (!attachmentIds.length) return [];
+            const staged = this.options.attachments.beginSend(attachmentIds);
+            held = true;
+            return prepareConversationAttachments(staged,
+              (bytes, mediaType) => this.imageProcessor.prepareModelBlock(bytes, mediaType));
+          },
         });
-        this.options.attachments.consume(attachmentIds);
+        if (held) this.options.attachments.consume(attachmentIds);
         return result as DashboardRpcResult<O>;
       } catch (error) {
         if (error instanceof LocalConversationSessionNotFoundError) {

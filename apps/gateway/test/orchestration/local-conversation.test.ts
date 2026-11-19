@@ -19,6 +19,7 @@ import {
   RunHandle,
   SessionScheduler,
   type RuntimePort,
+  type RoutedSteeringMessage,
   type SchedulerJobStateEvent,
 } from "../../src/orchestration/scheduler";
 import type { ResponseRouteRecord } from "../../src/state/models";
@@ -54,7 +55,8 @@ class RecordingRuntime implements RuntimePort {
   readonly cancelled: string[] = [];
   async startTurn(job: AgentJob): Promise<void> { this.started.push(job); }
   async cancelTurn(handle: RunHandle): Promise<void> { this.cancelled.push(handle.jobId); }
-  async steerTurn(): Promise<void> {}
+  readonly steered: RoutedSteeringMessage[] = [];
+  async steerTurn(_handle: RunHandle, message: RoutedSteeringMessage): Promise<void> { this.steered.push(message); }
 }
 
 class MemoryStorage implements LocalConversationStorage {
@@ -126,6 +128,62 @@ const externalJob = (sessionId: string): AgentJob => ({
 });
 
 describe("LocalConversationController", () => {
+  test("steers the specified desktop turn with text, an image and a file, then preserves each late submission", async () => {
+    const h = harness(["s", "first", "m1", "r1", "unused", "m2", "r2", "unused-again", "m3", "r3", "waiting", "m4", "r4"]);
+    await h.controller.send({ text: "start" });
+    const image = { type: "image", source: { type: "base64", media_type: "image/jpeg", data: "YWJj" } };
+    const photo = { attachment_id: "photo", name: "photo.png", size_bytes: 3, media_type: "image/png", path: "/private/photo", image_block: image };
+    const file = { attachment_id: "pdf", name: "source.pdf", size_bytes: 4, media_type: "application/pdf", path: "/private/source" };
+    const send = (text: string, clientId: string, attachments: (typeof photo | typeof file)[]) =>
+      h.controller.send({ session_id: "s", steer_turn_id: "first", text, client_message_id: clientId, attachments });
+    const first = send("compare", "client2", [photo, file]);
+    const retry = send("compare", "client2", [photo, file]);
+    expect(await first).toMatchObject({ turn_id: "first", state: "steered" });
+    expect(await retry).toEqual(await first);
+    expect(h.runtime.steered).toHaveLength(1);
+    expect(await send("", "client3", [file])).toMatchObject({ turn_id: "first", state: "steered" });
+    expect(h.runtime.started).toHaveLength(1);
+    expect(h.runtime.steered[0]?.user_content_blocks).toMatchObject([
+      { type: "local_file", turn_id: "first", attachment_id: "photo" }, image,
+      { type: "local_file", turn_id: "first", attachment_id: "pdf" }, { type: "text", text: "compare" },
+    ]);
+    await h.controller.send({ session_id: "s", text: "already queued" });
+    const activity = JSON.stringify(h.controller.activity("s"));
+    expect(activity).not.toContain("/private/");
+    expect(activity).not.toContain("YWJj");
+    h.scheduler.handleRuntimeEvent({ kind: "runtime.turn.completed", run_id: "first",
+      payload: { session_id: "s", status: "completed", remaining_steering: h.runtime.steered.map(message => ({ ...message })) } });
+    await tick();
+    const fallback = h.runtime.started[1]!;
+    expect(fallback).toMatchObject({ message_id: "m2", response_route_id: "r2", raw_data: { client_message_id: "client2" } });
+    expect(fallback.user_content_blocks).toMatchObject([
+      { turn_id: fallback.job_id, attachment_id: "photo" }, image, { turn_id: fallback.job_id, attachment_id: "pdf" }, { text: "compare" },
+    ]);
+    expect(h.controller.activity("s")).toMatchObject({ active: { client_message_id: "client2" },
+      queued: [{ client_message_id: "client3", text: "", attachments: [{ attachment_id: "pdf" }] }, { turn_id: "waiting" }] });
+  });
+
+  test("stopping cancels accepted steering and queues newly submitted messages even with a stale turn id", async () => {
+    const h = harness(["s", "old", "m1", "r1", "unused", "m2", "r2", "next", "m3", "r3", "last", "m4", "r4"]);
+    await h.controller.send({ text: "original" });
+    const send = (text: string) => h.controller.send({ session_id: "s", text, client_message_id: text, steer_turn_id: "old" });
+    expect((await send("before stop")).state).toBe("steered");
+    await h.controller.stop("s", "old");
+    expect(h.controller.activity("s").active?.state).toBe("stopping");
+    expect(await send("during stop")).toMatchObject({ state: "queued", turn_id: "next" });
+    expect(h.runtime.started.map(job => job.job_id)).toEqual(["old"]);
+    h.scheduler.handleRuntimeEvent({ kind: "runtime.turn.completed", run_id: "old",
+      payload: { session_id: "s", status: "cancelled", remaining_steering: h.runtime.steered.map(item => ({ ...item })) } });
+    await tick();
+    expect(h.runtime.started.map(job => job.user_input)).toEqual(["original", "during stop"]);
+    expect(await send("after stop")).toMatchObject({ state: "queued", turn_id: "last" });
+    expect(h.runtime.steered.map(message => message.text)).toEqual(["before stop"]);
+    h.scheduler.handleRuntimeEvent({ kind: "runtime.turn.completed", run_id: "next",
+      payload: { session_id: "s", status: "completed" } });
+    await tick();
+    expect(h.runtime.started.map(job => job.user_input)).toEqual(["original", "during stop", "after stop"]);
+  });
+
   test("applies desktop deltas to canonical activity without publishing full activity frames", async () => {
     const h = harness(["session-1", "turn-1", "message-1", "route-1"]);
     await h.controller.send({ text: "hello" });

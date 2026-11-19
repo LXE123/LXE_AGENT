@@ -36,7 +36,7 @@ import type {
   DirectAgentRuntime,
   DirectRuntimeOutcome,
 } from "./composition";
-import { RuntimeRequestError, type RunHandle, type SteeringMessage } from "./scheduler";
+import { RuntimeRequestError, type RunHandle, type RoutedSteeringMessage } from "./scheduler";
 
 type Environment = Record<string, string | undefined>;
 type ProcessState = "stopped" | "starting" | "ready" | "error";
@@ -327,12 +327,10 @@ export class ProcessAgentRuntime implements DirectAgentRuntime {
     await this.cancelRun(handle.runId, reason);
   }
 
-  async steerTurn(handle: RunHandle, message: Required<SteeringMessage>): Promise<void> {
+  async steerTurn(handle: RunHandle, message: RoutedSteeringMessage): Promise<void> {
     const result = objectValue(await this.request("steer_turn", {
       run_id: handle.runId,
-      text: message.text,
-      response_route_id: message.response_route_id,
-      message_id: message.message_id,
+      ...message,
     }));
     if (result.accepted !== true) {
       throw new RuntimeRequestError("run_not_found", "agent-cli rejected steering");

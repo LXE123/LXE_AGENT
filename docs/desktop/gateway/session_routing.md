@@ -64,7 +64,7 @@ Router 在 enqueue 前 upsert route；CardKit 创建后可 patch `platform_messa
 
 ### Steering
 
-steering 是 session 级开关。启用时，纯文本消息优先注入 active run；附件仍作为普通 job 排队。若 run 已进入 closing 或不存在，消息回退到队首，不能丢失。
+飞书的 `/steer` 是 session 级开关。启用后，纯文本插话在当前回复和本批工具调用结束后生效。飞书附件仍作为普通 job 排队。若 run 已进入 closing 或不存在，消息回退到队首，不能丢失。
 
 ## Skill 与 connector 权限
 
