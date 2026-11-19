@@ -148,7 +148,9 @@ module.exports = async ({ win, js, step, load, waitFor, click, key, focus, settl
         const offset = 4 * (Math.floor(y * size.height / 31) * size.width + Math.floor((x + 4) * size.width / 35));
         return Array.from(bitmap.subarray(offset, offset + 3));
       };
-      assert.deepEqual(pixel(1, 1), pixel(-4, 1), `${theme}: chrome shows through the curved cutout`);
+      // Allow antialiasing near the curve: Windows rendered one channel step darker here.
+      const cutout = pixel(1, 1), outside = pixel(-4, 1);
+      assert.ok(cutout.every((channel, i) => Math.abs(channel - outside[i]) <= 2), `${theme}: chrome shows through the curved cutout: ${cutout} vs ${outside}`);
       assert.notDeepEqual(pixel(30, 0), pixel(-4, 1), `${theme}: top edge is visible`);
       assert.notDeepEqual(pixel(0, 30), pixel(-4, 1), `${theme}: left edge is visible`);
       const chrome = pixel(-4, 1);
