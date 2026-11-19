@@ -9259,8 +9259,8 @@ pre {
   align-self: flex-end;
   justify-self: end;
   margin: 22px 0 1px;
-  padding: 9px 13px;
-  border: 1px solid transparent;
+  padding: 10px 14px;
+  border: 0;
   border-radius: 14px;
   background: var(--conversation-muted-fill);
 }

@@ -19,6 +19,7 @@ module.exports = async ({suite,win,url,js,step,load,waitFor,click,key,focus,sett
       assert.equal(await js('window.copiedText'), fullText);
       for (const theme of ['light', 'dark']) {
         await js(`document.documentElement.dataset.theme = '${theme}'`);
+        assert.equal(await js(`getComputedStyle(${preview}.closest('.message-card.role-user')).borderWidth`), '0px');
         assert.match(await js(`getComputedStyle(${preview}).maskImage`), /linear-gradient/);
         await focus(toggle);
         await key('Enter');
