@@ -9677,7 +9677,7 @@ pre {
 }
 
 .conversation-compose-trailing > .conversation-thinking-picker + .conversation-send-button {
-  margin-inline-start: 12px;
+  margin-inline-start: 16px;
 }
 
 .conversation-model-picker,
@@ -9715,12 +9715,8 @@ pre {
   flex: none;
 }
 
-.conversation-model-trigger,
-.conversation-thinking-trigger {
-  padding-inline: 7px;
-}
-
 .conversation-model-trigger {
+  padding-inline: 7px;
   max-width: min(100%, 180px);
 }
 
@@ -9733,7 +9729,7 @@ pre {
 }
 
 .conversation-thinking-trigger {
-  padding-inline-start: 3px;
+  padding-inline: 3px;
   max-width: min(100%, 112px);
 }
 

@@ -538,10 +538,15 @@ app.whenReady().then(async () => {
             const bounds = selector => document.querySelector(selector).getBoundingClientRect();
             const model = bounds('.conversation-model-name');
             const thinking = bounds('.conversation-thinking-trigger > span');
+            const button = bounds('.conversation-thinking-trigger');
             const send = bounds('.conversation-send-button');
-            return { labels: thinking.left - model.right, send: send.left - thinking.right };
+            return {
+              labels: thinking.left - model.right, send: send.left - thinking.right,
+              left: thinking.left - button.left, right: button.right - thinking.right,
+            };
           })()`);
           assert.ok(gaps.labels >= 0 && gaps.labels <= 8 && gaps.send >= 16, `Toolbar spacing: ${JSON.stringify(gaps)}`);
+          assert.ok(Math.abs(gaps.left - gaps.right) <= 0.5, `Thinking label off center: ${JSON.stringify(gaps)}`);
           await click(trigger);
           win.webContents.sendInputEvent({ type: "mouseMove", x: 0, y: 0 });
           await settle();
