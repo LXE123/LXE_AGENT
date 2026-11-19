@@ -538,17 +538,27 @@ app.whenReady().then(async () => {
           assert.equal(modelName.color, theme === "dark" ? "rgb(255, 255, 255)" : "rgb(11, 11, 11)");
           const gaps = await js(`(() => {
             const bounds = selector => document.querySelector(selector).getBoundingClientRect();
+            const track = document.querySelector('.conversation-context-ring-track');
+            const halfStroke = parseFloat(getComputedStyle(track).strokeWidth) * track.getScreenCTM().a / 2;
+            const ringRight = track.getBoundingClientRect().right + halfStroke;
+            const modelButton = bounds('.conversation-compose-trailing .conversation-model-trigger');
+            const icon = bounds('.conversation-model-trigger > [data-provider-mark]');
             const model = bounds('.conversation-model-name');
             const thinking = bounds('.conversation-thinking-trigger > span');
             const button = bounds('.conversation-thinking-trigger');
             const send = bounds('.conversation-send-button');
             return {
               labels: thinking.left - model.right, send: send.left - thinking.right,
-              left: thinking.left - button.left, right: button.right - thinking.right,
+              beforePickers: modelButton.left - ringRight, afterPickers: send.left - button.right,
+              modelLeft: icon.left - modelButton.left, modelRight: modelButton.right - model.right,
+              thinkingLeft: thinking.left - button.left, thinkingRight: button.right - thinking.right,
             };
           })()`);
           assert.ok(gaps.labels >= 0 && gaps.labels <= 8 && gaps.send >= 16, `Toolbar spacing: ${JSON.stringify(gaps)}`);
-          assert.ok(Math.abs(gaps.left - gaps.right) <= 0.5, `Thinking label off center: ${JSON.stringify(gaps)}`);
+          assert.ok(Math.abs(gaps.beforePickers - gaps.afterPickers) <= 0.5, `Picker outer spacing: ${JSON.stringify(gaps)}`);
+          for (const inset of [gaps.modelLeft, gaps.modelRight, gaps.thinkingLeft, gaps.thinkingRight]) {
+            assert.ok(Math.abs(inset - 4) <= 0.5, `Picker padding: ${JSON.stringify(gaps)}`);
+          }
           await click(trigger);
           win.webContents.sendInputEvent({ type: "mouseMove", x: 0, y: 0 });
           await settle();
