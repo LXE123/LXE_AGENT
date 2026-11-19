@@ -523,6 +523,17 @@ app.whenReady().then(async () => {
           })()`);
           assert.ok(bounds.length >= 5);
           assert.ok(bounds.every(button => button.inside && button.height === 30));
+          const modelName = await js(`(async () => {
+            await document.fonts.ready;
+            const label = document.querySelector('.conversation-model-name');
+            const box = label.getBoundingClientRect();
+            const range = document.createRange();
+            range.selectNodeContents(label);
+            const text = range.getBoundingClientRect();
+            return { top: text.top - box.top, bottom: box.bottom - text.bottom, color: getComputedStyle(label).color };
+          })()`);
+          assert.ok(modelName.top >= -0.5 && modelName.bottom >= -0.5, `Model name clipped: ${JSON.stringify(modelName)}`);
+          assert.equal(modelName.color, theme === "dark" ? "rgb(255, 255, 255)" : "rgb(11, 11, 11)");
           await click(trigger);
           win.webContents.sendInputEvent({ type: "mouseMove", x: 0, y: 0 });
           await settle();

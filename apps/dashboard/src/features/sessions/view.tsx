@@ -756,7 +756,7 @@ export function ConversationModelPicker({
         type="button"
       >
         <ProviderBrandMark provider={current?.provider} size={15} />
-        <span>{triggerLabel}</span>
+        <span className="conversation-model-name">{triggerLabel}</span>
         {saving ? <LoaderCircle aria-hidden className="conversation-spinner" size={13} /> : null}
       </button>
       {open ? (

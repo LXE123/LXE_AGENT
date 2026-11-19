@@ -9694,7 +9694,7 @@ pre {
   font: inherit;
   font-size: .75rem;
   font-weight: 400;
-  line-height: 1;
+  line-height: 1.5;
 }
 
 .conversation-attach-button,
@@ -9711,6 +9711,10 @@ pre {
 
 .conversation-model-trigger {
   max-width: min(100%, 180px);
+}
+
+.conversation-model-trigger:enabled > .conversation-model-name {
+  color: light-dark(var(--cds-ink), #fff);
 }
 
 .conversation-thinking-trigger {
