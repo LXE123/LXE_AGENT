@@ -507,6 +507,31 @@ app.whenReady().then(async () => {
         await key("Escape"); assert.equal((await state()).active, "opener");
       });
     } else if (suite === "composer") {
+      await step("toolbar controls fit a narrow chat column and identify the open picker in both themes", async () => {
+        await js("behavior.mountComposer()");
+        const trigger = ".permission-picker .conversation-model-trigger";
+        for (const theme of ["light", "dark"]) {
+          await js(`document.documentElement.dataset.theme = '${theme}'; document.querySelector('.conversation-compose-box').style.width = '300px'`);
+          await settle();
+          const bounds = await js(`(() => {
+            const bar = document.querySelector('.conversation-compose-actions');
+            const rect = bar.getBoundingClientRect();
+            return Array.from(bar.querySelectorAll('button'), button => {
+              const {left, right, height} = button.getBoundingClientRect();
+              return {inside: left >= rect.left - 1 && right <= rect.right + 1, height};
+            });
+          })()`);
+          assert.ok(bounds.length >= 5);
+          assert.ok(bounds.every(button => button.inside && button.height === 30));
+          await click(trigger);
+          win.webContents.sendInputEvent({ type: "mouseMove", x: 0, y: 0 });
+          await settle();
+          const selected = await js(`getComputedStyle(document.querySelector('${trigger}')).backgroundColor`);
+          await key("Escape");
+          assert.equal(await js(`document.querySelector('${trigger}').getAttribute('aria-expanded')`), "false");
+          assert.notEqual(await js(`getComputedStyle(document.querySelector('${trigger}')).backgroundColor`), selected);
+        }
+      });
       await step("IME confirmation does not send; Shift+Enter inserts a line; Enter sends once", async () => {
         await js("behavior.mountComposer()"); await type("中文");
         assert.equal(await js("Number(document.querySelector('.reference-editor').dataset.maxlength)"), 8192);

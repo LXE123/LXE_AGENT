@@ -38,9 +38,9 @@ export function PermissionPicker({ sessionId, initialMode, ready }: { sessionId:
   };
   const descriptions = { "read-only": t.readOnly, "workspace-write": t.workspaceWrite, "danger-full-access": t.fullAccess };
   return <div className="conversation-model-picker permission-picker" ref={root}>
-    <button type="button" ref={trigger} className="conversation-model-trigger" disabled={!ready || saving || !sessionId}
+    <button type="button" ref={trigger} className="composer-toolbar-control conversation-model-trigger" disabled={!ready || saving || !sessionId}
       aria-label={`${t.mode}: ${labels[current]}`} aria-haspopup="menu" aria-expanded={open} onClick={() => setOpen(!open)}>
-      <Icon size={15} /><span>{labels[current]}</span><ChevronDown size={12} />
+      <Icon size={16} strokeWidth={1.75} /><span>{labels[current]}</span><ChevronDown size={12} />
     </button>
     {open ? <div role="menu" aria-label={t.mode} className="conversation-model-menu permission-menu">
       {modes.map(mode => { const ItemIcon = icons[mode]; return <button type="button" key={mode} role="menuitemradio" aria-checked={mode === current}
