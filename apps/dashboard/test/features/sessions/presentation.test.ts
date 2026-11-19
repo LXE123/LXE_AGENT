@@ -11,6 +11,22 @@ const pending: PendingMessage = { pendingId: "client", sessionId: "s", text: "sa
 const turn = { turn_id: "turn", message_id: "server", client_message_id: "client", text: pending.text, created_at: 10, started_at: 10, settled_at: 20, user_persisted_at: 12, state: "completed" } as DesktopConversationTurnPayload;
 const stored: SessionMessage = { display_group_id: "g1", display_id: "g1:0", role: "user", client_message_id: "client", message_id: "server", content: pending.text, turn: {turn_id:"turn", status:"completed", elapsed_ms:10} };
 describe("unified conversation identity", () => {
+  test("keeps steering between the preceding and following responses, live and after reopen", () => {
+    const steering = { ...stored, client_message_id: "second", message_id: "m2", content: "new direction", source_reason: "steering" };
+    const answer = (id: string): SessionMessage => ({ ...stored, role: "assistant", id, content: [{ type: "text", text: id }] });
+    const history = [stored, answer("before"), steering, answer("after")];
+    const active = { ...turn, state: "running", steering: [{ client_message_id: "second", message_id: "m2", text: "new direction", created_at: 20 }],
+      stream: { display_metrics: { phase: "waiting_model" }, process_parts: ["before", "after"].map((id, index) => ({
+        type: "text", part_id: id + ":0", sequence: index + 1, text: id, status: "completed", presentation: index ? "final" : "process",
+      })) } } as DesktopConversationTurnPayload;
+    for (const turns of [[], [active]]) {
+      const rows = conversationRows(history, turns, []).filter(row => row.kind === "message");
+      expect(rows.map(row => row.id)).toEqual(["user:client", "before:0", "user:second", "after:0"]);
+    }
+    expect(conversationRows([stored], [active], [{ ...pending, pendingId: "second", steering: true, turnId: "turn" }])
+      .filter(row => row.id === "user:second").map(row => row.status)).toEqual(["steering"]);
+  });
+
   test("pending, activity and persistence share one user key for every arrival order", () => {
     for (const [messages, turns, sends] of [ [[], [], [pending]], [[], [turn], [pending]], [[stored], [], [pending]], [[stored], [turn], [pending]], [[stored], [turn], []] ] as [SessionMessage[], DesktopConversationTurnPayload[], PendingMessage[]][]) {
       expect(conversationRows(messages, turns, sends).filter(r=>r.message?.role === "user").map(r=>r.id)).toEqual(["user:client"]);

@@ -32,7 +32,8 @@ test("one OpenAI key lists both GPT-6.2 models and a new chat inherits the inter
   const { items } = await service.call({ operation: "models.list", input: {} });
   expect(items.find(item => item.provider === "openai" && item.credential_source === "local")).toMatchObject({
     selectable: true, model: "gpt-6.2-sol", model_options: expect.arrayContaining([
-      expect.objectContaining({ model: "gpt-6.2-sol" }), expect.objectContaining({ model: "gpt-6.2-astra" }),
+      expect.objectContaining({ model: "gpt-6.2-sol", display_name: "GPT-6.2 Sol" }),
+      expect.objectContaining({ model: "gpt-6.2-astra", display_name: "GPT-6.2 Astra" }),
     ]),
   });
   await service.call({ operation: "models.update", input: {

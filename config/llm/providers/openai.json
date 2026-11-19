@@ -6,6 +6,7 @@
   "default_model": "gpt-6.2-sol",
   "models": {
     "gpt-6.2-sol": {
+      "display_name": "GPT-6.2 Sol",
       "compat": {"supportsMidConvoSystemMessages": true, "supportsDeveloperRole": true, "supportsAdditionalTools": true},
       "context_window_tokens": 272000,
       "max_tokens": 128000,
@@ -17,6 +18,7 @@
       "thinking_default": "medium"
     },
     "gpt-6.2-astra": {
+      "display_name": "GPT-6.2 Astra",
       "compat": {"supportsMidConvoSystemMessages": true, "supportsDeveloperRole": true, "supportsAdditionalTools": true},
       "context_window_tokens": 272000,
       "max_tokens": 128000,
@@ -28,6 +30,7 @@
       "thinking_default": "medium"
     },
     "gpt-6.1-sol": {
+      "display_name": "GPT-6.1 Sol",
       "compat": {"supportsMidConvoSystemMessages": true, "supportsDeveloperRole": true, "supportsAdditionalTools": true},
       "context_window_tokens": 272000,
       "max_tokens": 128000,
@@ -39,6 +42,7 @@
       "thinking_default": "medium"
     },
     "gpt-6.1-terra": {
+      "display_name": "GPT-6.1 Terra",
       "compat": {"supportsMidConvoSystemMessages": true, "supportsDeveloperRole": true, "supportsAdditionalTools": true},
       "context_window_tokens": 272000,
       "max_tokens": 128000,
@@ -50,6 +54,7 @@
       "thinking_default": "medium"
     },
     "gpt-6-astra": {
+      "display_name": "GPT-6 Astra",
       "compat": {"supportsMidConvoSystemMessages": true, "supportsDeveloperRole": true, "supportsAdditionalTools": true},
       "context_window_tokens": 272000,
       "max_tokens": 128000,
@@ -61,6 +66,7 @@
       "thinking_default": "medium"
     },
     "gpt-6-sol": {
+      "display_name": "GPT-6 Sol",
       "compat": {"supportsMidConvoSystemMessages": true, "supportsDeveloperRole": true, "supportsAdditionalTools": true},
       "context_window_tokens": 272000,
       "max_tokens": 128000,
@@ -72,6 +78,7 @@
       "thinking_default": "medium"
     },
     "gpt-6-luna": {
+      "display_name": "GPT-6 Luna",
       "compat": {"supportsMidConvoSystemMessages": true, "supportsDeveloperRole": true, "supportsAdditionalTools": true},
       "context_window_tokens": 272000,
       "max_tokens": 128000,

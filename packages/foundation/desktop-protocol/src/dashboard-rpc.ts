@@ -28,6 +28,7 @@ export type ThinkingStatePayload = {
 
 export type ModelOptionPayload = {
   model: string;
+  display_name?: string;
   thinking_request_style: string;
   thinking_levels: string[];
   thinking_level_labels: Record<string, string>;
@@ -190,8 +191,17 @@ export type DesktopConversationStreamPayload = {
   display_metrics: DisplayMetrics;
 };
 
+export type DesktopSteeringInput = {
+  client_message_id: string;
+  message_id: string;
+  text: string;
+  attachments?: DesktopInputAttachmentPayload[];
+  created_at: number;
+};
+
 /** Persistence timestamps are informational; display handoff uses message identity. */
 export type DesktopConversationTurnPayload = {
+  steering?: DesktopSteeringInput[];
   turn_id: string;
   message_id: string;
   client_message_id?: string;
@@ -236,7 +246,7 @@ export type DesktopConversationSendPayload = {
   message_id: string;
   client_message_id?: string;
   created: boolean;
-  state: "running" | "queued";
+  state: "running" | "queued" | "steered";
 };
 
 export type DesktopConversationStopPayload = {
@@ -558,7 +568,7 @@ export interface DashboardRpcSpec extends AutomationRpcSpec {
     result: { session_id: string; deleted: true };
   };
   "sessions.send": {
-    input: { session_id?: string; directory?: string; text: string; attachment_ids?: string[]; client_message_id?: string };
+    input: { session_id?: string; directory?: string; text: string; attachment_ids?: string[]; client_message_id?: string; steer_turn_id?: string };
     result: DesktopConversationSendPayload;
   };
   "sessions.stop": {
@@ -914,9 +924,10 @@ export function parseDashboardRpcCall(value: unknown): DashboardRpcCall {
       exactKeys(input, ["session_id"], `${operation}.input`);
       return { operation, input: { session_id: textValue(input.session_id, `${operation}.session_id`)! } };
     case "sessions.send": {
-      exactKeys(input, ["session_id", "directory", "text", "attachment_ids", "client_message_id"], `${operation}.input`);
+      exactKeys(input, ["session_id", "directory", "text", "attachment_ids", "client_message_id", "steer_turn_id"], `${operation}.input`);
       if (input.session_id !== undefined && input.directory !== undefined) rpcError("Existing sessions cannot change workspace");
       const text = textValue(input.text, `${operation}.text`, { allowEmpty: true })!;
+      if (input.steer_turn_id !== undefined && !input.session_id) rpcError("Steering requires an existing session");
       const attachmentIds = attachmentIdsValue(input.attachment_ids, `${operation}.attachment_ids`);
       if (!text && !attachmentIds?.length) rpcError(`${operation} requires text or an attachment`);
       return { operation, input: {
@@ -926,6 +937,7 @@ export function parseDashboardRpcCall(value: unknown): DashboardRpcCall {
           : { session_id: textValue(input.session_id, `${operation}.session_id`)! }),
         text,
         ...(attachmentIds ? { attachment_ids: attachmentIds } : {}),
+        ...(input.steer_turn_id === undefined ? {} : { steer_turn_id: textValue(input.steer_turn_id, `${operation}.steer_turn_id`)! }),
         ...(input.client_message_id === undefined ? {} : { client_message_id: textValue(input.client_message_id, `${operation}.client_message_id`)! }),
       } };
     }

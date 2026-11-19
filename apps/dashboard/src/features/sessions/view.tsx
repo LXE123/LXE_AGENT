@@ -88,6 +88,7 @@ import { useDialogFocus } from "../../shared/ui/use-dialog-focus";
 import { ProviderBrandMark } from "../../shared/ui/provider-brand-mark";
 import {
   conversationModelChoices,
+  currentModelDisplayName,
   modelDisabledReasonLabel,
   modelThinkingLevelLabel,
 } from "../models/model";
@@ -708,7 +709,7 @@ export function ConversationModelPicker({
   const choices = useMemo(() => conversationModelChoices(models), [models]);
   const triggerLabel = loading
     ? t.common.loading
-    : current?.credential_source === "cloud" ? "云端" : current?.model || t.models.modelOptionUnavailable;
+    : current?.credential_source === "cloud" ? "云端" : currentModelDisplayName(current) || t.models.modelOptionUnavailable;
 
   useEffect(() => {
     if (!open) return;
@@ -1180,15 +1181,18 @@ export function ConversationComposer({
     tooMany: () => callbacksRef.current.t.conversation.tooManyScreenshots,
   });
   const attachments = attachmentDraft.items;
-  useAutomationEditing(permissionSessionId, runtimeReady && (text.trim().length > 0 || attachments.length > 0));
+  const hasDraft = Boolean(text.trim() || attachments.length);
+  useAutomationEditing(permissionSessionId, runtimeReady && hasDraft);
   const [dragActive, setDragActive] = useState(false);
   const textareaRef = useRef<HTMLDivElement>(null);
   const previousConversationKey = useRef(conversationKey);
   const currentConversationKey = useRef(conversationKey);
   currentConversationKey.current = conversationKey;
   const hasWork = Boolean(activity?.active || activity?.queued.length);
-  const actionLabel = hasWork
-    ? stopping ? t.conversation.stopping : t.conversation.stop
+  const showStop = hasWork && (Boolean(question) || (!hasDraft && !attachmentDraft.pending));
+  const stopPending = stopping || activity?.active?.state === "stopping";
+  const actionLabel = showStop
+    ? stopPending ? t.conversation.stopping : t.conversation.stop
     : sending ? t.conversation.sending : t.conversation.send;
   const showCharacterCount = text.length >= Math.floor(8192 * 0.75);
   const selectFiles = () => {
@@ -1264,7 +1268,7 @@ export function ConversationComposer({
     }
   };
   const stop = async () => {
-    if (!hasWork || stopping) return;
+    if (!hasWork || stopPending) return;
     setStopping(true);
     setError("");
     try {
@@ -1286,7 +1290,7 @@ export function ConversationComposer({
         ) : null}
         {attachmentDraft.pending > 0 ? <span className="conversation-input-hint" role="status">{t.conversation.preparingAttachments}</span> : null}
         <ReferenceComposer ref={textareaRef} session={conversationKey} value={text} onChange={setText}
-          disabled={!runtimeReady} placeholder={runtimeReady ? t.conversation.placeholder : runtimeUnavailableMessage}
+          disabled={!runtimeReady} placeholder={runtimeReady ? (activity?.active?.state === "running" ? t.conversation.steerPlaceholder : t.conversation.placeholder) : runtimeUnavailableMessage}
           onSubmit={() => void submit()} onFiles={files => {
             if (!runtimeReady || sending) return;
             setError("");
@@ -1332,22 +1336,20 @@ export function ConversationComposer({
                 {t.conversation.characterCount(formatNumber(text.length), formatNumber(8192))}
               </span>
             ) : null}
-            {/* One button, two modes: it stops the running turn while there is
-                work, and sends otherwise. Enter still queues a message mid-turn. */}
             <button
               aria-label={actionLabel}
               className="conversation-send-button"
-              data-mode={hasWork ? "stop" : "send"}
-              disabled={hasWork
-                ? stopping
-                : !runtimeReady || modelSaving || thinkingSaving || sending || attachmentDraft.pending > 0 || (!text.trim() && attachments.length === 0)}
-              onClick={() => void (hasWork ? stop() : submit())}
+              data-mode={showStop ? "stop" : "send"}
+              disabled={showStop
+                ? stopPending
+                : !runtimeReady || Boolean(question) || modelSaving || thinkingSaving || sending || attachmentDraft.pending > 0 || !hasDraft}
+              onClick={() => void (showStop ? stop() : submit())}
               title={actionLabel}
               type="button"
             >
-              {(hasWork ? stopping : sending)
+              {(showStop ? stopPending : sending)
                 ? <LoaderCircle className="conversation-spinner" size={17} />
-                : hasWork
+                : showStop
                   ? <Square aria-hidden fill="currentColor" size={13} strokeWidth={0} />
                   : <ArrowUp aria-hidden size={16} strokeWidth={2} />}
             </button>
@@ -1398,7 +1400,7 @@ export const UnifiedConversationRow = React.memo(function UnifiedConversationRow
 }) {
   const t = useUiText();
   const stateLabel = row.status === "error" ? t.conversation.error : row.status === "cancelled" ? t.conversation.cancelled
-    : row.status === "completed" ? t.conversation.completed : row.status === "queued" ? t.conversation.queued : t.conversation.running;
+    : row.status === "completed" ? t.conversation.completed : row.status === "queued" ? t.conversation.queued : row.status === "steering" ? t.conversation.steering : t.conversation.running;
   if (row.kind === "status") return <ConversationStatus row={row} />;
   if (row.kind === "compaction") {
     const count = row.message?.context_marker?.compacted_count;
@@ -1450,7 +1452,7 @@ export const UnifiedConversationRow = React.memo(function UnifiedConversationRow
   </div>;
   if (message.role !== "user" && message.role !== "assistant") return <article className="message-card role-system"><RoleBadge role={message.role} /><MessageContent content={message.content} message={message} isStreaming={isStreaming} /></article>;
   const role = message.role;
-  const deliveryStatus = role === "user" && ["sending", "queued"].includes(row.status ?? "")
+  const deliveryStatus = role === "user" && ["sending", "queued", "steering", "cancelled"].includes(row.status ?? "")
     ? <div className="optimistic-message-state" role="status">{stateLabel}</div> : null;
   if (role === "user" && message.attachments?.length) {
     const text = readerFacingMessageText(message);

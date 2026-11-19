@@ -15,6 +15,7 @@ import {
   validateToolStep,
   type ToolStep,
   type AgentJob,
+  type AgentSteeringMessage,
   type DesktopStreamBatchRequest,
   type EmitRequest,
   type JsonObject,
@@ -46,7 +47,7 @@ export type DesktopDraftAttachmentPayload = DesktopInputAttachmentPayload & {
   reference_key?: string;
 };
 
-export const AGENT_PROTOCOL_VERSION = 31 as const;
+export const AGENT_PROTOCOL_VERSION = 32 as const;
 
 /** Bounded process preview, independent of model stream sequence and wait cursors. */
 export type ExecTaskSnapshotPayload = {
@@ -122,12 +123,7 @@ export type AgentCommandPayloads = {
   };
   run_turn: { job: AgentJob };
   cancel_turn: { run_id: string; reason?: "user_stop" };
-  steer_turn: {
-    run_id: string;
-    text: string;
-    response_route_id: string;
-    message_id: string;
-  };
+  steer_turn: AgentSteeringMessage & { run_id: string; response_route_id: string; message_id: string };
   ensure_session: { request: SessionWorkspaceRequest };
   resolve_workspace_directory: { session_id: string };
   resolve_artifact: { session_id: string; artifact_id: string };
@@ -145,11 +141,7 @@ export type ConversationImagePreviewSource =
 
 export type AgentCommand = keyof AgentCommandPayloads;
 
-export type AgentSteeringMessage = {
-  text: string;
-  response_route_id?: string;
-  message_id?: string;
-};
+export type { AgentSteeringMessage } from "@lxe/protocol";
 
 export type AgentRunTurnResult = {
   status: "completed" | "cancelled" | "error";
@@ -160,6 +152,23 @@ export type AgentRunTurnResult = {
   /** Steering messages the agent never consumed before the turn ended. */
   remaining_steering: AgentSteeringMessage[];
 };
+
+function steeringContentBlocks(value: unknown): JsonObject[] | undefined {
+  if (value === undefined) return undefined;
+  if (!Array.isArray(value) || !value.every(block => {
+    const part = objectValue(block);
+    if (part?.type === "text") return typeof part.text === "string" && part.text.trim().length > 0;
+    if (part?.type === "local_file") return [part.attachment_id, part.turn_id, part.path, part.media_type].every(
+      field => typeof field === "string" && field.trim().length > 0);
+    if (part?.type !== "image") return false;
+    const source = objectValue(part.source);
+    return source?.type === "base64" && typeof source.media_type === "string" && source.media_type.startsWith("image/")
+      && typeof source.data === "string" && source.data.length > 0;
+  })) {
+    throw new AgentProtocolError("agent protocol steering.user_content_blocks is invalid");
+  }
+  return value;
+}
 
 export function parseAgentRunTurnResult(value: unknown): AgentRunTurnResult {
   const object = objectValue(value);
@@ -191,7 +200,8 @@ export function parseAgentRunTurnResult(value: unknown): AgentRunTurnResult {
         `agent protocol run_turn result.remaining_steering[${index}] must be an object`,
       );
     }
-    if (typeof item.text !== "string" || !item.text.trim()) {
+    const blocks = steeringContentBlocks(item.user_content_blocks);
+    if (typeof item.text !== "string" || (!item.text.trim() && !blocks?.length)) {
       throw new AgentProtocolError(
         `agent protocol run_turn result.remaining_steering[${index}].text must be a non-empty string`,
       );
@@ -201,6 +211,7 @@ export function parseAgentRunTurnResult(value: unknown): AgentRunTurnResult {
     for (const [field, fieldValue] of [
       ["response_route_id", responseRouteId],
       ["message_id", messageId],
+      ["client_message_id", item.client_message_id],
     ] as const) {
       if (fieldValue !== undefined && typeof fieldValue !== "string") {
         throw new AgentProtocolError(
@@ -210,6 +221,8 @@ export function parseAgentRunTurnResult(value: unknown): AgentRunTurnResult {
     }
     return {
       text: item.text.trim(),
+      ...(blocks?.length ? { user_content_blocks: blocks } : {}),
+      ...(typeof item.client_message_id === "string" ? { client_message_id: item.client_message_id } : {}),
       ...(typeof responseRouteId === "string" ? { response_route_id: responseRouteId.trim() } : {}),
       ...(typeof messageId === "string" ? { message_id: messageId.trim() } : {}),
     };
@@ -906,9 +919,13 @@ const validateRequestPayload = (command: AgentCommand, payload: Record<string, u
       requireText("run_id");
       if (payload.reason !== undefined && payload.reason !== "user_stop") throw new Error("agent protocol cancel_turn.reason is invalid");
       break;
-    case "steer_turn":
-      for (const name of ["run_id", "text", "response_route_id", "message_id"]) requireText(name);
+    case "steer_turn": {
+      for (const name of ["run_id", "response_route_id", "message_id"]) requireText(name);
+      const blocks = steeringContentBlocks(payload.user_content_blocks);
+      if (typeof payload.text !== "string" || (!payload.text.trim() && !blocks?.length)) requireText("text");
+      if (payload.client_message_id !== undefined) requireText("client_message_id");
       break;
+    }
     case "ensure_session":
       requireObject("request");
       requireWorkspace(objectValue(payload.request)?.workspace, `${command}.request.workspace`);

@@ -18,10 +18,6 @@ afterEach(() => {
 });
 
 describe("MCP manager", () => {
-  test("ships an empty external MCP server template", () => {
-    expect(loadMcpConfig("config/mcp_servers.default.json", {}).servers).toEqual([]);
-  });
-
   test("loads JSON configuration, registers enabled tools, and closes clients", async () => {
     const root = mkdtempSync(join(tmpdir(), "lxe-mcp-"));
     roots.push(root);

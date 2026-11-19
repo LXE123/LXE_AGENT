@@ -67,15 +67,15 @@ context overflow 独立走一次强制 compaction；压缩成功且预算回到�
 
 `ToolExposureState` 在 turn 内持续存在：direct 工具按来源和权限过滤；deferred 工具通过 `tool_search` 暴露；读取当前允许的 `SKILL.md` 激活 owner tools。新增暴露从下一 step 的 schema capture 生效，不能让模型在同一 response 中调用此前未提供的工具。
 
-每个调用都检查 steering/cancel、exposure 与 input 边界，记录开始状态，再执行 handler。工具 context 携带 handle、session、route、turn 和 exposure。返回的 state patch 先应用、artifact 先发送，再将 model-visible result 加入本批结果，记录耗时、usage 和展示终态。
+派发前检查取消状态，每个调用检查 exposure 与 input 边界，记录开始状态，再执行 handler。工具 context 携带 handle、session、route、turn 和 exposure。返回的 state patch 先应用、artifact 先发送，再将 model-visible result 加入本批结果，记录耗时、usage 和展示终态。
 
-工具异常形成 `is_error` 结果，不跳过闭合；后续调用继续按当前策略执行，除非 steering 或 cancel 中断计划。相邻且支持并行的调用成组执行，其余独占，结果始终按原调用顺序持久化。
+工具异常形成 `is_error` 结果，不跳过闭合；后续调用继续按当前策略执行，直到本批结束或用户取消。相邻且支持并行的调用成组执行，其余独占，结果始终按原调用顺序持久化。
 
 `exec` 按通用权限与进程规则执行外部命令。项目集成会注入 `LXESKILL_SKILL_SCOPE`，lxeskillCLI 自行处理授权、参数和业务执行。统计观察独立于工具执行，通过公开 CLI 查询命令归属，不加载业务 Catalog。详见 [工具手册](tools/README.md) 与 [Skill 手册](../skill/README.md)。
 
 ## Steering 与取消
 
-工具 dispatch 前发现 steering 时，当前及剩余未执行调用写 skipped/error 结果。Runtime 先闭合这批工具，再追加 steering，开始下一 step；已完成工具不重跑，已发送 artifact 不撤回。
+模型一次回复发出的所有工具调用按原定顺序或并行组执行。Runtime 写完本批所有工具结果后，把等待中的插话作为独立用户消息追加到同一个 turn，随后发起下一次模型请求。桌面和飞书共用这个时机。
 
 `RunHandle` 的 signal 中断 provider、summary、MCP、问题等待和当前 exec/wait 观察。未执行调用写 cancelled 结果，取消后的 step 不再调用 provider。剩余 steering 由 Scheduler 按 run 状态处理；命令进程与观察的生命周期见 [工具手册](tools/README.md#cancel-与-exec-生命周期)。
 

@@ -1,4 +1,5 @@
 import type { RuntimeHandle } from "@lxe/runtime";
+import type { AgentSteeringMessage } from "@lxe/protocol";
 
 export class AgentRunHandle implements RuntimeHandle {
   private readonly abortController = new AbortController();
@@ -9,11 +10,7 @@ export class AgentRunHandle implements RuntimeHandle {
     kill(): void | Promise<void>;
     forceKill(): void | Promise<void>;
   }>();
-  private steering: Array<{
-    text: string;
-    response_route_id?: string;
-    message_id?: string;
-  }> = [];
+  private steering: AgentSteeringMessage[] = [];
 
   get signal(): AbortSignal {
     return this.abortController.signal;
@@ -23,11 +20,11 @@ export class AgentRunHandle implements RuntimeHandle {
     return this.signal.aborted;
   }
 
-  pushSteering(message: { text: string; response_route_id: string; message_id: string }): void {
+  pushSteering(message: AgentSteeringMessage): void {
     this.steering.push(message);
   }
 
-  drainSteering(): Array<{ text: string; response_route_id?: string; message_id?: string }> {
+  drainSteering(): AgentSteeringMessage[] {
     const messages = this.steering;
     this.steering = [];
     return messages;

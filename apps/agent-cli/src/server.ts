@@ -167,7 +167,8 @@ export class AgentProtocolServer {
       case "steer_turn": {
         const handle = this.activeRuns.get(request.params.run_id);
         if (!handle || handle.cancelled) return { accepted: false };
-        handle.pushSteering(request.params);
+        const { run_id: _runId, ...message } = request.params;
+        handle.pushSteering(message);
         return { accepted: true };
       }
       case "ensure_session":
