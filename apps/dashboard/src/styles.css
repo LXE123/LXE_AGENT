@@ -9669,6 +9669,7 @@ pre {
 }
 
 .conversation-compose-trailing {
+  --picker-outer-gap: 16px;
   margin-inline-start: auto;
 }
 
@@ -9676,8 +9677,13 @@ pre {
   margin-inline-start: 4px;
 }
 
-.conversation-compose-trailing > .conversation-thinking-picker + .conversation-send-button {
-  margin-inline-start: 16px;
+.conversation-compose-trailing > .conversation-context-meter + .conversation-model-picker {
+  /* The visible ring already sits about 8px inside its button. */
+  margin-inline-start: calc(var(--picker-outer-gap) - 8px);
+}
+
+.conversation-compose-trailing > :is(.conversation-model-picker, .conversation-thinking-picker) + .conversation-send-button {
+  margin-inline-start: var(--picker-outer-gap);
 }
 
 .conversation-model-picker,
@@ -9716,12 +9722,17 @@ pre {
 }
 
 .conversation-model-trigger {
-  padding-inline: 7px;
+  padding-inline: 8px;
   max-width: min(100%, 180px);
 }
 
-.conversation-model-picker:has(+ .conversation-thinking-picker) > .conversation-model-trigger {
-  padding-inline-end: 3px;
+.permission-picker > .conversation-model-trigger {
+  padding-inline: 7px;
+}
+
+.conversation-model-picker:has(+ .conversation-thinking-picker) > .conversation-model-trigger,
+.conversation-thinking-trigger {
+  padding-inline: 4px;
 }
 
 .conversation-model-trigger:enabled > .conversation-model-name {
@@ -9729,7 +9740,6 @@ pre {
 }
 
 .conversation-thinking-trigger {
-  padding-inline: 3px;
   max-width: min(100%, 112px);
 }
 
