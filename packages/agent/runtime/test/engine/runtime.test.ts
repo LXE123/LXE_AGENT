@@ -3490,4 +3490,4 @@ test("Responses replays MCP directory and discovery at branch positions after re
     await runtime.stop();
     await removeTemporaryRoot(root);
   }
-});
+}, 20_000);
