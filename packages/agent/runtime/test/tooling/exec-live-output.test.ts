@@ -1,7 +1,7 @@
-import { expect, test } from "bun:test";
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { expect, setSystemTime, test } from "bun:test";
+import { existsSync, mkdtempSync, readFileSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import type { JsonObject } from "@lxe/protocol";
 import { registerCodingTools } from "../../src/tooling/coding-tools";
 import { ToolRegistry } from "../../src/tooling/registry";
@@ -9,6 +9,7 @@ import { policyFor, workspaceFor } from "../workspace";
 import { removeTemporaryRoot } from "../temp-directory";
 import { ExecShellAdapter } from "../../src/tooling/exec-shell";
 import { buildExecOutputStep } from "../../src/tooling/tool-display";
+import { ExecutionPaths } from "../../src/permissions/execution-paths";
 
 async function until(predicate: () => boolean) {
   const deadline = Date.now() + 10_000;
@@ -17,6 +18,57 @@ async function until(predicate: () => boolean) {
     await Bun.sleep(10);
   }
 }
+
+test("exec retention preserves an active spill and removes it after completion", async () => {
+  const root = mkdtempSync(join(tmpdir(), "lxe-live-retention-"));
+  writeFileSync(join(root, "live.js"), `
+    const fs = require('node:fs');
+    console.log('before-sweep');
+    while (!fs.existsSync('finish')) await Bun.sleep(10);
+    console.log('after-sweep');
+  `);
+  writeFileSync(join(root, "probe.js"), "console.log('probe');");
+  const manager = registerCodingTools(new ToolRegistry(), { executionPaths: new ExecutionPaths(join(root, "state")) });
+  const signal = new AbortController().signal;
+  const start = Date.now();
+  const hour = 60 * 60 * 1_000;
+  const old = new Date(start - 8 * 24 * hour);
+  const run = (file: string, sessionId: string, yieldMs: number) => manager.execute({
+    command: `${process.platform === "win32" ? "& " : ""}"${process.execPath}" ${file}`,
+    cwd: root, sessionId, turnId: "turn", toolCallId: file, responseRouteId: "route",
+    workspace: workspaceFor(root), executionPolicy: policyFor(root, sessionId), yieldMs, signal,
+  });
+  try {
+    const active = await run("live.js", "live", 100);
+    expect(active.status).toBe("running");
+    await until(() => String(manager.snapshots("live")[0]?.output_tail).includes("before-sweep"));
+    const materialized = await manager.ensureOutputFile(String(active.exec_id), "live");
+    expect(materialized.output_file_covers_captured).toBe(true);
+    const spill = String(materialized.output_path);
+    utimesSync(spill, old, old);
+    const inactive = join(dirname(spill), "exec_inactive.log");
+    writeFileSync(inactive, "expired");
+    utimesSync(inactive, old, old);
+
+    setSystemTime(new Date(start + 2 * hour));
+    expect((await run("probe.js", "other", 5_000)).status).toBe("completed");
+    expect(existsSync(inactive)).toBe(false);
+    expect(readFileSync(spill, "utf8")).toContain("before-sweep");
+
+    writeFileSync(join(root, "finish"), "");
+    await until(() => manager.snapshots("live")[0]?.status === "completed");
+    expect(readFileSync(spill, "utf8")).toContain("after-sweep");
+    utimesSync(spill, old, old);
+
+    setSystemTime(new Date(start + 4 * hour));
+    expect((await run("probe.js", "other", 5_000)).status).toBe("completed");
+    expect(existsSync(spill)).toBe(false);
+  } finally {
+    setSystemTime();
+    await manager.stop();
+    await removeTemporaryRoot(root);
+  }
+}, 20_000);
 
 test("exec publishes output before returning, coalesces updates and preserves the wait cursor", async () => {
   const root = mkdtempSync(join(tmpdir(), "lxe-live-output-"));
