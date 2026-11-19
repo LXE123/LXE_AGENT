@@ -9676,6 +9676,10 @@ pre {
   margin-inline-start: 4px;
 }
 
+.conversation-compose-trailing > .conversation-thinking-picker + .conversation-send-button {
+  margin-inline-start: 12px;
+}
+
 .conversation-model-picker,
 .conversation-thinking-picker {
   position: relative;
@@ -9720,11 +9724,16 @@ pre {
   max-width: min(100%, 180px);
 }
 
+.conversation-model-picker:has(+ .conversation-thinking-picker) > .conversation-model-trigger {
+  padding-inline-end: 3px;
+}
+
 .conversation-model-trigger:enabled > .conversation-model-name {
   color: light-dark(var(--cds-ink), #fff);
 }
 
 .conversation-thinking-trigger {
+  padding-inline-start: 3px;
   max-width: min(100%, 112px);
 }
 

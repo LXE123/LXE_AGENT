@@ -534,6 +534,14 @@ app.whenReady().then(async () => {
           })()`);
           assert.ok(modelName.top >= -0.5 && modelName.bottom >= -0.5, `Model name clipped: ${JSON.stringify(modelName)}`);
           assert.equal(modelName.color, theme === "dark" ? "rgb(255, 255, 255)" : "rgb(11, 11, 11)");
+          const gaps = await js(`(() => {
+            const bounds = selector => document.querySelector(selector).getBoundingClientRect();
+            const model = bounds('.conversation-model-name');
+            const thinking = bounds('.conversation-thinking-trigger > span');
+            const send = bounds('.conversation-send-button');
+            return { labels: thinking.left - model.right, send: send.left - thinking.right };
+          })()`);
+          assert.ok(gaps.labels >= 0 && gaps.labels <= 8 && gaps.send >= 16, `Toolbar spacing: ${JSON.stringify(gaps)}`);
           await click(trigger);
           win.webContents.sendInputEvent({ type: "mouseMove", x: 0, y: 0 });
           await settle();
