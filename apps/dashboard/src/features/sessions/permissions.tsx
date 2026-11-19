@@ -58,7 +58,7 @@ export function PermissionPicker({ sessionId, initialMode, ready }: { sessionId:
   </div>;
 }
 
-function FullAccessConfirmation({ pending, ready, error, onCancel, onConfirm }: { pending: boolean; ready: boolean; error: string; onCancel(): void; onConfirm(): void }) {
+export function FullAccessConfirmation({ pending, ready, error, onCancel, onConfirm }: { pending: boolean; ready: boolean; error: string; onCancel(): void; onConfirm(): void }) {
   const t = useUiText().permissions;
   const ref = useDialogFocus<HTMLElement>(true, onCancel);
   return createPortal(<div className="session-delete-backdrop permission-confirm-backdrop"><section role="dialog" aria-modal="true" aria-labelledby="permission-full-title" aria-describedby="permission-full-description" aria-busy={pending} className="session-delete-dialog permission-confirm-dialog" ref={ref} tabIndex={-1}>

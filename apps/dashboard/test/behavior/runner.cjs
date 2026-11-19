@@ -107,6 +107,9 @@ app.whenReady().then(async () => {
       await require("./app-actions.cjs")({suite, js, step, settle, click, type, focus, key, state, waitFor});
     } else if (suite === "vietnam-settings") {
       const openSettings = async () => {
+        const tools = ".workbench-subnav .workspace-subnav-item:nth-child(2)";
+        await waitFor(`Boolean(document.querySelector(${JSON.stringify(tools)}))`, "workbench sub-pages");
+        await js(`document.querySelector(${JSON.stringify(tools)}).click()`);
         const card = "[...document.querySelectorAll('.workbench-tool-card')].find(el => el.textContent.includes('Vietnam replenishment settings'))";
         await waitFor(`Boolean(${card})`, "Vietnam settings card");
         await js(`${card}.click()`);
