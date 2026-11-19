@@ -65,7 +65,8 @@ interface LocalSendInput {
   session_id?: string;
   directory?: string;
   text: string;
-  attachments?: LocalConversationAttachment[];
+  /** Evaluate staged desktop attachments only for the submission that owns the receipt. */
+  attachments?: LocalConversationAttachment[] | (() => LocalConversationAttachment[]);
   client_message_id?: string;
   steer_turn_id?: string;
 }
@@ -163,7 +164,7 @@ export class LocalConversationController {
 
   private async submit(input: LocalSendInput, automation?: AutomationTarget, expected?: InternalTurn): Promise<DesktopConversationSendPayload> {
     const text = clean(input.text);
-    const attachments = input.attachments ?? [];
+    const attachments = typeof input.attachments === "function" ? input.attachments() : input.attachments ?? [];
     if (!text && attachments.length === 0) throw new Error("message text or attachment required");
     let sessionId = clean(input.session_id);
     if (automation && (automation.fresh ? Boolean(sessionId) : sessionId !== automation.session_id)) throw new AutomationBlockedError("任务目标与会话模式不一致");
