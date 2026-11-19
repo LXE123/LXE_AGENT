@@ -300,8 +300,9 @@ describe("structured logger", () => {
     const logs = join(root, "var", "logs");
     mkdirSync(join(logs, "runtime"), { recursive: true });
     mkdirSync(join(logs, "feishu_raw_events"), { recursive: true });
-    symlinkSync(outside, join(logs, "ziniao_traces"), "dir");
-    symlinkSync(outsideDated, join(logs, "runtime", "20000102"), "dir");
+    const linkType = process.platform === "win32" ? "junction" : "dir";
+    symlinkSync(outside, join(logs, "ziniao_traces"), linkType);
+    symlinkSync(outsideDated, join(logs, "runtime", "20000102"), linkType);
     symlinkSync(outsideRaw, join(logs, "feishu_raw_events", "20000101.jsonl"));
 
     const controller = logging.configureLogging({
@@ -312,6 +313,27 @@ describe("structured logger", () => {
 
     expect(existsSync(join(outsideDated, "user.txt"))).toBe(true);
     expect(existsSync(outsideRaw)).toBe(true);
+  });
+
+  test("retention preserves old logs behind a linked logs parent directory", () => {
+    const root = mkdtempSync(join(tmpdir(), "lxe-logging-parent-"));
+    roots.push(root);
+    const outside = join(root, "outside");
+    const expired = join(outside, "ziniao_traces", "20000101");
+    const marker = join(expired, "user.txt");
+    const stateRoot = join(root, "state");
+    mkdirSync(expired, { recursive: true });
+    writeFileSync(marker, "keep", "utf8");
+    mkdirSync(stateRoot);
+    symlinkSync(outside, join(stateRoot, "logs"), process.platform === "win32" ? "junction" : "dir");
+
+    controllers.push(logging.configureLogging({
+      projectRoot: root,
+      stateRoot,
+      environment: { LOCAL_LOGS_ENABLED: "1" },
+    }));
+
+    expect(readFileSync(marker, "utf8")).toBe("keep");
   });
 
   test("a long-running process moves to the new day and reruns retention", async () => {

@@ -1,7 +1,9 @@
-import { createWriteStream, lstatSync, mkdirSync, readdirSync, rmdirSync, statSync, unlinkSync, type WriteStream } from "node:fs";
+import { createWriteStream, lstatSync, mkdirSync, readdirSync, rmdirSync, unlinkSync, type WriteStream } from "node:fs";
 import { dirname, join } from "node:path";
 import iconv from "iconv-lite";
+import { resolveUnlinkedDirectory } from "@lxe/core";
 import type { JsonObject } from "@lxe/protocol";
+import type { ExecutionPaths } from "../permissions/execution-paths";
 
 const CONTROL_KEYS = [
   "exec_id",
@@ -356,56 +358,63 @@ export class ProcessOutputStore {
   }
 }
 
-/**
- * `lstat` reports symbolic links and Windows junctions as links rather than directories
- * or files, so every check below refuses to follow them out of the spill root.
- */
-const isRealDirectory = (path: string): boolean => {
-  try { return lstatSync(path).isDirectory(); } catch { return false; }
+const spillDirectory = (dataRoot: string, path: string): string | undefined => {
+  try { return resolveUnlinkedDirectory(dataRoot, path); } catch { return undefined; }
 };
 
-/** Removes this directory's expired `.log` files; linked entries are never followed. */
-const sweepSpillLogs = (directory: string, now: number): void => {
+/** Removes expired, inactive logs from an unlinked spill directory. */
+const sweepSpillLogs = (
+  dataRoot: string,
+  directory: string,
+  now: number,
+  activePaths?: ReadonlySet<string>,
+): void => {
+  const resolved = spillDirectory(dataRoot, directory);
+  if (!resolved) return;
   let names: string[];
   try {
-    names = readdirSync(directory);
+    names = readdirSync(resolved);
   } catch { return; /* Concurrent removal; nothing to sweep. */ }
   for (const name of names) {
-    if (!name.endsWith(".log")) continue;
-    const path = join(directory, name);
+    if (!name.endsWith(".log") || activePaths?.has(join(directory, name))) continue;
+    const path = join(resolved, name);
     try {
       const stats = lstatSync(path);
-      if (stats.isFile() && now - stats.mtimeMs > SPILL_RETENTION_MS) unlinkSync(path);
+      if (stats.isFile() && now - stats.mtimeMs > SPILL_RETENTION_MS
+        && spillDirectory(dataRoot, directory) === resolved) unlinkSync(path);
     } catch { /* Concurrent removal or a locked file; skip it. */ }
   }
 };
 
 /**
  * Sweeps every session's spill directory below `root` (`<data-root>/tmp/exec`), plus
- * logs left directly in `root` by the older flat layout. A linked root or session
- * directory is skipped. A session directory is removed only when it is empty and had
+ * logs left directly in `root` by the older flat layout. Links below the configured
+ * data root are skipped. A session directory is removed only when it is empty and had
  * no entries added or removed within the retention window, so a directory that another
  * runtime is about to write into is left alone.
  */
-export function sweepSpillRoot(root: string, now = Date.now()): void {
-  if (!isRealDirectory(root)) return;
-  sweepSpillLogs(root, now);
+export function sweepSpillRoot(paths: ExecutionPaths, now = Date.now(), activePaths?: ReadonlySet<string>): void {
+  const { dataRoot } = paths;
+  const root = paths.outputRoot();
+  const resolvedRoot = spillDirectory(dataRoot, root);
+  if (!resolvedRoot) return;
+  sweepSpillLogs(dataRoot, root, now, activePaths);
   let names: string[];
   try {
-    names = readdirSync(root);
+    names = readdirSync(resolvedRoot);
   } catch { return; /* Concurrent removal; nothing to sweep. */ }
   for (const name of names) {
     const directory = join(root, name);
+    const resolved = spillDirectory(dataRoot, directory);
+    if (!resolved) continue;
     let idle: boolean;
     try {
-      const stats = lstatSync(directory);
-      if (!stats.isDirectory()) continue;
-      idle = now - stats.mtimeMs > SPILL_RETENTION_MS;
+      idle = now - lstatSync(resolved).mtimeMs > SPILL_RETENTION_MS;
     } catch { continue; /* Concurrent removal; skip it. */ }
-    sweepSpillLogs(directory, now);
-    if (!idle) continue;
+    sweepSpillLogs(dataRoot, directory, now, activePaths);
+    if (!idle || spillDirectory(dataRoot, directory) !== resolved) continue;
     try {
-      if (readdirSync(directory).length === 0) rmdirSync(directory);
+      rmdirSync(resolved);
     } catch { /* Concurrent write or removal; leave it for the next sweep. */ }
   }
 }
@@ -413,16 +422,18 @@ export function sweepSpillRoot(root: string, now = Date.now()): void {
 /** A long-running Runtime sweeps again once this much time has passed since the last sweep. */
 export const SPILL_SWEEP_INTERVAL_MS = 60 * 60 * 1_000;
 
-/** Sweeps each spill root on first use and then at most once per interval. */
+/** Sweeps the Runtime's spill root on first use and then at most once per interval. */
 export class SpillSweeper {
-  private readonly lastSweptAt = new Map<string, number>();
-  constructor(private readonly intervalMs = SPILL_SWEEP_INTERVAL_MS) {}
+  private lastSweptAt?: number;
+  constructor(
+    private readonly paths: ExecutionPaths,
+    private readonly activePaths?: () => ReadonlySet<string>,
+  ) {}
 
-  sweepIfDue(root: string, now = Date.now()): void {
-    const last = this.lastSweptAt.get(root);
-    if (last !== undefined && now - last < this.intervalMs) return;
-    this.lastSweptAt.set(root, now);
-    sweepSpillRoot(root, now);
+  sweepIfDue(now = Date.now()): void {
+    if (this.lastSweptAt !== undefined && now - this.lastSweptAt < SPILL_SWEEP_INTERVAL_MS) return;
+    this.lastSweptAt = now;
+    sweepSpillRoot(this.paths, now, this.activePaths?.());
   }
 }
 

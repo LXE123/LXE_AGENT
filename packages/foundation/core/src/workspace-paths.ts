@@ -1,5 +1,5 @@
 import { lstatSync, readlinkSync, realpathSync } from "node:fs";
-import { dirname, isAbsolute, join, parse, posix, sep, win32 } from "node:path";
+import { dirname, isAbsolute, join, parse, posix, relative, sep, win32 } from "node:path";
 
 /** Resolve symlinks before '..', including missing leaves, without creating directories. */
 export function canonicalPathCandidate(value: string): string {
@@ -45,6 +45,19 @@ export function pathContains(root: string, target: string, platform: NodeJS.Plat
   const normalize = (value: string) => platform === "win32" ? value.toLowerCase() : value;
   const relation = paths.relative(normalize(root), normalize(target));
   return relation === "" || (!paths.isAbsolute(relation) && relation !== ".." && !relation.startsWith(`..${paths.sep}`));
+}
+
+/** Resolve the configured root, then require real directories for every component below it. */
+export function resolveUnlinkedDirectory(root: string, directory: string): string | undefined {
+  const relation = relative(root, directory);
+  if (!relation || !pathContains(root, directory)) return undefined;
+  let current = realpathSync.native(root);
+  for (const component of relation.split(sep)) {
+    current = join(current, component);
+    if (!lstatSync(current).isDirectory()) return undefined;
+  }
+  const resolved = realpathSync.native(current);
+  return relative(current, resolved) === "" ? resolved : undefined;
 }
 
 /** Artifact layout is per selected workspace, shared by its sessions. */

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import os
+import subprocess
 from datetime import date
 from pathlib import Path
 
@@ -150,3 +152,22 @@ def test_cleanup_local_logs_does_not_follow_linked_roots_or_entries(tmp_path) ->
     assert result.failed_paths == ()
     assert (outside_old / "entry.txt").exists()
     assert outside_raw.exists()
+
+
+def test_cleanup_local_logs_does_not_follow_linked_logs_parent(tmp_path) -> None:
+    outside = tmp_path / "outside"
+    outside_old = _mkdir(outside / "ziniao_traces" / "20260601")
+    state = tmp_path / "state"
+    state.mkdir()
+    link = state / "logs"
+    if os.name == "nt":
+        subprocess.run(["cmd.exe", "/d", "/c", "mklink", "/J", str(link), str(outside)], check=True)
+        assert link.is_junction()
+    else:
+        link.symlink_to(outside, target_is_directory=True)
+
+    result = cleanup_local_logs(retention_days=7, today=date(2026, 7, 4), state_root_path=state)
+
+    assert result.deleted_paths == ()
+    assert result.failed_paths == ()
+    assert (outside_old / "entry.txt").read_text(encoding="utf-8") == "x"

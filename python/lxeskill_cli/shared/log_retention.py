@@ -82,9 +82,20 @@ def _is_link(path: Path) -> bool:
     return path.is_symlink() or path.is_junction()
 
 
+def _is_managed_log_root(path: Path) -> bool:
+    # The configured data root is already canonical. Reject links at either the
+    # logs parent or the managed directory, even if they point inside that root.
+    return (
+        not _is_link(path.parent)
+        and not _is_link(path)
+        and path.is_dir()
+        and path.resolve() == path
+    )
+
+
 def _remove_path(path: Path, *, root: Path, deleted: list[Path], failed: list[Path]) -> None:
     try:
-        if _is_link(path) or path.resolve().parent != root.resolve():
+        if not _is_managed_log_root(root) or _is_link(path) or path.resolve() != path:
             return
         if path.is_dir():
             shutil.rmtree(path)
@@ -99,10 +110,8 @@ def _remove_path(path: Path, *, root: Path, deleted: list[Path], failed: list[Pa
 
 
 def _iter_children(root: Path, *, failed: list[Path]) -> list[Path]:
-    if _is_link(root) or not root.is_dir():
-        return []
     try:
-        return list(root.iterdir())
+        return list(root.iterdir()) if _is_managed_log_root(root) else []
     except OSError as exc:
         failed.append(root)
         logger.warning("[LogRetention] failed to scan log root: path=%s error=%s", root, exc)
@@ -116,7 +125,7 @@ def _remove_empty_legacy_agent_trace_root(
     failed: list[Path],
 ) -> None:
     try:
-        if _is_link(path) or not path.is_dir():
+        if not _is_managed_log_root(path):
             return
         if next(path.iterdir(), None) is not None:
             return

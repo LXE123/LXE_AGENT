@@ -1,7 +1,8 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 import { appendFileSync, lstatSync, mkdirSync, readdirSync, realpathSync, rmdirSync, rmSync } from "node:fs";
-import { basename, dirname, join, resolve } from "node:path";
+import { basename, dirname, join, relative, resolve } from "node:path";
 import { envFlag, envInteger, envText, type Environment } from "./env";
+import { resolveUnlinkedDirectory } from "./workspace-paths";
 
 export type LogLevel = "debug" | "info" | "warn" | "error";
 export type LogFields = Readonly<Record<string, unknown>>;
@@ -302,10 +303,10 @@ export const MANAGED_DATED_LOG_DIRECTORIES = [
  * (lstat reports both as links, not directories) is skipped so cleanup never walks
  * into a directory outside the data root.
  */
-const managedRootNames = (root: string, result: RetentionResult): string[] => {
+const managedRootNames = (stateRoot: string, root: string, result: RetentionResult): string[] => {
   try {
-    if (!lstatSync(root).isDirectory()) return [];
-    return readdirSync(root);
+    const directory = resolveUnlinkedDirectory(stateRoot, root);
+    return directory ? readdirSync(directory) : [];
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
       result.failures.push({ path: root, error: failureText(error) });
@@ -316,6 +317,7 @@ const managedRootNames = (root: string, result: RetentionResult): string[] => {
 
 /** Removes one real (unlinked) entry whose real path is still directly inside `root`. */
 const removeManagedEntry = (
+  stateRoot: string,
   root: string,
   name: string,
   kind: "directory" | "file",
@@ -323,10 +325,13 @@ const removeManagedEntry = (
 ): void => {
   const entry = resolve(root, name);
   try {
-    const stats = lstatSync(entry);
+    const directory = resolveUnlinkedDirectory(stateRoot, root);
+    if (!directory) return;
+    const target = join(directory, name);
+    const stats = lstatSync(target);
     if (kind === "directory" ? !stats.isDirectory() : !stats.isFile()) return;
-    if (dirname(realpathSync(entry)) !== realpathSync(root)) return;
-    rmSync(entry, { recursive: kind === "directory", force: true });
+    if (relative(target, realpathSync.native(target)) !== "") return;
+    rmSync(target, { recursive: kind === "directory", force: true });
     result.deleted.push(entry);
   } catch (error) {
     result.failures.push({ path: entry, error: failureText(error) });
@@ -343,15 +348,16 @@ const cleanupRetention = (
   const cutoff = new Date(today.getFullYear(), today.getMonth(), today.getDate() - (retentionDays - 1)).getTime();
   for (const directory of MANAGED_DATED_LOG_DIRECTORIES) {
     const root = resolve(stateRoot, "logs", directory);
-    for (const name of managedRootNames(root, result)) {
+    for (const name of managedRootNames(stateRoot, root, result)) {
       const date = dateValue(name);
-      if (date !== undefined && date < cutoff) removeManagedEntry(root, name, "directory", result);
+      if (date !== undefined && date < cutoff) removeManagedEntry(stateRoot, root, name, "directory", result);
     }
   }
   const legacyAgentTraceRoot = resolve(stateRoot, "logs", "agent_traces");
   try {
-    if (lstatSync(legacyAgentTraceRoot).isDirectory() && readdirSync(legacyAgentTraceRoot).length === 0) {
-      rmdirSync(legacyAgentTraceRoot);
+    const directory = resolveUnlinkedDirectory(stateRoot, legacyAgentTraceRoot);
+    if (directory && readdirSync(directory).length === 0) {
+      rmdirSync(directory);
       result.deleted.push(legacyAgentTraceRoot);
     }
   } catch (error) {
@@ -360,10 +366,10 @@ const cleanupRetention = (
     }
   }
   const rawEventRoot = resolve(stateRoot, "logs", "feishu_raw_events");
-  for (const name of managedRootNames(rawEventRoot, result)) {
+  for (const name of managedRootNames(stateRoot, rawEventRoot, result)) {
     const match = /^(\d{8})\.jsonl$/.exec(name);
     const date = match ? dateValue(match[1]!) : undefined;
-    if (date !== undefined && date < cutoff) removeManagedEntry(rawEventRoot, name, "file", result);
+    if (date !== undefined && date < cutoff) removeManagedEntry(stateRoot, rawEventRoot, name, "file", result);
   }
   return result;
 };

@@ -57,7 +57,7 @@ const OUTPUT_DRAIN_DEADLINE_MS = 2_000;
 
 export class CodingProcessManager {
   private readonly entries = new Map<string, ProcessEntry>();
-  private readonly spillSweeper = new SpillSweeper();
+  private readonly spillSweeper: SpillSweeper;
   private readonly admissionTails = new Map<string, Promise<void>>();
   private readonly logger = createLogger("runtime.coding_process");
   private nextRecency = 0;
@@ -70,7 +70,16 @@ export class CodingProcessManager {
     tailBytes: number;
     shell: ExecShellAdapter;
     sandbox?: ExecSandbox;
-  }) { this.sandbox = options.sandbox ?? new ExecSandbox(); }
+  }) {
+    this.sandbox = options.sandbox ?? new ExecSandbox();
+    this.spillSweeper = new SpillSweeper(this.sandbox.paths, () => {
+      const active = new Set<string>();
+      for (const entry of this.entries.values()) {
+        if (entry.endedAt === undefined && entry.output.spillPath) active.add(entry.output.spillPath);
+      }
+      return active;
+    });
+  }
 
   async start(): Promise<void> {}
 
@@ -238,7 +247,7 @@ export class CodingProcessManager {
       } };
     }
     const spillDirectory = this.sandbox.paths.outputDirectory(request.executionPolicy);
-    this.spillSweeper.sweepIfDue(this.sandbox.paths.outputRoot());
+    this.spillSweeper.sweepIfDue();
     const entry: ProcessEntry = {
       id,
       sandbox,
