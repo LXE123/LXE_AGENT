@@ -151,6 +151,35 @@ describe("SqliteRuntimeStore", () => {
     await store.stop();
   });
 
+  test("reopening a steered turn restores the user input, file reference and original image in order", async () => {
+    const root = mkdtempSync(join(tmpdir(), "lxe-steering-reopen-"));
+    roots.push(root);
+    const path = join(root, "agent.sqlite3");
+    const png = { type: "image", source: { type: "base64", media_type: "image/png", data: "YWJj" } };
+    const attachment = { type: "local_file", attachment_id: "screen", turn_id: "turn", path: join(root, "screen.png"),
+      name: "screen.png", size_bytes: 3, media_type: "image/png", ts: 1 };
+    let store = new SqliteRuntimeStore(path);
+    await store.start();
+    await store.ensureSession({ session_id: "s", source: { platform: "desktop" }, workspace: testWorkspace });
+    await store.appendMessage("s", { role: "user", content: "first" }, "turn_input", "turn");
+    await store.appendMessage("s", messageFixture({ content: [{ type: "text", text: "before" }] }), "assistant_response", "turn");
+    await store.appendMessage("s", { role: "user", message_id: "m", client_message_id: "client", content: [attachment, png] }, "steering", "turn");
+    await store.appendMessage("s", messageFixture({ content: [{ type: "text", text: "after" }] }), "assistant_response", "turn");
+    await store.stop();
+    store = new SqliteRuntimeStore(path);
+    await store.start();
+    try {
+      const messages = await store.loadMessages("s");
+      expect(messages.map(message => message.role)).toEqual(["user", "assistant", "user", "assistant"]);
+      expect(messages[2]).toMatchObject({ message_id: "m", client_message_id: "client", content: [attachment, png] });
+      const detail = await store.loadTranscriptDisplayPage("s", { limit: 10 });
+      expect(detail.messages.map(message => message.source_reason)).toEqual(["turn_input", "assistant_response", "steering", "assistant_response"]);
+      expect(detail.messages[2]).toMatchObject({ client_message_id: "client", attachments: [{ attachment_id: "screen" }] });
+      expect(JSON.stringify(detail)).not.toContain("YWJj");
+      expect(await store.resolveAttachment("s", "screen")).toMatchObject({ path: attachment.path, turn_id: "turn" });
+    } finally { await store.stop(); }
+  });
+
   test("persists local file references while projecting only safe attachment metadata", async () => {
     const root = mkdtempSync(join(tmpdir(), "lxe-runtime-attachments-"));
     roots.push(root);

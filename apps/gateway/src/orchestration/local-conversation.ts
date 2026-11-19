@@ -61,7 +61,22 @@ export type LocalConversationAttachment = DesktopInputAttachmentPayload & {
   image_block?: JsonObject;
 };
 
+interface LocalSendInput {
+  session_id?: string;
+  directory?: string;
+  text: string;
+  attachments?: LocalConversationAttachment[];
+  client_message_id?: string;
+  steer_turn_id?: string;
+}
+
+interface AutomationTarget {
+  id: string; session_id: string; turn_id: string; fresh: boolean;
+  assertCurrent(): void; prepareSession?(): Promise<void>;
+}
+
 interface InternalTurn {
+  steeringReceipts?: Map<string, Promise<DesktopConversationSendPayload>>;
   payload: DesktopConversationTurnPayload;
   attachmentPaths: Map<string, string>;
   attachmentImages: Map<string, JsonObject>;
@@ -131,16 +146,22 @@ export class LocalConversationController {
     return undefined;
   }
 
-  async send(input: {
-    session_id?: string;
-    directory?: string;
-    text: string;
-    attachments?: LocalConversationAttachment[];
-    client_message_id?: string;
-  }, automation?: {
-    id: string; session_id: string; turn_id: string; fresh: boolean;
-    assertCurrent(): void; prepareSession?(): Promise<void>;
-  }): Promise<DesktopConversationSendPayload> {
+  send(input: LocalSendInput, automation?: AutomationTarget): Promise<DesktopConversationSendPayload> {
+    const target = !automation && input.steer_turn_id ? this.turns.get(input.steer_turn_id) : undefined;
+    const clientId = input.client_message_id;
+    if (!target || target.sessionId !== input.session_id || !clientId) return this.submit(input, automation);
+    const receipts = target.steeringReceipts ??= new Map();
+    const existing = receipts.get(clientId);
+    if (existing) return existing;
+    const receipt = this.submit(input, undefined, target).catch(error => {
+      receipts.delete(clientId);
+      throw error;
+    });
+    receipts.set(clientId, receipt);
+    return receipt;
+  }
+
+  private async submit(input: LocalSendInput, automation?: AutomationTarget, expected?: InternalTurn): Promise<DesktopConversationSendPayload> {
     const text = clean(input.text);
     const attachments = input.attachments ?? [];
     if (!text && attachments.length === 0) throw new Error("message text or attachment required");
@@ -226,27 +247,33 @@ export class LocalConversationController {
       diagnostics: [],
     };
     const activity = this.sessionActivity(sessionId);
+    const targetId = automation ? undefined : input.steer_turn_id;
+    const target = expected ?? (targetId ? this.turns.get(targetId) : undefined);
+    if (target?.sessionId === sessionId && targetId) {
+      const stopped = () => ["cancelled", "stopping"].includes(target.payload.state);
+      if (stopped()) throw new Error("当前任务已停止");
+      const clientId = input.client_message_id || messageId;
+      if (activity.activeTurnId === targetId && await this.options.scheduler.steerActive(sessionId, {
+        text, response_route_id: responseRouteId, message_id: messageId, client_message_id: clientId,
+        user_content_blocks: userContentBlocks.map(block => block.type === "local_file"
+          ? { ...block, turn_id: targetId } : block),
+      }, targetId)) {
+        target.payload.steering = [...(target.payload.steering ?? []), {
+          client_message_id: clientId, message_id: messageId, text, created_at: createdAtMs,
+          ...(attachments.length ? { attachments: attachments.map(publicAttachment) } : {}),
+        }];
+        for (const attachment of attachments) {
+          target.attachmentPaths.set(attachment.attachment_id, attachment.path);
+          if (attachment.image_block && !target.payload.settled_at) target.attachmentImages.set(attachment.attachment_id, attachment.image_block);
+        }
+        this.publish(sessionId);
+        return { session_id: sessionId, turn_id: targetId, message_id: messageId,
+          client_message_id: clientId, created: false, state: "steered" };
+      }
+      if (stopped()) throw new Error("当前任务已停止");
+    }
     this.clearLatest(activity);
-    const turn: InternalTurn = {
-      sessionId,
-      responseRouteId,
-      attachmentPaths: new Map(attachments.map((attachment) => [attachment.attachment_id, attachment.path])),
-      attachmentImages: new Map(attachments.flatMap(attachment => attachment.image_block ? [[attachment.attachment_id, attachment.image_block] as const] : [])),
-      payload: {
-        turn_id: turnId,
-        message_id: messageId,
-      ...(input.client_message_id ? { client_message_id: input.client_message_id } : {}),
-        text,
-        ...(attachments.length > 0 ? { attachments: attachments.map(publicAttachment) } : {}),
-        state: "queued",
-        created_at: createdAtMs,
-        started_at: 0,
-        user_persisted_at: 0,
-        settled_at: 0,
-      },
-    };
-    this.turns.set(turnId, turn);
-    activity.queuedTurnIds.push(turnId);
+    this.registerTurn(job, attachments, createdAtMs);
     try {
       await this.options.scheduler.enqueue(job, {
         ...(session.blank ? { beforeAccept: () => this.options.storage.ensureSession({
@@ -260,14 +287,32 @@ export class LocalConversationController {
       if (automation && error instanceof SchedulerBusyError) throw new AutomationBlockedError(error.message, { cause: error });
       throw error;
     }
-    return {
-      session_id: sessionId,
-      turn_id: turnId,
-      message_id: messageId,
+    return { session_id: sessionId, turn_id: turnId, message_id: messageId,
       ...(input.client_message_id ? { client_message_id: input.client_message_id } : {}),
-      created,
-      state: turn.payload.state === "running" ? "running" : "queued",
+      created, state: this.turns.get(turnId)?.payload.state === "running" ? "running" : "queued" };
+  }
+
+  private registerTurn(job: AgentJob, attachments: LocalConversationAttachment[], createdAtMs: number): void {
+    const turn: InternalTurn = {
+      sessionId: job.session_id,
+      responseRouteId: job.response_route_id,
+      attachmentPaths: new Map(attachments.map((attachment) => [attachment.attachment_id, attachment.path])),
+      attachmentImages: new Map(attachments.flatMap(attachment => attachment.image_block ? [[attachment.attachment_id, attachment.image_block] as const] : [])),
+      payload: {
+        turn_id: job.job_id,
+        message_id: job.message_id,
+        ...(typeof job.raw_data.client_message_id === "string" ? { client_message_id: job.raw_data.client_message_id } : {}),
+        text: job.user_input,
+        ...(attachments.length > 0 ? { attachments: attachments.map(publicAttachment) } : {}),
+        state: "queued",
+        created_at: createdAtMs,
+        started_at: 0,
+        user_persisted_at: 0,
+        settled_at: 0,
+      },
     };
+    this.turns.set(job.job_id, turn);
+    this.sessionActivity(job.session_id).queuedTurnIds.push(job.job_id);
   }
 
   async stop(sessionIdInput: string, expectedTurnId?: string): Promise<DesktopConversationStopPayload> {
@@ -328,6 +373,22 @@ export class LocalConversationController {
 
   handleSchedulerEvent(event: SchedulerJobStateEvent): void {
     const turnId = clean(event.job.job_id);
+    if (event.state === "queued" && event.job.raw_data.steering_fallback && !this.turns.has(turnId)) {
+      const blocks = event.job.user_content_blocks;
+      const attachments: LocalConversationAttachment[] = [];
+      for (const [index, block] of blocks.entries()) {
+        if (block.type !== "local_file") continue;
+        const image = blocks[index + 1];
+        attachments.push({ attachment_id: clean(block.attachment_id), name: clean(block.name),
+          path: clean(block.path), media_type: clean(block.media_type), size_bytes: integer(block.size_bytes),
+          ...(image?.type === "image" ? { image_block: image } : {}) });
+      }
+      this.registerTurn(event.job, attachments, this.now());
+      // The scheduler places unread steering before previously queued turns.
+      this.sessionActivity(event.job.session_id).queuedTurnIds = this.options.scheduler.runStatuses()
+        .filter(job => job.session_id === event.job.session_id && job.state === "queued" && this.turns.has(job.turn_id))
+        .map(job => job.turn_id);
+    }
     const turn = this.turns.get(turnId);
     if (!turn) return;
     const sessionId = clean(event.job.session_id);

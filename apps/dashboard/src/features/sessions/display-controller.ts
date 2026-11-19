@@ -218,6 +218,11 @@ export class ConversationDisplayController {
     for (const value of [activity.active, activity.latest, ...activity.queued]) {
       if (!value) continue;
       const previous = this.turns.get(value.turn_id);
+      if (value.state === "cancelled") {
+        for (const [id, item] of this.pending) {
+          if (item.steering && item.turnId === value.turn_id) this.pending.delete(id);
+        }
+      }
       const savedStatus = history.savedStatus.get(value.turn_id);
       // Confirmed payloads may already have been released. A delayed running push
       // must not revive that turn or replace the persisted final text with a draft.
@@ -257,8 +262,9 @@ export class ConversationDisplayController {
   }
   acceptSend(ticket: SendTicket, result: DesktopConversationSendPayload): boolean {
     const item = this.pending.get(ticket.pendingId) ?? ticket.message;
-    const accepted = { ...item, sessionId: result.session_id, turnId: result.turn_id, messageId: result.message_id };
-    this.pending.set(ticket.pendingId, accepted);
+    const accepted = { ...item, sessionId: result.session_id, turnId: result.turn_id, messageId: result.message_id, steering: result.state === "steered" };
+    if (accepted.steering && this.turns.get(result.turn_id)?.state === "cancelled") this.pending.delete(ticket.pendingId);
+    else this.pending.set(ticket.pendingId, accepted);
     const selected = ticket.selection === this.selection && ticket.sessionId === this.state.sessionId;
     if (selected && !ticket.sessionId) this.state = { ...this.state, sessionId: result.session_id, loadState: "loading" };
     if (result.session_id === this.state.sessionId) {
@@ -357,10 +363,12 @@ export class ConversationDisplayController {
 
 /** Shared by the production send handler and browser fixtures. */
 export async function sendConversationMessage(controller: ConversationDisplayController, text: string, attachments: DesktopInputAttachmentPayload[],
-  send: (input: { session_id?: string; directory?: string; text: string; client_message_id: string; attachment_ids?: string[] }) => Promise<DesktopConversationSendPayload>) {
+  send: (input: { session_id?: string; directory?: string; text: string; client_message_id: string; attachment_ids?: string[]; steer_turn_id?: string }) => Promise<DesktopConversationSendPayload>) {
+  const active = controller.getSnapshot().activity?.active;
   const ticket = controller.beginSend(text, attachments);
   try {
     const result = await send({ ...(ticket.sessionId ? { session_id: ticket.sessionId } : {}),
+      ...(ticket.sessionId && active && (active.state === "running" || active.state === "stopping") ? { steer_turn_id: active.turn_id } : {}),
       ...(ticket.directory === undefined ? {} : { directory: ticket.directory }), text, client_message_id: ticket.pendingId,
       ...(attachments.length ? { attachment_ids: attachments.map(attachment => attachment.attachment_id) } : {}) });
     return { result, ticket, selected: controller.acceptSend(ticket, result) };

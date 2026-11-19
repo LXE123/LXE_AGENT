@@ -435,9 +435,9 @@ function ComposerFixture() {
   return <ConversationComposer
     approvals={query.data?.items.filter(request => request.session_id === conversationKey) ?? []}
     onApprovalChanged={() => { void query.refetch(); }} question={fixtureQuestion}
-    contextDetail={null} activity={composerOptions.running ? { session_id: "fixture", active: null,
-      latest: null, queued: [{ turn_id: "queued", message_id: "queued-message", text: "queued",
-        state: "queued", started_at: 0, user_persisted_at: 0, settled_at: 0 }] } : null}
+    contextDetail={null} activity={composerOptions.running ? { session_id: "fixture", latest: null, queued: [],
+      active: { turn_id: "running", message_id: "running-message", text: "running",
+        state: "running", started_at: 1, user_persisted_at: 1, settled_at: 0 } } : null}
     conversationKey={conversationKey} currentModel={currentModel} modelLoading={false} models={[currentModel]}
     modelSaving={composerOptions.modelSaving ?? false} thinkingSaving={composerOptions.thinkingSaving ?? false}
     runtimeReady={composerOptions.runtimeReady ?? true} runtimeUnavailableMessage="Fixture runtime unavailable"

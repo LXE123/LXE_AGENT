@@ -258,7 +258,7 @@ export class SessionRouter {
     }
     const enabled = this.state.toggleSteering(entry.session_id);
     const message = enabled
-      ? "已开启实时插话模式：我执行任务期间你发的消息会立刻插入当前任务，在下一步工具调用间隙生效，用来随时纠正方向。再次输入 /steer 可关闭。"
+      ? "已开启实时插话模式：我会在当前回复和本批工具执行完后，按你补充的消息继续。再次输入 /steer 可关闭。"
       : "已关闭实时插话模式：我执行任务期间你发的消息会排队，等当前任务结束后再处理。";
     await this.sendFeedback(context, entry.session_id, message);
   }

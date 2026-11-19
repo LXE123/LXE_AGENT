@@ -396,8 +396,9 @@ describe("ProcessAgentRuntime", () => {
     const turn = runtime.runTurn(job, handle);
     await Bun.sleep(10);
 
+    const blocks = [{ type: "image", source: { type: "base64", media_type: "image/png", data: "YWJj" } }];
     await runtime.steerTurn(handle, {
-      text: "steer",
+      text: "", user_content_blocks: blocks, client_message_id: "client",
       response_route_id: "route-1",
       message_id: "message-2",
     });
@@ -411,7 +412,7 @@ describe("ProcessAgentRuntime", () => {
       tool_calls: 1,
       reply: reason ?? "",
       remaining_steering: [
-        { text: "steer", response_route_id: "route-1", message_id: "message-2" },
+        { text: "", response_route_id: "route-1", message_id: "message-2", client_message_id: "client", user_content_blocks: blocks },
       ],
     });
   });

@@ -1286,7 +1286,7 @@ export function ConversationComposer({
         ) : null}
         {attachmentDraft.pending > 0 ? <span className="conversation-input-hint" role="status">{t.conversation.preparingAttachments}</span> : null}
         <ReferenceComposer ref={textareaRef} session={conversationKey} value={text} onChange={setText}
-          disabled={!runtimeReady} placeholder={runtimeReady ? t.conversation.placeholder : runtimeUnavailableMessage}
+          disabled={!runtimeReady} placeholder={runtimeReady ? (activity?.active?.state === "running" ? t.conversation.steerPlaceholder : t.conversation.placeholder) : runtimeUnavailableMessage}
           onSubmit={() => void submit()} onFiles={files => {
             if (!runtimeReady || sending) return;
             setError("");
@@ -1333,7 +1333,7 @@ export function ConversationComposer({
               </span>
             ) : null}
             {/* One button, two modes: it stops the running turn while there is
-                work, and sends otherwise. Enter still queues a message mid-turn. */}
+                work, and sends otherwise. Enter steers an active turn. */}
             <button
               aria-label={actionLabel}
               className="conversation-send-button"
@@ -1398,7 +1398,7 @@ export const UnifiedConversationRow = React.memo(function UnifiedConversationRow
 }) {
   const t = useUiText();
   const stateLabel = row.status === "error" ? t.conversation.error : row.status === "cancelled" ? t.conversation.cancelled
-    : row.status === "completed" ? t.conversation.completed : row.status === "queued" ? t.conversation.queued : t.conversation.running;
+    : row.status === "completed" ? t.conversation.completed : row.status === "queued" ? t.conversation.queued : row.status === "steering" ? t.conversation.steering : t.conversation.running;
   if (row.kind === "status") return <ConversationStatus row={row} />;
   if (row.kind === "compaction") {
     const count = row.message?.context_marker?.compacted_count;
@@ -1450,7 +1450,7 @@ export const UnifiedConversationRow = React.memo(function UnifiedConversationRow
   </div>;
   if (message.role !== "user" && message.role !== "assistant") return <article className="message-card role-system"><RoleBadge role={message.role} /><MessageContent content={message.content} message={message} isStreaming={isStreaming} /></article>;
   const role = message.role;
-  const deliveryStatus = role === "user" && ["sending", "queued"].includes(row.status ?? "")
+  const deliveryStatus = role === "user" && ["sending", "queued", "steering", "cancelled"].includes(row.status ?? "")
     ? <div className="optimistic-message-state" role="status">{stateLabel}</div> : null;
   if (role === "user" && message.attachments?.length) {
     const text = readerFacingMessageText(message);

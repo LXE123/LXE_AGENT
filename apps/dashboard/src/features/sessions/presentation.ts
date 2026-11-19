@@ -7,7 +7,7 @@ import { compactionBoundaries, restoreCompactionRows, type CompactionBoundary } 
 export interface PendingMessage {
   pendingId: string; sessionId: string; text: string; createdAt: number;
   attachments: NonNullable<SessionMessage["attachments"]>;
-  turnId?: string; messageId?: string; error?: string; draftKey?: string;
+  turnId?: string; messageId?: string; steering?: boolean; error?: string; draftKey?: string;
 }
 export interface ConversationRow {
   id: string; groupId: string; turnId: string; kind: "image_views" | "message" | "tool" | "status" | "artifacts" | "process" | "answer_meta" | "compaction";
@@ -158,7 +158,7 @@ export function composeConversationRows(projection: ConversationHistoryProjectio
     const groupId = history.find((row) => row.message?.role === "assistant" || row.kind === "tool")?.groupId ?? `live:${turn.turn_id}`;
     const base = { groupId, turnId: turn.turn_id, createdAt: turn.created_at ?? turn.started_at };
     const userId = userDisplayId(turn);
-    const userIndex = rows.findIndex((row) => row.id === userId || (row.turnId === turn.turn_id && row.message?.role === "user"));
+    const userIndex = rows.findIndex((row) => row.id === userId || (row.turnId === turn.turn_id && row.message?.role === "user" && row.message.source_reason !== "steering"));
     if (userIndex < 0) {
       rows.push({ ...base, id: userId, kind: "message", status: turn.state, message: { display_group_id: groupId, role: "user", content: turn.text, attachments: turn.attachments, created_at: base.createdAt / 1000 } });
     } else if (turn.state === "queued") {
@@ -185,10 +185,34 @@ export function composeConversationRows(projection: ConversationHistoryProjectio
           ? saved.operation : undefined };
       return { ...saved, presentation: part.presentation };
     });
-    const partIds = new Set(parts.map((part) => part.id));
-    const insertion = rows.findIndex((row) => row.turnId === turn.turn_id && row.message?.role !== "user");
-    for (let i = rows.length - 1; i >= 0; i--) if (partIds.has(rows[i]!.id)) rows.splice(i, 1);
-    if (insertion >= 0) rows.splice(Math.min(insertion, rows.length), 0, ...merged); else rows.push(...merged);
+    if (history.some(row => row.message?.source_reason === "steering")) {
+      // Transcript rows anchor consumed input between model steps. Overlay known stream parts
+      // in place and insert live-only parts up to the next matching transcript row.
+      const positions = new Map(merged.map((part, index) => [part.id, index]));
+      let next = 0;
+      for (let i = 0; i < rows.length; i++) {
+        const index = positions.get(rows[i]!.id);
+        if (index === undefined || index < next) continue;
+        rows.splice(i, 1, ...merged.slice(next, index + 1));
+        i += index - next;
+        next = index + 1;
+      }
+      rows.push(...merged.slice(next));
+    } else {
+      const partIds = new Set(parts.map(part => part.id));
+      const insertion = rows.findIndex(row => row.turnId === turn.turn_id && row.message?.role !== "user");
+      for (let i = rows.length - 1; i >= 0; i--) if (partIds.has(rows[i]!.id)) rows.splice(i, 1);
+      if (insertion >= 0) rows.splice(Math.min(insertion, rows.length), 0, ...merged); else rows.push(...merged);
+    }
+    for (const input of turn.steering ?? []) {
+      const id = userDisplayId(input);
+      if (projection.byId.has(id) || turns.some(other => other.client_message_id === input.client_message_id)) continue;
+      if (turn.state === "completed") continue;
+      rows.push({ ...base, id, kind: "message", createdAt: input.created_at,
+        status: turn.state === "cancelled" ? "cancelled" : turn.state === "error" ? "error" : "steering",
+        message: { role: "user", source_reason: "steering", content: input.text,
+          display_group_id: groupId, attachments: input.attachments, created_at: input.created_at / 1000 } });
+    }
     rows.push({ ...base, id: `status:${turn.turn_id}`, kind: "status", forkable: projection.byId.get(`status:${turn.turn_id}`)?.forkable, status: turn.state, phase: turn.stream?.display_metrics.phase, startedAt: turn.started_at, elapsedMs: turn.started_at > 0 && turn.settled_at > 0 ? turn.settled_at - turn.started_at : undefined });
   }
   for (const item of pending) {
@@ -203,7 +227,7 @@ export function composeConversationRows(projection: ConversationHistoryProjectio
       changedAnswers.add(answerRowId(existing));
       continue;
     }
-    rows.push({ id, groupId: `pending:${item.pendingId}`, turnId: item.turnId ?? "", createdAt: item.createdAt, kind: "message", status: item.error ? "error" : item.turnId ? "accepted" : "sending", error: item.error, message: { display_group_id: id, role: "user", content: item.text, attachments: item.attachments, created_at: item.createdAt / 1000 } });
+    rows.push({ id, groupId: `pending:${item.pendingId}`, turnId: item.turnId ?? "", createdAt: item.createdAt, kind: "message", status: item.error ? "error" : item.steering ? "steering" : item.turnId ? "accepted" : "sending", error: item.error, message: { display_group_id: id, role: "user", ...(item.steering ? { source_reason: "steering" } : {}), content: item.text, attachments: item.attachments, created_at: item.createdAt / 1000 } });
   }
   return restoreCompactionRows(appendAnswerMetadata(appendTurnArtifacts(orderRows(rows), projection.artifacts, projection.artifactRows), projection.answerRows, changedAnswers), projection.compactions);
 }
@@ -223,8 +247,9 @@ function orderRows(rows: ConversationRow[]): ConversationRow[] {
     const time = (starts.get(a.turnId || a.groupId) ?? 0) - (starts.get(b.turnId || b.groupId) ?? 0);
     if (time) return time;
     if (a.turnId && a.turnId === b.turnId) {
-      if (a.message?.role === "user" && b.message?.role !== "user") return -1;
-      if (b.message?.role === "user" && a.message?.role !== "user") return 1;
+      const aInput = a.message?.role === "user" && a.message.source_reason !== "steering";
+      const bInput = b.message?.role === "user" && b.message.source_reason !== "steering";
+      if (aInput !== bInput) return aInput ? -1 : 1;
       // Process headers consume this row; direct answers keep it above the body.
       if (a.kind === "status" && b.kind !== "status") return -1;
       if (b.kind === "status" && a.kind !== "status") return 1;
@@ -309,6 +334,7 @@ function appendAnswerMetadata(rows: ConversationRow[], cached?: ReadonlyMap<stri
 
 export function acknowledgeConversationSend(current: DesktopConversationActivityPayload | undefined, result: DesktopConversationSendPayload, pendingMessage: PendingMessage): DesktopConversationActivityPayload {
 
+  if (result.state === "steered") return current ?? { session_id: result.session_id, active: null, latest: null, queued: [] };
   const optimisticTurn: DesktopConversationTurnPayload = {
     turn_id: result.turn_id,
     message_id: result.message_id,

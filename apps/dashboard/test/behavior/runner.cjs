@@ -528,10 +528,11 @@ app.whenReady().then(async () => {
         assert.equal(await js("(sessionStorage.getItem('lxe.composer-draft.' + document.querySelector('.reference-editor').dataset.session) || '')"), "");
       });
       await step("running work changes the action button to stop", async () => {
-        await js("behavior.mountComposer({running:true})"); await type("queued draft");
+        await js("behavior.mountComposer({running:true})"); await type("steering draft");
         await click(".conversation-send-button");
         assert.equal((await state()).stops, 1); assert.equal((await state()).sends.length, 0);
-        // Enter intentionally queues a new message during an existing turn.
+        // The same editor submits steering while the stop button stays available.
+        assert.match(await js("document.querySelector('.reference-editor').dataset.placeholder"), /插话|steer/i);
         await focus(".reference-editor"); await key("Enter");
         assert.equal((await state()).sends.length, 1);
       });

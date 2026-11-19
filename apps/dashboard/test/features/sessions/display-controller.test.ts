@@ -17,6 +17,32 @@ const result={session_id:"s",message_id:"m",turn_id:"turn",state:"running" as co
 const users=(c:ConversationDisplayController)=>c.getSnapshot().rows.filter(row=>row.message?.role==="user");
 const setup=()=>{const c=new ConversationDisplayController();c.select("s");c.receiveHistory(history([]),"latest");return c;};
 
+test("stopping before consumption settles an accepted steering bubble and clears the pending send", async () => {
+  const controller = setup();
+  controller.receiveActivity(activity(live("original")));
+  const { ticket } = await sendConversationMessage(controller, "later", [], async () => ({
+    session_id: "s", turn_id: "turn", state: "steered", message_id: "inserted", created: false,
+  }));
+  controller.receiveActivity(activity({ ...live("original", "cancelled"), steering: [{
+    client_message_id: ticket.pendingId, message_id: "inserted", text: "later", created_at: 10,
+  }] }));
+  expect(controller.getSnapshot().pending).toBeEmpty();
+  expect(users(controller).find(row => row.id === "user:" + ticket.pendingId)?.status).toBe("cancelled");
+});
+
+test("sending during a running desktop turn targets it and reconciles the attachment by message identity", async () => {
+  const controller = setup();
+  controller.receiveActivity(activity(live("original")));
+  const { ticket } = await sendConversationMessage(controller, "", [image], async input => {
+    expect(input).toMatchObject({ session_id: "s", steer_turn_id: "turn", text: "", attachment_ids: ["image"] });
+    return { session_id: "s", turn_id: "turn", state: "steered", message_id: "inserted", created: false };
+  });
+  expect(controller.getSnapshot().activity?.active?.client_message_id).toBe("original");
+  controller.receiveHistory(history([saved("original"), { ...saved(ticket.pendingId, [image]), message_id: "inserted", source_reason: "steering" }]), "latest");
+  expect(controller.getSnapshot().pending).toHaveLength(0);
+  expect(users(controller).map(row => row.id)).toEqual(["user:original", "user:" + ticket.pendingId]);
+});
+
 test("draft directories survive navigation and failure, and a send captures the original directory", async () => {
   const c = new ConversationDisplayController();
   c.select("", true, undefined, "/project/a");
