@@ -1,6 +1,6 @@
 ---
 name: mabang-store-unlinked-shipments-export
-description: 按 Amazon 店铺下载 WMS待配货、WMS待装箱、待关联货件的马帮原生文件，并生成备货扣减快照。用于店铺未关联货件查询、下载及完整备货的数据采集；指定 SP 单号下载单张发货单时使用 mabang-delivery-export。
+description: 按 Amazon 店铺下载 WMS待配货、WMS待装箱、待关联货件的马帮原生文件，并生成备货扣减快照。用于店铺未关联货件查询、下载及完整备货的数据采集；指定 SP 单号下载单张发货单时使用 mabang-delivery-data。
 type: replenishment
 commands:
   - lxeskill mabang store unlinked-shipments export

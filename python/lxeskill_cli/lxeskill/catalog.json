@@ -240,7 +240,7 @@
       "visibility": "business",
       "session_mode": "none",
       "module": "services.commands.mabang.preview_customs_declaration",
-      "owner_skills": ["fba-customs-declaration-fill"],
+      "owner_skills": ["fba-customs-invoice"],
       "artifact_paths": [{"field": "validation_report_xlsx", "role": "diagnostic"}, {"field": "preview_path", "role": "diagnostic"}],
       "timeout_ms": 600000,
       "exposed": true,
@@ -253,7 +253,7 @@
       "visibility": "business",
       "session_mode": "none",
       "module": "services.commands.mabang.fill_customs_declaration",
-      "owner_skills": ["fba-customs-declaration-fill"],
+      "owner_skills": ["fba-customs-invoice"],
       "artifact_paths": [{"field": "output_xlsx", "role": "deliverable"}, {"field": "validation_report_xlsx", "role": "diagnostic"}],
       "timeout_ms": 600000,
       "exposed": true,
@@ -266,7 +266,7 @@
       "visibility": "business",
       "session_mode": "none",
       "module": "services.commands.mabang.summarize_fba_delivery_tax_sku",
-      "owner_skills": ["fba-export-tax-delivery-summary"], "artifact_paths": [{"field": "xlsx_path", "role": "deliverable"}, {"field": "stock_sku_xlsx_paths[]", "role": "diagnostic"}], "timeout_ms": 180000, "exposed": true,
+      "owner_skills": ["fba-export-tax"], "artifact_paths": [{"field": "xlsx_path", "role": "deliverable"}, {"field": "stock_sku_xlsx_paths[]", "role": "diagnostic"}], "timeout_ms": 180000, "exposed": true,
       "input_schema": {"type": "object", "properties": {"delivery_no": {"type": "string"}, "products_path": {"type": "string", "x-lxe-file-input": {"accepted_extensions": [".xlsx"], "instruction": "请上传出口退税产品表，并使用附件保存后的真实绝对路径。"}, "x-lxe-asset-slot": "export_tax_products"}}, "required": ["delivery_no"], "additionalProperties": false}
     , "help": {"group": "fba", "section": "发票、报关与退税", "summary": "汇总发货单退税产品", "examples": ["lxeskill fba export-tax delivery-summary --delivery-no SP260919007"]}},
     {
@@ -276,7 +276,7 @@
       "visibility": "business",
       "session_mode": "none",
       "module": "services.commands.mabang.import_export_tax_products",
-      "owner_skills": ["fba-export-tax-products-manage"], "artifact_paths": [{"field": "output_xlsx", "role": "deliverable"}, {"field": "backup_path", "role": "diagnostic"}], "timeout_ms": 180000, "exposed": true,
+      "owner_skills": ["fba-export-tax"], "artifact_paths": [{"field": "output_xlsx", "role": "deliverable"}, {"field": "backup_path", "role": "diagnostic"}], "timeout_ms": 180000, "exposed": true,
       "input_schema": {"type": "object", "properties": {"sku": {"type": "array", "items": {"type": "string"}}, "products_path": {"type": "string", "x-lxe-file-input": {"accepted_extensions": [".xlsx"], "instruction": "请上传当前出口退税产品表，并使用附件保存后的真实绝对路径。"}, "x-lxe-asset-slot": "export_tax_products", "x-lxe-asset-output-field": "output_xlsx"}}, "required": ["sku"], "additionalProperties": false}
     , "help": {"group": "fba", "section": "发票、报关与退税", "summary": "维护退税产品白名单", "examples": ["lxeskill fba export-tax products-import --sku <SKU>"]}},
     {
@@ -286,16 +286,16 @@
       "visibility": "business",
       "session_mode": "none",
       "module": "services.commands.mabang.fill_invoice_template",
-      "owner_skills": ["fba-invoice-template-fill"], "artifact_paths": [{"field": "output_xlsx", "role": "deliverable"}, {"field": "validation_report_xlsx", "role": "diagnostic"}, {"field": "stock_sku_xlsx_paths[]", "role": "diagnostic"}], "timeout_ms": 300000, "exposed": true,
+      "owner_skills": ["fba-customs-invoice"], "artifact_paths": [{"field": "output_xlsx", "role": "deliverable"}, {"field": "validation_report_xlsx", "role": "diagnostic"}, {"field": "stock_sku_xlsx_paths[]", "role": "diagnostic"}], "timeout_ms": 300000, "exposed": true,
       "input_schema": {"type": "object", "properties": {"input_xlsx": {"type": "string", "x-lxe-file-input": {"accepted_extensions": [".xlsx"], "instruction": "请上传备货 Excel，并使用附件保存后的真实绝对路径。"}}, "template_xlsx": {"type": "string", "x-lxe-file-input": {"accepted_extensions": [".xlsx"], "instruction": "请上传发票模板，并使用附件保存后的真实绝对路径。"}, "x-lxe-asset-slot": "invoice_template"}, "delivery_csv": {"type": "string"}, "consignment_excel": {"type": "string"}}, "required": ["input_xlsx"], "additionalProperties": false}
     , "help": {"group": "fba", "section": "发票、报关与退税", "summary": "填写发票模板", "examples": ["lxeskill fba invoice fill --input-xlsx 备货单.xlsx"]}},
-    {"name": "mabang_download_msku_detail_excel", "module": "services.commands.mabang.download_msku_detail_excel", "command_path": ["mabang", "delivery", "msku", "export"], "visibility": "business", "session_mode": "none", "owner_skills": ["mabang-delivery-msku-export"], "artifact_paths": [{"field": "xlsx_path", "role": "deliverable"}], "timeout_ms": 300000, "exposed": true, "input_schema": {"type": "object", "properties": {"delivery_no": {"type": "string", "minLength": 1}}, "additionalProperties": false, "required": ["delivery_no"]}, "input_modes": ["flags"], "help": {"group": "fba", "section": "发货数据采集", "summary": "下载发货单 MSKU 明细", "examples": ["lxeskill mabang delivery msku export --delivery-no SP260919007"]}},
+    {"name": "mabang_download_msku_detail_excel", "module": "services.commands.mabang.download_msku_detail_excel", "command_path": ["mabang", "delivery", "msku", "export"], "visibility": "business", "session_mode": "none", "owner_skills": ["mabang-delivery-data"], "artifact_paths": [{"field": "xlsx_path", "role": "deliverable"}], "timeout_ms": 300000, "exposed": true, "input_schema": {"type": "object", "properties": {"delivery_no": {"type": "string", "minLength": 1}}, "additionalProperties": false, "required": ["delivery_no"]}, "input_modes": ["flags"], "help": {"group": "fba", "section": "发货数据采集", "summary": "下载发货单 MSKU 明细", "examples": ["lxeskill mabang delivery msku export --delivery-no SP260919007"]}},
     {
       "name": "mabang_generate_purchase_batch_workbooks", "module": "services.commands.mabang.generate_purchase_batch_workbooks",
       "command_path": ["fba", "purchase", "summary-create"],
       "legacy_aliases": ["mabang_generate_purchase_batch_workbooks"],
       "visibility": "business", "session_mode": "none",
-      "owner_skills": ["fba-purchase-summary-create"], "artifact_paths": [{"field": "purchase_summary_xlsx", "role": "deliverable"}, {"field": "restock_xlsx_paths[]", "role": "deliverable"}, {"field": "contract_xlsx_paths[]", "role": "deliverable"}], "deliver_artifacts_on_failure": true, "timeout_ms": 600000, "exposed": true,
+      "owner_skills": ["fba-purchase"], "artifact_paths": [{"field": "purchase_summary_xlsx", "role": "deliverable"}, {"field": "restock_xlsx_paths[]", "role": "deliverable"}, {"field": "contract_xlsx_paths[]", "role": "deliverable"}], "deliver_artifacts_on_failure": true, "timeout_ms": 600000, "exposed": true,
       "input_schema": {"type": "object", "properties": {"delivery_no": {"type": "array", "items": {"type": "string"}}, "master_xlsx": {"type": "string", "x-lxe-file-input": {"accepted_extensions": [".xlsx"], "instruction": "请上传出口退税总表，并使用附件保存后的真实绝对路径。"}, "x-lxe-asset-slot": "export_tax_master"}, "contract_template_xlsx": {"type": "string", "x-lxe-file-input": {"accepted_extensions": [".xlsx"], "instruction": "请上传采购合同模板汇总，并使用附件保存后的真实绝对路径。"}, "x-lxe-asset-slot": "contract_template"}, "gross_margin": {"type": ["number", "string"]}, "preview": {"type": "boolean"}, "inventory_deduction_mode": {"type": "string", "enum": ["none"], "description": "仅当用户明确要求不抵扣库存、不使用留存库存或全量采购时传 none；普通采购必须省略，禁止根据库存数量自行推断。"}, "confirm_unmatched_sku_token": {"type": "string"}, "confirm_inventory_quote_id": {"type": "string"}, "replace_batch_id": {"type": "string"}, "expected_version_no": {"type": "integer"}, "change_reason": {"type": "string"}}, "required": ["delivery_no", "gross_margin"], "additionalProperties": false}
     , "help": {"group": "fba", "section": "采购与备货单据", "summary": "生成采购汇总、备货单和合同", "examples": ["lxeskill fba purchase summary-create --delivery-no SP260919007 --gross-margin 0.2 --preview"]}},
     {
@@ -303,7 +303,7 @@
       "command_path": ["fba", "purchase", "files-regenerate"],
       "legacy_aliases": ["mabang_regenerate_purchase_files"],
       "visibility": "business", "session_mode": "none",
-      "owner_skills": ["fba-purchase-files-regenerate"], "artifact_paths": [{"field": "purchase_summary_xlsx", "role": "deliverable"}, {"field": "restock_xlsx_paths[]", "role": "deliverable"}, {"field": "contract_xlsx_paths[]", "role": "deliverable"}], "deliver_artifacts_on_failure": true, "timeout_ms": 600000, "exposed": true,
+      "owner_skills": ["fba-purchase"], "artifact_paths": [{"field": "purchase_summary_xlsx", "role": "deliverable"}, {"field": "restock_xlsx_paths[]", "role": "deliverable"}, {"field": "contract_xlsx_paths[]", "role": "deliverable"}], "deliver_artifacts_on_failure": true, "timeout_ms": 600000, "exposed": true,
       "input_schema": {"type": "object", "properties": {"batch_no": {"type": "string"}, "gross_margin": {"type": ["number", "string"], "default": "0.3"}, "contract_template_xlsx": {"type": "string", "x-lxe-file-input": {"accepted_extensions": [".xlsx"], "instruction": "请上传采购合同模板汇总，并使用附件保存后的真实绝对路径。"}, "x-lxe-asset-slot": "contract_template"}}, "required": ["batch_no"], "additionalProperties": false}
     , "help": {"group": "fba", "section": "采购与备货单据", "summary": "按已有采购批次重新生成文件", "examples": ["lxeskill fba purchase files-regenerate --batch-no <采购批次号>"]}},
     {
@@ -311,7 +311,7 @@
       "command_path": ["fba", "restock", "workbook-create"],
       "legacy_aliases": ["mabang_generate_fba_restock_workbook"],
       "visibility": "business", "session_mode": "none",
-      "owner_skills": ["fba-restock-workbook-create"], "artifact_paths": [{"field": "output_xlsx", "role": "deliverable"}], "timeout_ms": 600000, "exposed": true,
+      "owner_skills": ["fba-purchase"], "artifact_paths": [{"field": "output_xlsx", "role": "deliverable"}], "timeout_ms": 600000, "exposed": true,
       "input_schema": {"type": "object", "properties": {"delivery_no": {"type": "array", "items": {"type": "string"}}, "master_xlsx": {"type": "string", "x-lxe-file-input": {"accepted_extensions": [".xlsx"], "instruction": "请上传出口退税总表，并使用附件保存后的真实绝对路径。"}, "x-lxe-asset-slot": "export_tax_master"}, "gross_margin": {"type": ["number", "string"]}}, "required": ["delivery_no", "gross_margin"], "additionalProperties": false}
     , "help": {"group": "fba", "section": "采购与备货单据", "summary": "生成单 SP 备货单（兼容入口）", "examples": ["lxeskill fba restock workbook-create --delivery-no SP260919007 --gross-margin 0.2"]}},
     {
@@ -350,17 +350,17 @@
       "artifact_paths": [{"field": "file_path[].value", "role": "deliverable"}],
       "input_schema": {"type": "object", "properties": {"context_file": {"type": "string"}, "timeout_sec": {"type": "integer"}}, "required": ["context_file"], "additionalProperties": false}
     , "help": {"group": "fba", "section": "货件与装箱", "summary": "准备货件上传", "examples": ["lxeskill fba shipment prepare-upload --context-file context.json"]}},
-    {"name": "mabang_download_fba_delivery_csv", "module": "services.commands.mabang.download_fba_delivery_csv", "command_path": ["mabang", "delivery", "export"], "visibility": "business", "session_mode": "none", "owner_skills": ["mabang-delivery-export"], "artifact_paths": [{"field": "csv_path", "role": "deliverable"}], "timeout_ms": 300000, "exposed": true, "input_schema": {"type": "object", "properties": {"delivery_no": {"type": "string", "description": "SP 开头的发货单号"}, "timeout_seconds": {"type": "number", "description": "等待导出结果的超时时间（秒）", "default": 180}, "poll_interval_seconds": {"type": "number", "description": "查询导出进度的间隔（秒）", "default": 10}}, "required": ["delivery_no"], "additionalProperties": false}, "input_modes": ["flags"], "help": {"group": "fba", "section": "发货数据采集", "summary": "下载马帮 FBA 发货单原始 SKU CSV", "examples": ["lxeskill mabang delivery export --delivery-no SP260919007"], "notes": ["执行下载前须配置马帮账号与密码，CLI 按需获取或恢复登录态。", "成功结果中的 data.csv_path 为 CSV 路径，files 为可交付文件列表。"]}},
-    {"name": "mabang_download_wms_consignment_excel", "module": "services.commands.mabang.download_wms_consignment_excel", "command_path": ["mabang", "delivery", "packing-list", "export"], "visibility": "business", "session_mode": "none", "owner_skills": ["mabang-delivery-packing-list-export"], "artifact_paths": [{"field": "deliverable_excel_paths[]", "role": "deliverable"}, {"field": "excel_path", "role": "diagnostic"}], "timeout_ms": 300000, "exposed": true, "input_schema": {"type": "object", "properties": {"split_mode": {"type": "string", "enum": ["auto", "original"]}, "delivery_no": {"type": "string", "minLength": 1}}, "required": ["delivery_no"], "additionalProperties": false}, "input_modes": ["flags"], "help": {"group": "fba", "section": "发货数据采集", "summary": "下载马帮 WMS 托运单装箱 Excel", "examples": ["lxeskill mabang delivery packing-list export --delivery-no SP260919007"]}},
+    {"name": "mabang_download_fba_delivery_csv", "module": "services.commands.mabang.download_fba_delivery_csv", "command_path": ["mabang", "delivery", "export"], "visibility": "business", "session_mode": "none", "owner_skills": ["mabang-delivery-data"], "artifact_paths": [{"field": "csv_path", "role": "deliverable"}], "timeout_ms": 300000, "exposed": true, "input_schema": {"type": "object", "properties": {"delivery_no": {"type": "string", "description": "SP 开头的发货单号"}, "timeout_seconds": {"type": "number", "description": "等待导出结果的超时时间（秒）", "default": 180}, "poll_interval_seconds": {"type": "number", "description": "查询导出进度的间隔（秒）", "default": 10}}, "required": ["delivery_no"], "additionalProperties": false}, "input_modes": ["flags"], "help": {"group": "fba", "section": "发货数据采集", "summary": "下载马帮 FBA 发货单原始 SKU CSV", "examples": ["lxeskill mabang delivery export --delivery-no SP260919007"], "notes": ["执行下载前须配置马帮账号与密码，CLI 按需获取或恢复登录态。", "成功结果中的 data.csv_path 为 CSV 路径，files 为可交付文件列表。"]}},
+    {"name": "mabang_download_wms_consignment_excel", "module": "services.commands.mabang.download_wms_consignment_excel", "command_path": ["mabang", "delivery", "packing-list", "export"], "visibility": "business", "session_mode": "none", "owner_skills": ["mabang-delivery-data"], "artifact_paths": [{"field": "deliverable_excel_paths[]", "role": "deliverable"}, {"field": "excel_path", "role": "diagnostic"}], "timeout_ms": 300000, "exposed": true, "input_schema": {"type": "object", "properties": {"split_mode": {"type": "string", "enum": ["auto", "original"]}, "delivery_no": {"type": "string", "minLength": 1}}, "required": ["delivery_no"], "additionalProperties": false}, "input_modes": ["flags"], "help": {"group": "fba", "section": "发货数据采集", "summary": "下载马帮 WMS 托运单装箱 Excel", "examples": ["lxeskill mabang delivery packing-list export --delivery-no SP260919007"]}},
     {
       "name": "mabang_erp_packing_upload", "module": "services.commands.mabang.erp_packing_upload",
       "command_path": ["fba", "erp", "packing-upload"],
       "legacy_aliases": ["mabang_erp_packing_upload"],
       "visibility": "business", "session_mode": "none",
-      "owner_skills": ["fba-erp-packing-upload"], "artifact_paths": [], "timeout_ms": 120000, "exposed": true,
+      "owner_skills": ["fba-purchase"], "artifact_paths": [], "timeout_ms": 120000, "exposed": true,
       "input_schema": {"type": "object", "properties": {"ship_no": {"type": "string", "description": "预览时提供的 SP 发货单号"}, "delivery_csv": {"type": "string", "minLength": 1, "description": "预览使用的 FBA 发货单 CSV 路径，可指定用户核对后的修订版。省略时按 SP 取本地最新发货单。"}, "confirm_packing_quote_id": {"type": "string", "description": "确认当前预览的 quote ID"}, "confirm_identical": {"type": "boolean"}}, "anyOf": [{"required": ["ship_no"]}, {"required": ["confirm_packing_quote_id"]}], "not": {"required": ["delivery_csv", "confirm_packing_quote_id"]}, "additionalProperties": false}
     , "help": {"group": "fba", "section": "货件与装箱", "summary": "预览 SP 实发量（可指定发货单 CSV），确认后上传到 ERP", "examples": ["lxeskill fba erp packing-upload --ship-no SP260919007 --delivery-csv \"发货单 修订版.csv\"", "lxeskill fba erp packing-upload --ship-no SP260919007"]}},
-    {"name": "mabang_download_stock_sku_excel", "module": "services.commands.mabang.download_stock_sku_excel", "command_path": ["mabang", "delivery", "inventory-sku", "export"], "visibility": "business", "session_mode": "none", "owner_skills": ["mabang-delivery-inventory-sku-export"], "artifact_paths": [{"field": "xlsx_paths[]", "role": "deliverable"}], "timeout_ms": 300000, "exposed": true, "input_schema": {"type": "object", "properties": {"delivery_no": {"type": "string"}}, "required": ["delivery_no"], "additionalProperties": false}, "input_modes": ["flags"], "help": {"group": "fba", "section": "发货数据采集", "summary": "按本地发货单 CSV 下载库存 SKU 数据", "examples": ["lxeskill mabang delivery inventory-sku export --delivery-no SP260919007"]}},
+    {"name": "mabang_download_stock_sku_excel", "module": "services.commands.mabang.download_stock_sku_excel", "command_path": ["mabang", "delivery", "inventory-sku", "export"], "visibility": "business", "session_mode": "none", "owner_skills": ["mabang-delivery-data"], "artifact_paths": [{"field": "xlsx_paths[]", "role": "deliverable"}], "timeout_ms": 300000, "exposed": true, "input_schema": {"type": "object", "properties": {"delivery_no": {"type": "string"}}, "required": ["delivery_no"], "additionalProperties": false}, "input_modes": ["flags"], "help": {"group": "fba", "section": "发货数据采集", "summary": "按本地发货单 CSV 下载库存 SKU 数据", "examples": ["lxeskill mabang delivery inventory-sku export --delivery-no SP260919007"]}},
     {
       "name": "mabang_replenishment_template", "module": "services.commands.mabang.replenishment_template", "positional": ["action"],
       "command_path": ["replenish", "template"],
