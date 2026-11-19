@@ -208,6 +208,22 @@ module.exports = async ({ win, js, step, load, waitFor, click, settle, state }) 
     const stop = (await state()).calls.slice(beforeStop).find(call => call.operation === "sessions.stop");
     assert.deepEqual(stop.input, { session_id: "fba-full-session" }, "a queued run is stopped without its turn id");
     assert.equal(await js("document.querySelector('.fba-capacity > [role=alert]')"), null, "stopping a queued run shows no error");
+    // A run whose conversation was deleted says so instead of failing to list its files, and can be removed from the list.
+    assert.equal(await js("document.querySelectorAll('.fba-capacity-history li').length"), 3);
+    await js("behavior.fba.deleteSession('fba-session')");
+    await click(".fba-capacity-history li:last-child button");
+    await waitFor("document.querySelector('.fba-capacity-state')?.dataset.state==='deleted'", "deleted conversation noticed");
+    assert.ok(await js("document.querySelector('.fba-capacity-history li:last-child .fba-capacity-history-state').textContent === '对话已删除'"));
+    assert.deepEqual(await js("[...document.querySelectorAll('.fba-capacity-actions button')].map(button => button.textContent)"), ["从记录中移除"], "only removal is offered");
+    assert.equal(await js("document.querySelector('.fba-capacity [role=alert]')"), null, "no raw error for a deleted conversation");
+    assert.equal(await js("document.querySelector('.fba-capacity-files')"), null);
+    await capture("fba-deleted-dark");
+    await click(".fba-capacity-forget");
+    await waitFor("document.querySelectorAll('.fba-capacity-history li').length===2", "run removed from the list");
+    assert.equal(await js("document.querySelector('.fba-capacity-history li:first-child button').getAttribute('aria-current')"), "true", "the newest run is shown after removal");
+    assert.equal(await js("JSON.parse(localStorage.getItem('lxe.workbench.fba-capacity.runs.v1')).length"), 2);
+    assert.equal((await state()).calls.filter(call => call.operation === "sessions.delete").length, 0, "removal never deletes the conversation");
+    assert.ok(await js("[...document.querySelectorAll('.fba-capacity-actions button')].some(button => button.textContent === '从记录中移除')"), "a finished run can be removed too");
     await win.setContentSize(480, 900); await open(1, "en", "tasks");
     // A reload recreates the in-memory fixture; the run itself comes back from local history.
     await js("behavior.fba.phase('completed')");

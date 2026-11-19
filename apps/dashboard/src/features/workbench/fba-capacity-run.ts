@@ -89,6 +89,13 @@ export function runState(phase: SessionRunPhase | "missing", waiting: { question
 export const settled = (state: FbaCapacityRunState): boolean =>
   state === "completed" || state === "error" || state === "cancelled" || state === "missing";
 
+/**
+ * A deleted conversation answers `sessions.detail` with "session not found". The RPC code does not
+ * survive the IPC hop, so the runtime's message is the signal; anything else is a real error.
+ */
+export const conversationDeleted = (error: unknown): boolean =>
+  /\bsession not found\b/i.test(error instanceof Error ? error.message : String(error));
+
 /** Excel workbooks in the output folder, without Excel's `~$` lock files. */
 export function resultFiles(entries: Array<{ name: string; path: string; kind: string }>): Array<{ name: string; path: string }> {
   return entries
@@ -123,6 +130,13 @@ function validRun(value: unknown): FbaCapacityRun | null {
 export function loadRuns(storage: Storage | null = browserStorage()): FbaCapacityRun[] {
   const value = readJson(RUNS_KEY, storage);
   return Array.isArray(value) ? value.map(validRun).filter((run): run is FbaCapacityRun => run !== null) : [];
+}
+
+/** Drops one run from this page's history; the conversation and its files are left alone. */
+export function forgetRun(id: string, storage: Storage | null = browserStorage()): FbaCapacityRun[] {
+  const runs = loadRuns(storage).filter(run => run.id !== id);
+  writeJson(RUNS_KEY, runs, storage);
+  return runs;
 }
 
 export function recordRun(run: FbaCapacityRun, storage: Storage | null = browserStorage()): FbaCapacityRun[] {

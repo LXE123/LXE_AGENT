@@ -51,10 +51,11 @@ export function createFbaCapacityFixture(calls: { operation: string; input?: unk
   let phase: "queued" | "running" | "completed" | "cancelled" = "running";
   // Each send makes a new turn; turns sent before the newest one have already completed.
   let sent = 0, newest = "";
+  const deleted = new Set<string>();
   const turn = (prefix: string) => (newest = `${prefix}-${++sent}`);
   const output = (path: unknown) => typeof path === "string" && path.startsWith("FBA库容报告/");
   return {
-    controls: { phase(value: typeof phase) { phase = value; } },
+    controls: { phase(value: typeof phase) { phase = value; }, deleteSession(id: string) { deleted.add(id); } },
     rpc(call: { operation: string; input: Record<string, unknown> }): unknown {
       if (call.operation === "skills.user.list") return { items: [{ id: "fba", version: "1", source: "user", name: "amazon-fba-capacity-report", enabled: true, available: true, unavailable_reason: "" }], total: 1 };
       if (call.operation === "sessions.send" && !call.input.session_id) return { session_id: "fba-session", turn_id: turn("fba-turn"), message_id: "fba-message", created: true, state: "queued" };
@@ -62,6 +63,8 @@ export function createFbaCapacityFixture(calls: { operation: string; input?: unk
       if (call.operation === "sessions.create") return { session_id: "fba-full-session", workspace_id: call.input.workspace_id };
       if (call.operation === "sessions.permission.set") return { session_id: call.input.session_id, permission_mode: call.input.permission_mode };
       if (call.operation === "sessions.send" && call.input.session_id === "fba-full-session") return { session_id: "fba-full-session", turn_id: turn("fba-full-turn"), message_id: "fba-full-message", created: false, state: "queued" };
+      // The same message the runtime gives once a conversation is deleted.
+      if (call.operation === "sessions.detail" && deleted.has(String(call.input.session_id))) throw new Error("session not found");
       if (call.operation === "sessions.turn.lookup") return { state: !newest || call.input.turn_id === newest ? phase : "completed" };
       if (call.operation === "sessions.stop") {
         // Same rule as the Gateway: a turn id only matches the turn that is executing.

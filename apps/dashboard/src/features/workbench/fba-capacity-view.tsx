@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ArrowUpRight, Check, CircleAlert, CircleCheck, CircleX, LoaderCircle, Play, RefreshCw, Square } from "lucide-react";
+import { ArrowUpRight, Check, CircleAlert, CircleCheck, CircleX, LoaderCircle, Play, RefreshCw, Square, Trash2, X } from "lucide-react";
 import type { SessionPayload } from "@lxe/desktop-protocol";
 import { useUserSkillsQuery } from "../../api/queries";
 import { sessionActions } from "../../api/session-actions";
@@ -9,7 +9,7 @@ import { OpenFileButton } from "../file-preview/OpenFileButton";
 import { FullAccessConfirmation } from "../sessions/permissions";
 import { WorkbenchPageHeader } from "./page-header";
 import {
-  FBA_CAPACITY_SITES, FBA_CAPACITY_SKILL, FBA_CAPACITY_STORES, capacityPrompt, loadFullAccess, loadRuns, loadSelection, orderedSelection,
+  FBA_CAPACITY_SITES, FBA_CAPACITY_SKILL, FBA_CAPACITY_STORES, capacityPrompt, conversationDeleted, forgetRun, loadFullAccess, loadRuns, loadSelection, orderedSelection,
   outputFolder, recordRun, resultFiles, runState, saveFullAccess, saveSelection, settled,
   type FbaCapacityRun, type FbaCapacityRunState, type FbaCapacitySelection,
 } from "./fba-capacity-run";
@@ -61,6 +61,8 @@ export function FbaCapacityWorkbench({ ready, defaultDirectory, onBack, onOpenSe
   const [error, setError] = useState("");
   const [now, setNow] = useState(() => Date.now());
   const [pastStates, setPastStates] = useState<Record<string, FbaCapacityRunState>>({});
+  // Runs whose conversation was deleted; their files stay in the workspace but the page can no longer reach them.
+  const [deleted, setDeleted] = useState<Record<string, true>>({});
   const active = runs.find(run => run.id === activeId) ?? null;
   const latest = runs[0] ?? null;
   // Only one run at a time, whichever run is on screen: the newest run's own state decides,
@@ -70,6 +72,11 @@ export function FbaCapacityWorkbench({ ready, defaultDirectory, onBack, onOpenSe
 
   const skills = useUserSkillsQuery();
   const installed = skills.data ? skills.data.items.some(item => item.name === FBA_CAPACITY_SKILL && item.available) : null;
+
+  const conversationGone = useCallback(async (run: FbaCapacityRun) => {
+    try { await sessionActions.detail({ session_id: run.session_id, message_limit: 1 }); return false; }
+    catch (cause) { return conversationDeleted(cause); }
+  }, []);
 
   const loadResults = useCallback(async (run: FbaCapacityRun) => {
     try {
@@ -102,13 +109,17 @@ export function FbaCapacityWorkbench({ ready, defaultDirectory, onBack, onOpenSe
         const next = runState(phase, waiting);
         setState(next);
         setPastStates(previous => previous[active.id] === next ? previous : { ...previous, [active.id]: next });
-        if (settled(next)) { if (next !== "missing") await loadResults(active); return; }
+        if (settled(next)) {
+          if (await conversationGone(active)) { if (current) setDeleted(previous => ({ ...previous, [active.id]: true })); return; }
+          if (current && next !== "missing") await loadResults(active);
+          return;
+        }
       } catch (cause) { if (current) setError(errorText(cause)); }
       if (current) timer = setTimeout(() => void poll(), POLL_MS);
     };
     void poll();
     return () => { current = false; if (timer) clearTimeout(timer); };
-  }, [active, ready, loadResults]);
+  }, [active, ready, loadResults, conversationGone]);
 
   // Elapsed time ticks only while the shown run is still going.
   const ticking = state !== null && !settled(state);
@@ -169,15 +180,25 @@ export function FbaCapacityWorkbench({ ready, defaultDirectory, onBack, onOpenSe
   const stop = (run: FbaCapacityRun, phase: FbaCapacityRunState) =>
     act(() => sessionActions.stop(run.session_id, phase === "queued" ? undefined : run.turn_id));
   const openConversation = (run: FbaCapacityRun) => act(async () => {
-    const detail = await sessionActions.detail({ session_id: run.session_id, message_limit: 1 });
-    await onOpenSession(detail.session, run.turn_id);
+    try {
+      const detail = await sessionActions.detail({ session_id: run.session_id, message_limit: 1 });
+      await onOpenSession(detail.session, run.turn_id);
+    } catch (cause) {
+      if (!conversationDeleted(cause)) throw cause;
+      setDeleted(previous => ({ ...previous, [run.id]: true }));
+    }
   });
+  const forget = (run: FbaCapacityRun) => {
+    const next = forgetRun(run.id);
+    setRuns(next); setActiveId(next[0]?.id ?? null);
+  };
 
   const storesAll = selection.stores.length === FBA_CAPACITY_STORES.length;
   const sitesAll = selection.sites.length === FBA_CAPACITY_SITES.length;
   const canStart = ready && desktop && installed === true && !busy && !latestBusy;
   const waiting = state === "waiting_input" || state === "waiting_approval";
   const viewingPast = active !== null && latest !== null && active.id !== latest.id;
+  const gone = active !== null && deleted[active.id] === true;
   const sitesText = (sites: readonly string[]) => sites.length === FBA_CAPACITY_SITES.length ? copy.allSites : sites.join(" ");
   const storesText = (stores: readonly string[]) => stores.length > 2 ? `${stores.slice(0, 2).join("、")} +${stores.length - 2}` : stores.join("、");
   const note = !ready ? copy.notReady : installed === null && desktop ? copy.checkingSkill : latestBusy && latestState !== null ? copy.runInProgress : "";
@@ -243,12 +264,12 @@ export function FbaCapacityWorkbench({ ready, defaultDirectory, onBack, onOpenSe
         const shown = run.id === activeId ? state : pastStates[run.id] ?? null;
         return <li key={run.id}>
           <button type="button" aria-current={run.id === activeId ? "true" : undefined} onClick={() => setActiveId(run.id)}>
-            <span className="fba-capacity-dot" data-state={shown ?? "loading"} aria-hidden />
+            <span className="fba-capacity-dot" data-state={deleted[run.id] ? "deleted" : shown ?? "loading"} aria-hidden />
             <span className="fba-capacity-history-main">
               <span>{storesText(run.stores)}</span>
               <small>{time(run.created_at)} · {sitesText(run.sites)}</small>
             </span>
-            <span className="fba-capacity-history-state">{shown ? copy.states[shown] : "…"}</span>
+            <span className="fba-capacity-history-state">{deleted[run.id] ? copy.conversationDeleted : shown ? copy.states[shown] : "…"}</span>
           </button>
         </li>;
       })}</ul>
@@ -266,7 +287,8 @@ export function FbaCapacityWorkbench({ ready, defaultDirectory, onBack, onOpenSe
           <h2 id="fba-capacity-run-title">{copy.current}</h2>
           <p className="fba-capacity-meta">{time(active.created_at)} · {copy.storeCount(active.stores.length)} · {sitesText(active.sites)}{active.full_access ? ` · ${copy.fullAccessTag}` : ""}</p>
         </div>
-        <StateBadge state={state} label={state ? copy.states[state] ?? state : "…"} />
+        {gone ? <span className="fba-capacity-state" data-state="deleted" role="status"><Trash2 size={14} aria-hidden />{copy.conversationDeleted}</span>
+          : <StateBadge state={state} label={state ? copy.states[state] ?? state : "…"} />}
       </header>
 
       {state && !settled(state) ? <section className="fba-capacity-progress" aria-label={copy.scope}>
@@ -278,14 +300,16 @@ export function FbaCapacityWorkbench({ ready, defaultDirectory, onBack, onOpenSe
         </ul>
       </section> : null}
 
+      {gone ? <p className="fba-capacity-hint">{copy.deletedHint}</p> : null}
       <div className="fba-capacity-actions">
-        <button type="button" onClick={() => void openConversation(active)}>{copy.openConversation}<ArrowUpRight size={14} aria-hidden /></button>
-        {state && !settled(state) && state !== "stopping" ? <button type="button" onClick={() => void stop(active, state)}><Square size={13} aria-hidden />{copy.stop}</button> : null}
-        {state && settled(state) && state !== "missing" ? <button type="button" onClick={() => void loadResults(active)}><RefreshCw size={13} aria-hidden />{copy.refresh}</button> : null}
+        {!gone ? <button type="button" onClick={() => void openConversation(active)}>{copy.openConversation}<ArrowUpRight size={14} aria-hidden /></button> : null}
+        {!gone && state && !settled(state) && state !== "stopping" ? <button type="button" onClick={() => void stop(active, state)}><Square size={13} aria-hidden />{copy.stop}</button> : null}
+        {!gone && state && settled(state) && state !== "missing" ? <button type="button" onClick={() => void loadResults(active)}><RefreshCw size={13} aria-hidden />{copy.refresh}</button> : null}
+        {gone || (state && settled(state)) ? <button type="button" className="fba-capacity-forget" onClick={() => forget(active)}><X size={13} aria-hidden />{copy.forget}</button> : null}
         <span className="fba-capacity-output" title={active.output}>{copy.output}：<code>{active.output}</code></span>
       </div>
       {resultError ? <p className="workbench-error" role="alert">{resultError}</p> : null}
-      {results ? results.length ? <section className="fba-capacity-files" aria-label={copy.workbooks}>
+      {results && !gone ? results.length ? <section className="fba-capacity-files" aria-label={copy.workbooks}>
           <h3>{copy.workbooks}</h3>
           <ul>{results.map(book => <li key={book.path}>
             <span>{book.name}</span>

@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import {
-  FBA_CAPACITY_SITES, capacityPrompt, loadFullAccess, loadRuns, loadSelection, outputFolder, recordRun, resultFiles, runState, saveFullAccess, saveSelection,
+  FBA_CAPACITY_SITES, capacityPrompt, conversationDeleted, forgetRun, loadFullAccess, loadRuns, loadSelection, outputFolder, recordRun, resultFiles, runState, saveFullAccess, saveSelection,
   type FbaCapacityRun,
 } from "../../../src/features/workbench/fba-capacity-run";
 
@@ -60,6 +60,20 @@ describe("FBA capacity run", () => {
     expect(loadRuns(memoryStorage({ "lxe.workbench.fba-capacity.runs.v1": "[{\"id\":1},null]" }))).toEqual([]);
     expect(loadRuns(memoryStorage({ "lxe.workbench.fba-capacity.runs.v1": "not json" }))).toEqual([]);
     expect(loadRuns(null)).toEqual([]);
+  });
+
+  test("removing a run from the history keeps the others in order", () => {
+    const storage = memoryStorage();
+    for (const id of ["a", "b", "c"]) recordRun(run(id), storage);
+    expect(forgetRun("b", storage).map(item => item.id)).toEqual(["c", "a"]);
+    expect(loadRuns(storage).map(item => item.id)).toEqual(["c", "a"]);
+    expect(forgetRun("missing", storage).map(item => item.id)).toEqual(["c", "a"]);
+  });
+
+  test("only the runtime's missing-session message counts as a deleted conversation", () => {
+    expect(conversationDeleted(new Error("Error invoking remote method 'lxe:dashboard-call': DashboardRpcError: session not found"))).toBe(true);
+    expect(conversationDeleted(new Error("Agent runtime is unavailable"))).toBe(false);
+    expect(conversationDeleted(new Error("Session workspace not found"))).toBe(false);
   });
 
   test("selection defaults to no stores and all sites, then remembers the last choice", () => {
