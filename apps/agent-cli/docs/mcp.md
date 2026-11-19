@@ -59,6 +59,13 @@ removes the definition but keeps saved OAuth credentials. The desktop also
 provides **Capabilities → MCP services → Add service**. Run
 `agent-cli mcp --help` or a subcommand with `--help` for options.
 
+The LXE desktop ensures its `team-skills` preset exists at startup and restores its
+transport, URL and description. Existing enabled state and other options are preserved; to keep
+it off, disable it in desktop settings. Removing it lasts until the next desktop
+startup. It is stored in the user configuration, so all MCP commands can use it.
+If that configuration is malformed or conflicts with the preset, the file is left
+unchanged; the desktop logs the error and starts without the preset.
+
 OAuth uses dynamic client registration (DCR). For a pre-registered application,
 set `--oauth-client-id` and, if needed, `--oauth-client-secret`; the secret can
 reference an environment variable such as `${CLIENT_SECRET}`.

@@ -24,6 +24,8 @@ import {
 } from "@lxe/protocol";
 import {
   parseAgentDashboardRpcCall,
+  parseMcpServerPresets,
+  type McpServerPreset,
   type AgentDashboardRpcCall,
   type DashboardTransport,
 } from "./dashboard-rpc";
@@ -44,7 +46,7 @@ export type DesktopDraftAttachmentPayload = DesktopInputAttachmentPayload & {
   reference_key?: string;
 };
 
-export const AGENT_PROTOCOL_VERSION = 30 as const;
+export const AGENT_PROTOCOL_VERSION = 31 as const;
 
 /** Bounded process preview, independent of model stream sequence and wait cursors. */
 export type ExecTaskSnapshotPayload = {
@@ -111,6 +113,7 @@ export type AgentInitializePayload = {
 
 export type AgentCommandPayloads = {
   initialize: AgentInitializePayload;
+  sync_mcp_server_presets: { servers: McpServerPreset[] };
   update_skill_permissions: { allowed_skill_types: string[] };
   update_managed_llm_credential: {
     credential: ManagedLlmCredential | null;
@@ -773,6 +776,7 @@ const objectValue = (value: unknown): Record<string, unknown> | undefined =>
 
 const agentCommands = new Set<AgentCommand>([
   "initialize",
+  "sync_mcp_server_presets",
   "update_skill_permissions",
   "update_managed_llm_credential",
   "run_turn",
@@ -830,6 +834,12 @@ const validateRequestPayload = (command: AgentCommand, payload: Record<string, u
     }
   };
   switch (command) {
+    case "sync_mcp_server_presets":
+      if (Object.keys(payload).some(key => key !== "servers")) {
+        throw new Error("agent protocol sync_mcp_server_presets has unsupported fields");
+      }
+      payload.servers = parseMcpServerPresets(payload.servers);
+      break;
     case "initialize":
       if (!Number.isSafeInteger(payload.protocol_version)) {
         throw new Error("agent protocol initialize.protocol_version must be an integer");

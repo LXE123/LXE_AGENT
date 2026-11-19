@@ -138,6 +138,8 @@ export class AgentProtocolServer {
     switch (request.method) {
       case "initialize":
         return this.initialize(request.params);
+      case "sync_mcp_server_presets":
+        return this.readyHost().syncMcpServerPresets(request.params.servers);
       case "update_skill_permissions":
         this.readyHost().updateSkillPermissions(request.params.allowed_skill_types);
         return { updated: true };

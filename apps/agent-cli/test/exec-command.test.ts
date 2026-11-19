@@ -97,6 +97,7 @@ const fakeHostFactory = (fake: FakeHostOptions = {}): CreateHost =>
     const databasePath = String(options.environment.LXE_AGENT_SQLITE_DB_PATH ?? "");
     const store = new SqliteRuntimeStore(databasePath, { legacyWorkspace: options.legacyWorkspace });
     return {
+      syncMcpServerPresets: async () => ({ added: [], updated: [] }),
       start: async () => {
         if (fake.startError) throw fake.startError;
         await store.start();

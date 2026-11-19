@@ -2,23 +2,12 @@ import { afterEach, expect, test } from "bun:test";
 import { existsSync, lstatSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync, mkdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { bootstrapDesktopState, migrateLegacyArtifacts } from "../src/main/migration";
+import { migrateLegacyArtifacts } from "../src/main/migration";
 const roots: string[] = [];
 afterEach(() => { for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true }); });
-function fixture() {
-  const root = mkdtempSync(join(tmpdir(), "lxe-bootstrap-")); roots.push(root);
-  const source = join(root, "default.json"), data = join(root, "data");
-  const defaults = readFileSync("config/mcp_servers.default.json", "utf8");
-  writeFileSync(source, defaults);
-  return { source, data, defaults, target: join(data, "config/mcp_servers.local.json") };
-}
-test("copies the default configuration on initialization", () => {
-  const f = fixture(); bootstrapDesktopState(f.source, f.data);
-  expect(readFileSync(f.target, "utf8")).toBe(f.defaults);
-});
-
 function artifactFixture() {
-  const { data } = fixture();
+  const root = mkdtempSync(join(tmpdir(), "lxe-artifact-migration-")); roots.push(root);
+  const data = join(root, "data");
   return { data, source: join(data, "artifacts"), target: join(data, "workspace", ".lxeagent", "artifacts"),
     staging: join(data, "workspace", ".lxeagent", ".default-workspace-artifacts-v1.staging"),
     marker: join(data, "migrations", "default-workspace-artifacts-v1.json") };
@@ -117,20 +106,4 @@ test("rejects a redirected default workspace root without marking migration comp
   await expect(migrateLegacyArtifacts(f.data)).rejects.toThrow("Expected a directory without a symbolic link");
   expect(existsSync(f.marker)).toBe(false);
   expect(existsSync(join(outside, ".lxeagent"))).toBe(false);
-});
-test("does not import legacy YAML or overwrite existing JSON settings", () => {
-  const f = fixture(); mkdirSync(join(f.data, "config"), { recursive: true });
-  const old = "mcpServers:\n  unused:\n    enabled: true\n    command: never-start-this\n";
-  const legacy = join(f.data, "config/mcp_servers.local.yaml");
-  writeFileSync(legacy, old);
-  const state = join(f.data, "config/unrelated.json");
-  writeFileSync(state, '{"other":true}');
-  bootstrapDesktopState(f.source, f.data);
-  expect(JSON.parse(readFileSync(f.target, "utf8"))).toEqual(JSON.parse(f.defaults));
-  const local = '{"servers":{"local":{"command":"node","enabled":false}}}';
-  writeFileSync(f.target, local);
-  bootstrapDesktopState(f.source, f.data);
-  expect(readFileSync(f.target, "utf8")).toBe(local);
-  expect(readFileSync(legacy, "utf8")).toBe(old);
-  expect(readFileSync(state, "utf8")).toBe('{"other":true}');
 });
