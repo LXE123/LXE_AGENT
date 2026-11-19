@@ -9662,11 +9662,18 @@ pre {
 .conversation-compose-leading,
 .conversation-compose-trailing {
   max-width: 100%;
+}
+
+.conversation-compose-leading {
   gap: 4px;
 }
 
 .conversation-compose-trailing {
   margin-inline-start: auto;
+}
+
+.conversation-compose-trailing > * + :not(.conversation-thinking-picker) {
+  margin-inline-start: 4px;
 }
 
 .conversation-model-picker,

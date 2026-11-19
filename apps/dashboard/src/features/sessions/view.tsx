@@ -755,7 +755,7 @@ export function ConversationModelPicker({
         title={t.models.effectiveNextTurn}
         type="button"
       >
-        <ProviderBrandMark provider={current?.provider} size={15} />
+        <ProviderBrandMark provider={current?.provider} size={13} />
         <span className="conversation-model-name">{triggerLabel}</span>
         {saving ? <LoaderCircle aria-hidden className="conversation-spinner" size={13} /> : null}
       </button>
