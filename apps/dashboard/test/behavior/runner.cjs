@@ -509,6 +509,55 @@ app.whenReady().then(async () => {
         await key("Escape"); assert.equal((await state()).active, "opener");
       });
     } else if (suite === "composer") {
+      await step("toolbar controls fit a narrow chat column and identify the open picker in both themes", async () => {
+        await js("behavior.mountComposer()");
+        const trigger = ".permission-picker .conversation-model-trigger";
+        for (const theme of ["light", "dark"]) {
+          await js(`document.documentElement.dataset.theme = '${theme}'; document.querySelector('.conversation-compose-box').style.width = '300px'`);
+          await settle();
+          const bounds = await js(`(() => {
+            const bar = document.querySelector('.conversation-compose-actions');
+            const rect = bar.getBoundingClientRect();
+            return Array.from(bar.querySelectorAll('button'), button => {
+              const {left, right, height} = button.getBoundingClientRect();
+              return {inside: left >= rect.left - 1 && right <= rect.right + 1, height};
+            });
+          })()`);
+          assert.ok(bounds.length >= 5);
+          assert.ok(bounds.every(button => button.inside && button.height === 30));
+          const modelName = await js(`(async () => {
+            await document.fonts.ready;
+            const label = document.querySelector('.conversation-model-name');
+            const box = label.getBoundingClientRect();
+            const range = document.createRange();
+            range.selectNodeContents(label);
+            const text = range.getBoundingClientRect();
+            return { top: text.top - box.top, bottom: box.bottom - text.bottom, color: getComputedStyle(label).color };
+          })()`);
+          assert.ok(modelName.top >= -0.5 && modelName.bottom >= -0.5, `Model name clipped: ${JSON.stringify(modelName)}`);
+          assert.equal(modelName.color, theme === "dark" ? "rgb(255, 255, 255)" : "rgb(11, 11, 11)");
+          const gaps = await js(`(() => {
+            const bounds = selector => document.querySelector(selector).getBoundingClientRect();
+            const model = bounds('.conversation-model-name');
+            const thinking = bounds('.conversation-thinking-trigger > span');
+            const button = bounds('.conversation-thinking-trigger');
+            const send = bounds('.conversation-send-button');
+            return {
+              labels: thinking.left - model.right, send: send.left - thinking.right,
+              left: thinking.left - button.left, right: button.right - thinking.right,
+            };
+          })()`);
+          assert.ok(gaps.labels >= 0 && gaps.labels <= 8 && gaps.send >= 16, `Toolbar spacing: ${JSON.stringify(gaps)}`);
+          assert.ok(Math.abs(gaps.left - gaps.right) <= 0.5, `Thinking label off center: ${JSON.stringify(gaps)}`);
+          await click(trigger);
+          win.webContents.sendInputEvent({ type: "mouseMove", x: 0, y: 0 });
+          await settle();
+          const selected = await js(`getComputedStyle(document.querySelector('${trigger}')).backgroundColor`);
+          await key("Escape");
+          assert.equal(await js(`document.querySelector('${trigger}').getAttribute('aria-expanded')`), "false");
+          assert.notEqual(await js(`getComputedStyle(document.querySelector('${trigger}')).backgroundColor`), selected);
+        }
+      });
       await step("IME confirmation does not send; Shift+Enter inserts a line; Enter sends once", async () => {
         await js("behavior.mountComposer()"); await type("中文");
         assert.equal(await js("Number(document.querySelector('.reference-editor').dataset.maxlength)"), 8192);

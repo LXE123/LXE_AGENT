@@ -749,15 +749,15 @@ export function ConversationModelPicker({
         aria-expanded={open}
         aria-haspopup="menu"
         aria-label={`${t.models.currentModel}: ${triggerLabel}`}
-        className="conversation-model-trigger"
+        className="composer-toolbar-control conversation-model-trigger"
         disabled={disabled || loading || !current}
         onClick={() => setOpen((value) => !value)}
         ref={triggerRef}
         title={t.models.effectiveNextTurn}
         type="button"
       >
-        <ProviderBrandMark provider={current?.provider} size={15} />
-        <span>{triggerLabel}</span>
+        <ProviderBrandMark provider={current?.provider} size={13} />
+        <span className="conversation-model-name">{triggerLabel}</span>
         {saving ? <LoaderCircle aria-hidden className="conversation-spinner" size={13} /> : null}
       </button>
       {open ? (
@@ -922,7 +922,7 @@ function ConversationThinkingPicker({
         aria-expanded={editable ? open : undefined}
         aria-haspopup={editable ? "menu" : undefined}
         aria-label={`${t.models.thinkingEffort}: ${selectedLabel}`}
-        className="conversation-thinking-trigger"
+        className="composer-toolbar-control conversation-thinking-trigger"
         disabled={disabled || saving || !editable}
         onClick={() => setOpen((value) => !value)}
         ref={triggerRef}
@@ -1067,7 +1067,7 @@ function ConversationContextMeter({
         aria-expanded={open}
         aria-haspopup="dialog"
         aria-label={label}
-        className="conversation-context-trigger"
+        className="composer-toolbar-control conversation-context-trigger"
         data-level={ratio >= 0.9 ? "critical" : ratio >= 0.7 ? "warn" : "normal"}
         onClick={() => setOpen((value) => !value)}
         ref={triggerRef}
@@ -1304,13 +1304,13 @@ export function ConversationComposer({
           <div className="conversation-compose-leading">
             <button
               aria-label={t.conversation.addFiles}
-              className="conversation-attach-button"
+              className="composer-toolbar-control conversation-attach-button"
               disabled={!runtimeReady || sending}
               onClick={() => void selectFiles()}
               title={t.conversation.addFiles}
               type="button"
             >
-              <Paperclip size={17} />
+              <Paperclip size={16} strokeWidth={1.75} />
             </button>
             <PermissionPicker key={conversationKey} sessionId={permissionSessionId ?? conversationKey} initialMode={permissionMode} ready={runtimeReady} />
             {!runtimeReady ? <span className="conversation-input-hint">{runtimeUnavailableMessage}</span> : null}
@@ -1351,7 +1351,7 @@ export function ConversationComposer({
                 ? <LoaderCircle className="conversation-spinner" size={17} />
                 : showStop
                   ? <Square aria-hidden fill="currentColor" size={13} strokeWidth={0} />
-                  : <ArrowUp aria-hidden size={18} strokeWidth={2.4} />}
+                  : <ArrowUp aria-hidden size={16} strokeWidth={2} />}
             </button>
           </div>
         </div>
