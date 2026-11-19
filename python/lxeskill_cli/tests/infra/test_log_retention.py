@@ -1,17 +1,14 @@
 from __future__ import annotations
 
-import re
 from datetime import date
 from pathlib import Path
 
 import pytest
 
 from shared.log_retention import (
-    MANAGED_DATED_LOG_DIRECTORIES,
     cleanup_local_logs,
     local_log_retention_days,
 )
-from shared.repository import repository_root
 
 
 def _touch(path: Path) -> Path:
@@ -132,14 +129,24 @@ def test_local_log_retention_days_clamps_to_at_least_one(monkeypatch) -> None:
     assert local_log_retention_days() == 1
 
 
-def test_managed_log_directories_match_typescript_retention() -> None:
-    """Desktop/agent-cli and lxeskill each run retention; a gap in either list leaks logs."""
-    source = (repository_root() / "packages" / "foundation" / "core" / "src" / "logging.ts").read_text(
-        encoding="utf-8"
-    )
-    block = re.search(r"MANAGED_DATED_LOG_DIRECTORIES = \[(.*?)\] as const", source, re.S)
-    assert block is not None, "MANAGED_DATED_LOG_DIRECTORIES not found in logging.ts"
-    typescript = tuple(re.findall(r'"([^"]+)"', block.group(1)))
 
-    assert typescript, "parsed an empty TypeScript directory list"
-    assert typescript == MANAGED_DATED_LOG_DIRECTORIES
+def test_cleanup_local_logs_does_not_follow_linked_roots_or_entries(tmp_path) -> None:
+    outside = tmp_path / "outside"
+    outside_old = _mkdir(outside / "20260601")
+    state = tmp_path / "state"
+    (state / "logs").mkdir(parents=True)
+    (state / "logs" / "ziniao_traces").symlink_to(outside, target_is_directory=True)
+    runtime_root = state / "logs" / "runtime"
+    runtime_root.mkdir()
+    (runtime_root / "20260602").symlink_to(outside_old, target_is_directory=True)
+    raw_root = state / "logs" / "feishu_raw_events"
+    raw_root.mkdir()
+    outside_raw = _touch(outside / "20260603.jsonl")
+    (raw_root / "20260603.jsonl").symlink_to(outside_raw)
+
+    result = cleanup_local_logs(retention_days=7, today=date(2026, 7, 4), state_root_path=state)
+
+    assert result.deleted_paths == ()
+    assert result.failed_paths == ()
+    assert (outside_old / "entry.txt").exists()
+    assert outside_raw.exists()

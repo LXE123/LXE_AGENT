@@ -6,7 +6,7 @@ import { join } from "node:path";
 import { createLogger, runWithLogContext } from "@lxe/core";
 import type { JsonObject, WorkspaceContext } from "@lxe/protocol";
 import type { ExecShellAdapter } from "../exec-shell";
-import { ProcessOutputStore, sweepSpillRoot } from "../process-output";
+import { ProcessOutputStore, SpillSweeper } from "../process-output";
 import type { ProcessStatus } from "./public-types";
 
 interface ProcessEntry {
@@ -57,7 +57,7 @@ const OUTPUT_DRAIN_DEADLINE_MS = 2_000;
 
 export class CodingProcessManager {
   private readonly entries = new Map<string, ProcessEntry>();
-  private readonly sweptSpillRoots = new Set<string>();
+  private readonly spillSweeper = new SpillSweeper();
   private readonly admissionTails = new Map<string, Promise<void>>();
   private readonly logger = createLogger("runtime.coding_process");
   private nextRecency = 0;
@@ -238,11 +238,7 @@ export class CodingProcessManager {
       } };
     }
     const spillDirectory = this.sandbox.paths.outputDirectory(request.executionPolicy);
-    const spillRoot = this.sandbox.paths.outputRoot();
-    if (!this.sweptSpillRoots.has(spillRoot)) {
-      this.sweptSpillRoots.add(spillRoot);
-      sweepSpillRoot(spillRoot);
-    }
+    this.spillSweeper.sweepIfDue(this.sandbox.paths.outputRoot());
     const entry: ProcessEntry = {
       id,
       sandbox,

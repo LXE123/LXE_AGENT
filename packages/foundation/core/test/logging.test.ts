@@ -1,11 +1,11 @@
-import { afterEach, describe, expect, spyOn, test } from "bun:test";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { afterEach, describe, expect, setSystemTime, spyOn, test } from "bun:test";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import * as logging from "../src/logging";
 
 interface LoggingController {
-  readonly filePath?: string;
+  readonly filePath?: string | undefined;
   readonly status: {
     localFileEnabled: boolean;
     filePath?: string;
@@ -20,6 +20,7 @@ const roots: string[] = [];
 const controllers: LoggingController[] = [];
 
 afterEach(async () => {
+  setSystemTime();
   await Promise.all(controllers.splice(0).map((controller) => controller.close()));
   for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });
 });
@@ -285,6 +286,61 @@ describe("structured logger", () => {
     });
     controllers.push(fixedFile);
     expect(fixedFile.filePath).toMatch(/logs[\\/]runtime[\\/]\d{8}[\\/]runtime\.log$/);
+  });
+
+  test("retention never follows a linked log root or dated entry", async () => {
+    const root = mkdtempSync(join(tmpdir(), "lxe-logging-links-"));
+    roots.push(root);
+    const outside = join(root, "outside");
+    const outsideDated = join(outside, "20000101");
+    mkdirSync(outsideDated, { recursive: true });
+    writeFileSync(join(outsideDated, "user.txt"), "keep", "utf8");
+    const outsideRaw = join(outside, "20000101.jsonl");
+    writeFileSync(outsideRaw, "keep", "utf8");
+    const logs = join(root, "var", "logs");
+    mkdirSync(join(logs, "runtime"), { recursive: true });
+    mkdirSync(join(logs, "feishu_raw_events"), { recursive: true });
+    symlinkSync(outside, join(logs, "ziniao_traces"), "dir");
+    symlinkSync(outsideDated, join(logs, "runtime", "20000102"), "dir");
+    symlinkSync(outsideRaw, join(logs, "feishu_raw_events", "20000101.jsonl"));
+
+    const controller = logging.configureLogging({
+      projectRoot: root,
+      environment: { LOCAL_LOGS_ENABLED: "1", LOCAL_LOG_RETENTION_DAYS: "7" },
+    });
+    controllers.push(controller);
+
+    expect(existsSync(join(outsideDated, "user.txt"))).toBe(true);
+    expect(existsSync(outsideRaw)).toBe(true);
+  });
+
+  test("a long-running process moves to the new day and reruns retention", async () => {
+    const root = mkdtempSync(join(tmpdir(), "lxe-logging-rollover-"));
+    roots.push(root);
+    setSystemTime(new Date(2026, 0, 1, 12));
+    const changes: string[] = [];
+    const controller = logging.configureLogging({
+      projectRoot: root,
+      environment: { LOCAL_LOGS_ENABLED: "1", LOCAL_LOG_RETENTION_DAYS: "7" },
+      onStatusChange: (status) => changes.push(status.filePath ?? ""),
+    });
+    controllers.push(controller);
+    const logger = logging.createLogger("runtime.rollover");
+    logger.info("first day");
+    const firstDay = controller.filePath!;
+    expect(firstDay).toMatch(/[\\/]20260101[\\/]runtime\.log$/);
+
+    setSystemTime(new Date(2026, 0, 9, 12));
+    logger.info("ninth day");
+    await new Promise((resolve) => setTimeout(resolve, 10));
+
+    const ninthDay = controller.filePath!;
+    expect(ninthDay).toMatch(/[\\/]20260109[\\/]runtime\.log$/);
+    expect(controller.status.filePath).toBe(ninthDay);
+    expect(changes).toContain(ninthDay);
+    expect(readFileSync(ninthDay, "utf8")).toContain("ninth day");
+    expect(readFileSync(ninthDay, "utf8")).toContain("log_retention_completed");
+    expect(existsSync(firstDay)).toBe(false);
   });
 
   test("renders a human-readable console line with compact context and error trailer", () => {

@@ -1,5 +1,5 @@
 import { afterAll, describe, expect, spyOn, test } from "bun:test";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, utimesSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -8,6 +8,8 @@ import {
   formatCommandPayload,
   formatCommandPayloadWithBudget,
   renderProcessChunks,
+  SPILL_SWEEP_INTERVAL_MS,
+  SpillSweeper,
   sweepSpillRoot,
   trimPartialUtf8,
   type OutputChunk,
@@ -377,5 +379,67 @@ describe("spill root sweep", () => {
 
   test("ignores a missing root", () => {
     expect(() => sweepSpillRoot(join(scratch(), "missing"))).not.toThrow();
+  });
+
+  test("never follows a linked session directory, log file or root", () => {
+    const base = scratch();
+    const old = new Date(Date.now() - 8 * 24 * 60 * 60 * 1_000);
+    const outside = join(base, "outside");
+    mkdirSync(outside);
+    const outsideLog = join(outside, "exec_outside.log");
+    writeFileSync(outsideLog, "keep");
+    utimesSync(outsideLog, old, old);
+    const root = join(base, "exec");
+    mkdirSync(root);
+    symlinkSync(outside, join(root, "linked-session"), "dir");
+    symlinkSync(outsideLog, join(root, "exec_linked.log"));
+    const linkedRoot = join(base, "linked-exec");
+    symlinkSync(outside, linkedRoot, "dir");
+
+    sweepSpillRoot(root);
+    sweepSpillRoot(linkedRoot);
+
+    expect(existsSync(outsideLog)).toBe(true);
+    expect(existsSync(join(root, "linked-session"))).toBe(true);
+    expect(existsSync(join(root, "exec_linked.log"))).toBe(true);
+  });
+});
+
+describe("spill sweeper", () => {
+  test("sweeps sessions that expire later once the interval has passed", () => {
+    const root = scratch();
+    const start = Date.now();
+    const day = 24 * 60 * 60 * 1_000;
+    const sweeper = new SpillSweeper();
+    const firstSession = join(root, "first-session");
+    mkdirSync(firstSession);
+    const laterExpired = join(firstSession, "exec_first.log");
+    writeFileSync(laterExpired, "x");
+    const written = new Date(start - 6 * day);
+    utimesSync(laterExpired, written, written);
+
+    sweeper.sweepIfDue(root, start);
+    expect(existsSync(laterExpired)).toBe(true);
+
+    const twoDaysLater = start + 2 * day;
+    sweeper.sweepIfDue(root, twoDaysLater);
+    expect(existsSync(laterExpired)).toBe(false);
+  });
+
+  test("skips a sweep requested before the interval has passed", () => {
+    const root = scratch();
+    const start = Date.now();
+    const sweeper = new SpillSweeper();
+    sweeper.sweepIfDue(root, start);
+    const expired = join(root, "session", "exec_new.log");
+    mkdirSync(join(root, "session"));
+    writeFileSync(expired, "x");
+    const old = new Date(start - 8 * 24 * 60 * 60 * 1_000);
+    utimesSync(expired, old, old);
+
+    sweeper.sweepIfDue(root, start + SPILL_SWEEP_INTERVAL_MS - 1);
+    expect(existsSync(expired)).toBe(true);
+    sweeper.sweepIfDue(root, start + SPILL_SWEEP_INTERVAL_MS);
+    expect(existsSync(expired)).toBe(false);
   });
 });

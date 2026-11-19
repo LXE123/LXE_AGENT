@@ -1,4 +1,4 @@
-import { createWriteStream, mkdirSync, readdirSync, rmdirSync, statSync, unlinkSync, type WriteStream } from "node:fs";
+import { createWriteStream, lstatSync, mkdirSync, readdirSync, rmdirSync, statSync, unlinkSync, type WriteStream } from "node:fs";
 import { dirname, join } from "node:path";
 import iconv from "iconv-lite";
 import type { JsonObject } from "@lxe/protocol";
@@ -356,44 +356,73 @@ export class ProcessOutputStore {
   }
 }
 
-/** Best-effort removal of transcripts left behind by earlier runs or crashes. */
-export function sweepSpillDirectory(directory: string, now = Date.now()): void {
+/**
+ * `lstat` reports symbolic links and Windows junctions as links rather than directories
+ * or files, so every check below refuses to follow them out of the spill root.
+ */
+const isRealDirectory = (path: string): boolean => {
+  try { return lstatSync(path).isDirectory(); } catch { return false; }
+};
+
+/** Removes this directory's expired `.log` files; linked entries are never followed. */
+const sweepSpillLogs = (directory: string, now: number): void => {
+  let names: string[];
   try {
-    for (const name of readdirSync(directory)) {
-      if (!name.endsWith(".log")) continue;
-      const path = join(directory, name);
-      try {
-        if (now - statSync(path).mtimeMs > SPILL_RETENTION_MS) unlinkSync(path);
-      } catch { /* Concurrent removal or a locked file; skip it. */ }
-    }
-  } catch { /* The directory does not exist yet; nothing to sweep. */ }
-}
+    names = readdirSync(directory);
+  } catch { return; /* Concurrent removal; nothing to sweep. */ }
+  for (const name of names) {
+    if (!name.endsWith(".log")) continue;
+    const path = join(directory, name);
+    try {
+      const stats = lstatSync(path);
+      if (stats.isFile() && now - stats.mtimeMs > SPILL_RETENTION_MS) unlinkSync(path);
+    } catch { /* Concurrent removal or a locked file; skip it. */ }
+  }
+};
 
 /**
  * Sweeps every session's spill directory below `root` (`<data-root>/tmp/exec`), plus
- * logs left directly in `root` by the older flat layout. A session directory is removed
- * only when it is empty and had no entries added or removed within the retention window,
- * so a directory that another runtime is about to write into is left alone.
+ * logs left directly in `root` by the older flat layout. A linked root or session
+ * directory is skipped. A session directory is removed only when it is empty and had
+ * no entries added or removed within the retention window, so a directory that another
+ * runtime is about to write into is left alone.
  */
 export function sweepSpillRoot(root: string, now = Date.now()): void {
-  sweepSpillDirectory(root, now);
+  if (!isRealDirectory(root)) return;
+  sweepSpillLogs(root, now);
   let names: string[];
   try {
     names = readdirSync(root);
-  } catch { return; /* The root does not exist yet; nothing to sweep. */ }
+  } catch { return; /* Concurrent removal; nothing to sweep. */ }
   for (const name of names) {
     const directory = join(root, name);
     let idle: boolean;
     try {
-      const stats = statSync(directory);
+      const stats = lstatSync(directory);
       if (!stats.isDirectory()) continue;
       idle = now - stats.mtimeMs > SPILL_RETENTION_MS;
     } catch { continue; /* Concurrent removal; skip it. */ }
-    sweepSpillDirectory(directory, now);
+    sweepSpillLogs(directory, now);
     if (!idle) continue;
     try {
       if (readdirSync(directory).length === 0) rmdirSync(directory);
     } catch { /* Concurrent write or removal; leave it for the next sweep. */ }
+  }
+}
+
+/** A long-running Runtime sweeps again once this much time has passed since the last sweep. */
+export const SPILL_SWEEP_INTERVAL_MS = 60 * 60 * 1_000;
+
+/** Sweeps each spill root on first use and then at most once per interval. */
+export class SpillSweeper {
+  private readonly lastSweptAt = new Map<string, number>();
+  constructor(private readonly intervalMs = SPILL_SWEEP_INTERVAL_MS) {}
+
+  sweepIfDue(root: string, now = Date.now()): void {
+    const last = this.lastSweptAt.get(root);
+    if (last !== undefined && now - last < this.intervalMs) return;
+    this.lastSweptAt.set(root, now);
+    sweepSpillRoot(root, now);
   }
 }
 

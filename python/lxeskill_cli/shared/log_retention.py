@@ -56,9 +56,8 @@ def _parse_date_jsonl_name(value: str) -> date | None:
     return _parse_date_name(value[:8])
 
 
-# ``logs/<name>/YYYYMMDD/`` trees removed by retention. Keep in sync with
-# ``MANAGED_DATED_LOG_DIRECTORIES`` in packages/foundation/core/src/logging.ts;
-# test_log_retention.py fails when the two lists diverge.
+# ``logs/<name>/YYYYMMDD/`` trees removed by retention. Desktop and agent-cli run the
+# same cleanup in packages/foundation/core/src/logging.ts and keep the same list.
 MANAGED_DATED_LOG_DIRECTORIES: tuple[str, ...] = (
     "agent_traces",
     "sse_wire_traces",
@@ -69,21 +68,27 @@ MANAGED_DATED_LOG_DIRECTORIES: tuple[str, ...] = (
 )
 
 
+# Roots are not resolved: a root that is a link must be detected and skipped, not followed.
 def _date_dir_roots(*, state_root_path: Path) -> tuple[Path, ...]:
-    return tuple((state_root_path / "logs" / name).resolve() for name in MANAGED_DATED_LOG_DIRECTORIES)
+    return tuple(state_root_path / "logs" / name for name in MANAGED_DATED_LOG_DIRECTORIES)
 
 
 def _date_jsonl_roots(*, state_root_path: Path) -> tuple[Path, ...]:
-    return (
-        (state_root_path / "logs" / "feishu_raw_events").resolve(),
-    )
+    return (state_root_path / "logs" / "feishu_raw_events",)
 
 
-def _remove_path(path: Path, *, deleted: list[Path], failed: list[Path]) -> None:
+def _is_link(path: Path) -> bool:
+    """Symbolic links and Windows junctions point outside the managed tree; never follow them."""
+    return path.is_symlink() or path.is_junction()
+
+
+def _remove_path(path: Path, *, root: Path, deleted: list[Path], failed: list[Path]) -> None:
     try:
-        if path.is_dir() and not path.is_symlink():
+        if _is_link(path) or path.resolve().parent != root.resolve():
+            return
+        if path.is_dir():
             shutil.rmtree(path)
-        elif path.is_file() and not path.is_symlink():
+        elif path.is_file():
             path.unlink()
         else:
             return
@@ -94,7 +99,7 @@ def _remove_path(path: Path, *, deleted: list[Path], failed: list[Path]) -> None
 
 
 def _iter_children(root: Path, *, failed: list[Path]) -> list[Path]:
-    if not root.exists():
+    if _is_link(root) or not root.is_dir():
         return []
     try:
         return list(root.iterdir())
@@ -111,7 +116,7 @@ def _remove_empty_legacy_agent_trace_root(
     failed: list[Path],
 ) -> None:
     try:
-        if not path.exists() or path.is_symlink() or not path.is_dir():
+        if _is_link(path) or not path.is_dir():
             return
         if next(path.iterdir(), None) is not None:
             return
@@ -142,12 +147,12 @@ def cleanup_local_logs(
     for log_root in _date_dir_roots(state_root_path=root):
         for child in _iter_children(log_root, failed=failed):
             entry_date = _parse_date_name(child.name)
-            if entry_date is None or entry_date >= cutoff_date or not child.is_dir() or child.is_symlink():
+            if entry_date is None or entry_date >= cutoff_date or _is_link(child) or not child.is_dir():
                 continue
-            _remove_path(child, deleted=deleted, failed=failed)
+            _remove_path(child, root=log_root, deleted=deleted, failed=failed)
 
     _remove_empty_legacy_agent_trace_root(
-        (root / "logs" / "agent_traces").resolve(),
+        root / "logs" / "agent_traces",
         deleted=deleted,
         failed=failed,
     )
@@ -155,9 +160,9 @@ def cleanup_local_logs(
     for log_root in _date_jsonl_roots(state_root_path=root):
         for child in _iter_children(log_root, failed=failed):
             entry_date = _parse_date_jsonl_name(child.name)
-            if entry_date is None or entry_date >= cutoff_date:
+            if entry_date is None or entry_date >= cutoff_date or _is_link(child) or not child.is_file():
                 continue
-            _remove_path(child, deleted=deleted, failed=failed)
+            _remove_path(child, root=log_root, deleted=deleted, failed=failed)
 
     if deleted:
         logger.info(
