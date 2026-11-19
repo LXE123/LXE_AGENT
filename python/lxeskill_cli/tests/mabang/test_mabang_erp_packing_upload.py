@@ -253,14 +253,16 @@ def test_preview_uses_the_selected_revision_even_with_a_newer_export(monkeypatch
     assert session.calls[1]["json"]["lines"] == [{"msku": "MSKU-A", "actual_quantity": "8"}]
 
 
-@pytest.mark.parametrize(("file_name", "error_text"), [
-    ("找不到.csv", "找不到发货单 CSV"),
-    ("装箱.xlsx", "需要是 CSV 文件"),
-    ("错误表头.csv", "发货单 CSV 缺少列"),
-    ("混合发货单.csv", "第3行发货单号 SP260710099 与指定的 SP260710001 不一致"),
-    ("", "--delivery-csv 需要发货单 CSV 路径"),
+@pytest.mark.parametrize(("file_name", "expected_code", "error_text"), [
+    ("找不到.csv", "delivery_csv_missing", "找不到发货单 CSV"),
+    ("装箱.xlsx", "delivery_csv_invalid", "需要是 CSV 文件"),
+    ("错误表头.csv", "delivery_csv_invalid", "发货单 CSV 缺少列"),
+    ("混合发货单.csv", "delivery_csv_invalid", "第3行发货单号 SP260710099 与指定的 SP260710001 不一致"),
+    ("", "delivery_csv_invalid", "--delivery-csv 需要发货单 CSV 路径"),
 ])
-def test_invalid_selection_does_not_fall_back_or_call_erp(monkeypatch, tmp_path, file_name, error_text):
+def test_invalid_selection_does_not_fall_back_or_call_erp(
+    monkeypatch, tmp_path, file_name, expected_code, error_text,
+):
     _configure(monkeypatch, tmp_path)
     _write_delivery(tmp_path, "SP260710001", [("MSKU-A", "8", "SKU-A × 8")])
     monkeypatch.setattr(shipment_quantity_validation, "DELIVERY_CSV_DIR", tmp_path)
@@ -275,8 +277,78 @@ def test_invalid_selection_does_not_fall_back_or_call_erp(monkeypatch, tmp_path,
     result = cli.run({"ship_no": "SP260710001", "delivery_csv": str(tmp_path / file_name) if file_name else ""})
 
     assert result["success"] is False
+    assert result["error"]["code"] == expected_code
     assert error_text in result["error"]["message"]
     assert "recovery" not in result
+    assert not session.calls
+
+
+def test_revised_csv_without_sku_ship_qty_column_and_with_blank_row_succeeds(monkeypatch, tmp_path):
+    _configure(monkeypatch, tmp_path)
+    revised = tmp_path / "精简修订版.csv"
+    revised.write_text(
+        "MSKU,MSKU发货量\nMSKU-A,5\nMSKU-ZERO,0\n,\n",
+        encoding="utf-8",
+    )
+    session = FakeSession([_preview_response()])
+    _mock_cloud(monkeypatch, session)
+
+    result = cli.run({"ship_no": "SP260710001", "delivery_csv": str(revised)})
+
+    assert result["success"] is True
+    assert session.calls[0]["json"]["lines"] == [{"msku": "MSKU-A", "actual_quantity": "5"}]
+
+
+@pytest.mark.parametrize("bad_quantity", ["3个", "-2", ""])
+def test_duplicate_msku_invalid_quantity_fails_with_row_number(monkeypatch, tmp_path, bad_quantity):
+    _configure(monkeypatch, tmp_path)
+    revised = tmp_path / "异常数量.csv"
+    revised.write_text(
+        f"MSKU,MSKU发货量\nMSKU-A,5\nMSKU-A,{bad_quantity}\n",
+        encoding="utf-8",
+    )
+    session = FakeSession()
+    _mock_cloud(monkeypatch, session)
+
+    result = cli.run({"ship_no": "SP260710001", "delivery_csv": str(revised)})
+
+    assert result["success"] is False
+    assert result["error"]["code"] == "delivery_csv_invalid"
+    assert "第3行" in result["error"]["message"]
+    assert not session.calls
+
+
+def test_default_local_csv_rejects_mismatched_ship_no_row(monkeypatch, tmp_path):
+    _configure(monkeypatch, tmp_path)
+    local_csv = tmp_path / "SP260710001_100001.csv"
+    local_csv.write_text(
+        DELIVERY_HEADER + "SP260710099,MSKU-A,2,SKU-A × 2\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(shipment_quantity_validation, "DELIVERY_CSV_DIR", tmp_path)
+    session = FakeSession()
+    _mock_cloud(monkeypatch, session)
+
+    result = cli.run({"ship_no": "SP260710001"})
+
+    assert result["success"] is False
+    assert result["error"]["code"] == "delivery_csv_invalid"
+    assert "SP260710099" in result["error"]["message"]
+    assert not session.calls
+
+
+def test_missing_default_local_csv_points_recovery_to_mabang_delivery_data(monkeypatch, tmp_path):
+    _configure(monkeypatch, tmp_path)
+    monkeypatch.setattr(shipment_quantity_validation, "DELIVERY_CSV_DIR", tmp_path)
+    session = FakeSession()
+    _mock_cloud(monkeypatch, session)
+
+    result = cli.run({"ship_no": "SP260710001"})
+
+    assert result["success"] is False
+    assert result["error"]["code"] == "delivery_csv_missing"
+    assert result["recovery"]["skill"] == "mabang-delivery-data"
+    assert result["recovery"]["command"] == "lxeskill mabang delivery export --delivery-no SP260710001"
     assert not session.calls
 
 
