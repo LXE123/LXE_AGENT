@@ -62,10 +62,12 @@ module.exports = async ({ win, js, step, load, waitFor, click, key, focus, settl
     await open('sessions');
     await waitFor("!document.querySelector('.conversation-compose-trailing .conversation-model-trigger')?.disabled", 'model choices ready');
     await click('.conversation-compose-trailing .conversation-model-trigger');
-    await textClick('kimi-model', '.conversation-model-menu');
-    await waitFor("document.querySelector('.conversation-compose-trailing .conversation-model-trigger').textContent.includes('kimi-model')", 'Kimi selected');
+    await textClick('Kimi K3', '.conversation-model-menu');
+    await waitFor("document.querySelector('.conversation-compose-trailing .conversation-model-trigger').textContent.includes('Kimi K3')", 'Kimi selected');
+    assert.equal((await state()).calls.findLast(call => call.operation === 'models.update')?.input.model, 'k3');
     await click('.tab-capabilities'); await textClick('Models', '.workspace-subnav');
     await waitFor("Boolean(document.querySelector('.model-card'))", 'model gallery');
+    assert.ok(await js("document.querySelector('.model-card option[value=k3]')?.textContent.includes('Kimi K3')"));
     assert.equal(await js("document.querySelectorAll('.model-card button').length"), 0, 'catalog is read-only');
     assert.ok(await js("Array.from(document.querySelectorAll('.model-card [aria-label]')).some(e=>e.getAttribute('aria-label').replaceAll(',','').includes('1000000'))"));
     const images = await js("Promise.all(Array.from(document.querySelectorAll('.model-card img')).map(async img=>{await img.decode();return {local:new URL(img.src).origin===location.origin,width:img.naturalWidth}}))");

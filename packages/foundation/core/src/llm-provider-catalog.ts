@@ -15,6 +15,7 @@ export type LlmProviderApiStyle =
 
 export interface LlmProviderModelSpec {
   id: string;
+  displayName?: string;
   contextWindowTokens: number;
   maxTokens: number;
   supportsVision: boolean;
@@ -149,6 +150,7 @@ const parseModel = (id: string, value: unknown, path: string): LlmProviderModelS
   );
   return {
     id,
+    ...(model.display_name === undefined ? {} : { displayName: requiredString(model.display_name, `${path}.${id}.display_name`) }),
     ...(compat ? { compat } : {}),
     contextWindowTokens: positiveInteger(model.context_window_tokens, `${path}.${id}.context_window_tokens`),
     maxTokens: positiveInteger(model.max_tokens, `${path}.${id}.max_tokens`),
