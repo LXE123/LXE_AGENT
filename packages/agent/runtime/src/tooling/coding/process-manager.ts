@@ -6,7 +6,7 @@ import { join } from "node:path";
 import { createLogger, runWithLogContext } from "@lxe/core";
 import type { JsonObject, WorkspaceContext } from "@lxe/protocol";
 import type { ExecShellAdapter } from "../exec-shell";
-import { ProcessOutputStore, sweepSpillDirectory } from "../process-output";
+import { ProcessOutputStore, sweepSpillRoot } from "../process-output";
 import type { ProcessStatus } from "./public-types";
 
 interface ProcessEntry {
@@ -238,9 +238,10 @@ export class CodingProcessManager {
       } };
     }
     const spillDirectory = this.sandbox.paths.outputDirectory(request.executionPolicy);
-    if (!this.sweptSpillRoots.has(spillDirectory)) {
-      this.sweptSpillRoots.add(spillDirectory);
-      sweepSpillDirectory(spillDirectory);
+    const spillRoot = this.sandbox.paths.outputRoot();
+    if (!this.sweptSpillRoots.has(spillRoot)) {
+      this.sweptSpillRoots.add(spillRoot);
+      sweepSpillRoot(spillRoot);
     }
     const entry: ProcessEntry = {
       id,

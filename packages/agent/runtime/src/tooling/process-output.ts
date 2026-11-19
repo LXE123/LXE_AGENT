@@ -1,4 +1,4 @@
-import { createWriteStream, mkdirSync, readdirSync, statSync, unlinkSync, type WriteStream } from "node:fs";
+import { createWriteStream, mkdirSync, readdirSync, rmdirSync, statSync, unlinkSync, type WriteStream } from "node:fs";
 import { dirname, join } from "node:path";
 import iconv from "iconv-lite";
 import type { JsonObject } from "@lxe/protocol";
@@ -367,6 +367,34 @@ export function sweepSpillDirectory(directory: string, now = Date.now()): void {
       } catch { /* Concurrent removal or a locked file; skip it. */ }
     }
   } catch { /* The directory does not exist yet; nothing to sweep. */ }
+}
+
+/**
+ * Sweeps every session's spill directory below `root` (`<data-root>/tmp/exec`), plus
+ * logs left directly in `root` by the older flat layout. A session directory is removed
+ * only when it is empty and had no entries added or removed within the retention window,
+ * so a directory that another runtime is about to write into is left alone.
+ */
+export function sweepSpillRoot(root: string, now = Date.now()): void {
+  sweepSpillDirectory(root, now);
+  let names: string[];
+  try {
+    names = readdirSync(root);
+  } catch { return; /* The root does not exist yet; nothing to sweep. */ }
+  for (const name of names) {
+    const directory = join(root, name);
+    let idle: boolean;
+    try {
+      const stats = statSync(directory);
+      if (!stats.isDirectory()) continue;
+      idle = now - stats.mtimeMs > SPILL_RETENTION_MS;
+    } catch { continue; /* Concurrent removal; skip it. */ }
+    sweepSpillDirectory(directory, now);
+    if (!idle) continue;
+    try {
+      if (readdirSync(directory).length === 0) rmdirSync(directory);
+    } catch { /* Concurrent write or removal; leave it for the next sweep. */ }
+  }
 }
 
 const plainScalar = (value: unknown): string => {

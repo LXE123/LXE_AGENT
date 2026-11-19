@@ -56,13 +56,21 @@ def _parse_date_jsonl_name(value: str) -> date | None:
     return _parse_date_name(value[:8])
 
 
+# ``logs/<name>/YYYYMMDD/`` trees removed by retention. Keep in sync with
+# ``MANAGED_DATED_LOG_DIRECTORIES`` in packages/foundation/core/src/logging.ts;
+# test_log_retention.py fails when the two lists diverge.
+MANAGED_DATED_LOG_DIRECTORIES: tuple[str, ...] = (
+    "agent_traces",
+    "sse_wire_traces",
+    "feishu_msg",
+    "runtime",
+    "browser_auth_service",
+    "ziniao_traces",
+)
+
+
 def _date_dir_roots(*, state_root_path: Path) -> tuple[Path, ...]:
-    return (
-        (state_root_path / "logs" / "agent_traces").resolve(),
-        (state_root_path / "logs" / "sse_wire_traces").resolve(),
-        (state_root_path / "logs" / "feishu_msg").resolve(),
-        (state_root_path / "logs" / "runtime").resolve(),
-    )
+    return tuple((state_root_path / "logs" / name).resolve() for name in MANAGED_DATED_LOG_DIRECTORIES)
 
 
 def _date_jsonl_roots(*, state_root_path: Path) -> tuple[Path, ...]:

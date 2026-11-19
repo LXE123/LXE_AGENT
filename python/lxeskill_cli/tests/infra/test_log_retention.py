@@ -1,14 +1,17 @@
 from __future__ import annotations
 
+import re
 from datetime import date
 from pathlib import Path
 
 import pytest
 
 from shared.log_retention import (
+    MANAGED_DATED_LOG_DIRECTORIES,
     cleanup_local_logs,
     local_log_retention_days,
 )
+from shared.repository import repository_root
 
 
 def _touch(path: Path) -> Path:
@@ -34,6 +37,8 @@ def test_cleanup_local_logs_removes_only_expired_strict_date_entries(tmp_path, m
         "logs/sse_wire_traces",
         "logs/feishu_msg",
         "logs/runtime",
+        "logs/browser_auth_service",
+        "logs/ziniao_traces",
     ):
         root = tmp_path / relative_root
         _mkdir(root / old_date)
@@ -64,6 +69,8 @@ def test_cleanup_local_logs_removes_only_expired_strict_date_entries(tmp_path, m
     assert not (tmp_path / "logs" / "sse_wire_traces" / old_date).exists()
     assert not (tmp_path / "logs" / "feishu_msg" / old_date).exists()
     assert not (tmp_path / "logs" / "runtime" / old_date).exists()
+    assert not (tmp_path / "logs" / "browser_auth_service" / old_date).exists()
+    assert not (tmp_path / "logs" / "ziniao_traces" / old_date).exists()
     assert not (raw_root / f"{old_date}.jsonl").exists()
 
     for relative_root in (
@@ -71,6 +78,8 @@ def test_cleanup_local_logs_removes_only_expired_strict_date_entries(tmp_path, m
         "logs/sse_wire_traces",
         "logs/feishu_msg",
         "logs/runtime",
+        "logs/browser_auth_service",
+        "logs/ziniao_traces",
     ):
         root = tmp_path / relative_root
         assert (root / cutoff_date).exists()
@@ -121,3 +130,16 @@ def test_local_log_retention_days_clamps_to_at_least_one(monkeypatch) -> None:
     monkeypatch.setenv("LOCAL_LOG_RETENTION_DAYS", "0")
 
     assert local_log_retention_days() == 1
+
+
+def test_managed_log_directories_match_typescript_retention() -> None:
+    """Desktop/agent-cli and lxeskill each run retention; a gap in either list leaks logs."""
+    source = (repository_root() / "packages" / "foundation" / "core" / "src" / "logging.ts").read_text(
+        encoding="utf-8"
+    )
+    block = re.search(r"MANAGED_DATED_LOG_DIRECTORIES = \[(.*?)\] as const", source, re.S)
+    assert block is not None, "MANAGED_DATED_LOG_DIRECTORIES not found in logging.ts"
+    typescript = tuple(re.findall(r'"([^"]+)"', block.group(1)))
+
+    assert typescript, "parsed an empty TypeScript directory list"
+    assert typescript == MANAGED_DATED_LOG_DIRECTORIES

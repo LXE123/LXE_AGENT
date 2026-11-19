@@ -283,6 +283,19 @@ const dateValue = (name: string): number | undefined => {
 
 const failureText = (error: unknown): string => truncate(error instanceof Error ? error.message : String(error), 1_000);
 
+/**
+ * `logs/<name>/YYYYMMDD/` trees removed by retention. Python keeps the same list in
+ * `shared/log_retention.py`; `test_log_retention.py` fails when the two diverge.
+ */
+export const MANAGED_DATED_LOG_DIRECTORIES = [
+  "agent_traces",
+  "sse_wire_traces",
+  "feishu_msg",
+  "runtime",
+  "browser_auth_service",
+  "ziniao_traces",
+] as const;
+
 const cleanupRetention = (
   stateRoot: string,
   environment: Environment,
@@ -292,12 +305,7 @@ const cleanupRetention = (
   const retentionDays = envInteger(environment, "LOCAL_LOG_RETENTION_DAYS", 7, { min: 1 });
   const cutoff = new Date(today.getFullYear(), today.getMonth(), today.getDate() - (retentionDays - 1)).getTime();
   const legacyAgentTraceRoot = resolve(stateRoot, "logs", "agent_traces");
-  const directoryRoots = [
-    legacyAgentTraceRoot,
-    resolve(stateRoot, "logs", "sse_wire_traces"),
-    resolve(stateRoot, "logs", "feishu_msg"),
-    resolve(stateRoot, "logs", "runtime"),
-  ];
+  const directoryRoots = MANAGED_DATED_LOG_DIRECTORIES.map(name => resolve(stateRoot, "logs", name));
   for (const root of directoryRoots) {
     if (!existsSync(root)) continue;
     let names: string[];

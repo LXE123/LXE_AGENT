@@ -1,5 +1,5 @@
 import { afterAll, describe, expect, spyOn, test } from "bun:test";
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -8,6 +8,7 @@ import {
   formatCommandPayload,
   formatCommandPayloadWithBudget,
   renderProcessChunks,
+  sweepSpillRoot,
   trimPartialUtf8,
   type OutputChunk,
 } from "../../src/tooling/process-output";
@@ -332,5 +333,49 @@ describe("model-visible payload formatting", () => {
     expect(formatted.text).toContain("exec_id: exec_tiny");
     expect(formatted.text).toContain("observation_omitted_tokens:");
     expect(formatted.text).toContain("output:\n…");
+  });
+});
+
+describe("spill root sweep", () => {
+  test("removes expired logs from every session and drops idle empty session directories", () => {
+    const root = scratch();
+    const now = Date.now();
+    const old = new Date(now - 8 * 24 * 60 * 60 * 1_000);
+    const write = (path: string, mtime?: Date): string => {
+      mkdirSync(join(path, ".."), { recursive: true });
+      writeFileSync(path, "x");
+      if (mtime) utimesSync(path, mtime, mtime);
+      return path;
+    };
+    const idleSession = join(root, "idle-session");
+    const activeSession = join(root, "active-session");
+    const expiredIdle = write(join(idleSession, "exec_old.log"), old);
+    const expiredActive = write(join(activeSession, "exec_old.log"), old);
+    const freshActive = write(join(activeSession, "exec_new.log"));
+    const legacyFlat = write(join(root, "exec_legacy.log"), old);
+    const unrelated = write(join(idleSession, "notes.txt"), old);
+    const emptyRecent = join(root, "empty-recent");
+    mkdirSync(emptyRecent);
+    const emptyIdle = join(root, "empty-idle");
+    mkdirSync(emptyIdle);
+    const staleSession = join(root, "stale-session");
+    write(join(staleSession, "exec_stale.log"), old);
+    for (const directory of [idleSession, activeSession, emptyIdle, staleSession]) utimesSync(directory, old, old);
+
+    sweepSpillRoot(root, now);
+
+    expect(existsSync(expiredIdle)).toBe(false);
+    expect(existsSync(expiredActive)).toBe(false);
+    expect(existsSync(legacyFlat)).toBe(false);
+    expect(existsSync(freshActive)).toBe(true);
+    expect(existsSync(unrelated)).toBe(true);
+    expect(existsSync(idleSession)).toBe(true);
+    expect(existsSync(emptyRecent)).toBe(true);
+    expect(existsSync(emptyIdle)).toBe(false);
+    expect(existsSync(staleSession)).toBe(false);
+  });
+
+  test("ignores a missing root", () => {
+    expect(() => sweepSpillRoot(join(scratch(), "missing"))).not.toThrow();
   });
 });

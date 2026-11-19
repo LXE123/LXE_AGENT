@@ -226,11 +226,15 @@ describe("structured logger", () => {
     const root = mkdtempSync(join(tmpdir(), "lxe-logging-policy-"));
     roots.push(root);
     const expired = join(root, "var", "logs", "runtime", "20000101");
+    const expiredBrowserAuth = join(root, "var", "logs", "browser_auth_service", "20000101");
+    const expiredZiniaoTrace = join(root, "var", "logs", "ziniao_traces", "20000101");
     const unrelated = join(root, "var", "logs", "runtime", "manual");
     const legacyAgentTraceRoot = join(root, "var", "logs", "agent_traces");
     const expiredLegacyAgentTrace = join(legacyAgentTraceRoot, "20000101");
     const ignoredOverride = join(root, "custom-agent-traces", "20000101");
     mkdirSync(expired, { recursive: true });
+    mkdirSync(expiredBrowserAuth, { recursive: true });
+    mkdirSync(expiredZiniaoTrace, { recursive: true });
     mkdirSync(unrelated, { recursive: true });
     mkdirSync(expiredLegacyAgentTrace, { recursive: true });
     mkdirSync(ignoredOverride, { recursive: true });
@@ -256,6 +260,8 @@ describe("structured logger", () => {
     expect(content).not.toContain("filtered");
     expect(content).toContain("kept");
     expect(existsSync(expired)).toBe(false);
+    expect(existsSync(expiredBrowserAuth)).toBe(false);
+    expect(existsSync(expiredZiniaoTrace)).toBe(false);
     expect(existsSync(unrelated)).toBe(true);
     expect(existsSync(legacyAgentTraceRoot)).toBe(false);
     expect(existsSync(ignoredOverride)).toBe(true);
