@@ -17,7 +17,7 @@
   ],
   "scripts": {
     "typecheck": "bun run --filter '*' typecheck",
-    "test": "bun test --timeout 20000",
+    "test": "bun test --timeout 10000",
     "test:py-tools": "uv run --frozen pytest -q python/lxeskill_cli/tests skills",
     "dashboard:build": "bun run --cwd apps/dashboard build",
     "cds:preview": "bun scripts/cds-gallery.ts preview",
