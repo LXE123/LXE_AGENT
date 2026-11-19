@@ -214,7 +214,13 @@ module.exports = async ({ win, js, step, load, waitFor, click, settle, state }) 
     await click(".fba-capacity-history li:last-child button");
     await waitFor("document.querySelector('.fba-capacity-state')?.dataset.state==='deleted'", "deleted conversation noticed");
     assert.ok(await js("document.querySelector('.fba-capacity-history li:last-child .fba-capacity-history-state').textContent === '对话已删除'"));
-    assert.deepEqual(await js("[...document.querySelectorAll('.fba-capacity-actions button')].map(button => button.textContent)"), ["从记录中移除"], "only removal is offered");
+    assert.deepEqual(await js("[...document.querySelectorAll('.fba-capacity-actions button')].map(button => button.textContent)"), ["打开文件夹", "从记录中移除"], "the saved folder can be opened, then removal");
+    const folder = await js("document.querySelector('.fba-capacity-folder').textContent");
+    assert.match(folder, /^\/fixture\/default\/FBA库容报告\/\d{8}-\d{6}$/, "the workspace path saved at start leads to the run's folder");
+    const beforeOpen = (await state()).calls.length;
+    await click(".fba-capacity-actions button:first-child");
+    await waitFor(`window.behavior.state().calls.slice(${beforeOpen}).some(call => call.operation === "openWorkspace")`, "open requested");
+    assert.deepEqual((await state()).calls.slice(beforeOpen).filter(call => call.operation === "openWorkspace").map(call => call.input), [folder], "open folder goes to that path");
     assert.equal(await js("document.querySelector('.fba-capacity [role=alert]')"), null, "no raw error for a deleted conversation");
     assert.equal(await js("document.querySelector('.fba-capacity-files')"), null);
     await capture("fba-deleted-dark");

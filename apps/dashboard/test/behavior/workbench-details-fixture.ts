@@ -65,6 +65,10 @@ export function createFbaCapacityFixture(calls: { operation: string; input?: unk
       if (call.operation === "sessions.send" && call.input.session_id === "fba-full-session") return { session_id: "fba-full-session", turn_id: turn("fba-full-turn"), message_id: "fba-full-message", created: false, state: "queued" };
       // The same message the runtime gives once a conversation is deleted.
       if (call.operation === "sessions.detail" && deleted.has(String(call.input.session_id))) throw new Error("session not found");
+      if (call.operation === "sessions.detail" && String(call.input.session_id).startsWith("fba-")) {
+        const directory = "/fixture/default";
+        return { session: { session_id: call.input.session_id, title: "FBA", permission_mode: "workspace-write", workspace_id: "fba-workspace", workspace: { directory, worktree: directory } }, messages: [] };
+      }
       if (call.operation === "sessions.turn.lookup") return { state: !newest || call.input.turn_id === newest ? phase : "completed" };
       if (call.operation === "sessions.stop") {
         // Same rule as the Gateway: a turn id only matches the turn that is executing.

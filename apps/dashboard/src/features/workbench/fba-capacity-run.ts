@@ -33,6 +33,11 @@ export interface FbaCapacityRun {
   turn_id: string;
   /** Workspace-relative folder for the workbooks. */
   output: string;
+  /**
+   * Absolute workspace path, read from the session right after sending. Kept so the folder can still be
+   * found once the conversation is deleted; runs recorded before this field existed do not have it.
+   */
+  directory?: string;
   /** The session was set to Full access before the task was sent. */
   full_access?: boolean;
 }
@@ -123,7 +128,15 @@ function validRun(value: unknown): FbaCapacityRun | null {
   const id = text("id"), session = text("session_id"), turn = text("turn_id"), output = text("output");
   if (!id || !session || !turn || !output || typeof run.created_at !== "number") return null;
   return { id, created_at: run.created_at, stores: textList(run.stores), sites: siteList(run.sites), session_id: session, turn_id: turn, output,
-    ...(run.full_access === true ? { full_access: true } : {}) };
+    ...(run.full_access === true ? { full_access: true } : {}), ...(text("directory") ? { directory: text("directory")! } : {}) };
+}
+
+/** Absolute output folder, joined with the separator the workspace path already uses. */
+export function runFolder(run: Pick<FbaCapacityRun, "directory" | "output">): string | null {
+  if (!run.directory) return null;
+  const windows = run.directory.includes("\\") && !run.directory.includes("/");
+  const base = run.directory.replace(/[\\/]+$/, "");
+  return windows ? `${base}\\${run.output.replaceAll("/", "\\")}` : `${base}/${run.output}`;
 }
 
 /** Newest first. Stored per machine; losing it only hides the shortcut, the conversations remain. */

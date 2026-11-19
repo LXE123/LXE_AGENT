@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ArrowUpRight, Check, CircleAlert, CircleCheck, CircleX, LoaderCircle, Play, RefreshCw, Square, Trash2, X } from "lucide-react";
+import { ArrowUpRight, Check, CircleAlert, CircleCheck, CircleX, FolderOpen, LoaderCircle, Play, RefreshCw, Square, Trash2, X } from "lucide-react";
 import type { SessionPayload } from "@lxe/desktop-protocol";
 import { useUserSkillsQuery } from "../../api/queries";
 import { sessionActions } from "../../api/session-actions";
@@ -9,7 +9,7 @@ import { OpenFileButton } from "../file-preview/OpenFileButton";
 import { FullAccessConfirmation } from "../sessions/permissions";
 import { WorkbenchPageHeader } from "./page-header";
 import {
-  FBA_CAPACITY_SITES, FBA_CAPACITY_SKILL, FBA_CAPACITY_STORES, capacityPrompt, conversationDeleted, forgetRun, loadFullAccess, loadRuns, loadSelection, orderedSelection,
+  FBA_CAPACITY_SITES, FBA_CAPACITY_SKILL, FBA_CAPACITY_STORES, capacityPrompt, conversationDeleted, forgetRun, loadFullAccess, runFolder, loadRuns, loadSelection, orderedSelection,
   outputFolder, recordRun, resultFiles, runState, saveFullAccess, saveSelection, settled,
   type FbaCapacityRun, type FbaCapacityRunState, type FbaCapacitySelection,
 } from "./fba-capacity-run";
@@ -165,7 +165,11 @@ export function FbaCapacityWorkbench({ ready, defaultDirectory, onBack, onOpenSe
       const sent = fullAccess
         ? await sessionActions.send({ session_id: await fullAccessSession(defaultDirectory), text })
         : await sessionActions.send({ text });
-      const run: FbaCapacityRun = { id: sent.turn_id, created_at: Date.now(), ...chosen, session_id: sent.session_id, turn_id: sent.turn_id, output, ...(fullAccess ? { full_access: true } : {}) };
+      // Read the workspace path back once; the run goes ahead without it if the lookup fails.
+      const directory = await sessionActions.detail({ session_id: sent.session_id, message_limit: 1 })
+        .then(detail => detail.session.workspace.directory).catch(() => "");
+      const run: FbaCapacityRun = { id: sent.turn_id, created_at: Date.now(), ...chosen, session_id: sent.session_id, turn_id: sent.turn_id, output,
+        ...(fullAccess ? { full_access: true } : {}), ...(directory ? { directory } : {}) };
       setRuns(recordRun(run)); setActiveId(run.id);
     } catch (cause) { setError(errorText(cause)); }
     finally { setBusy(false); }
@@ -199,6 +203,7 @@ export function FbaCapacityWorkbench({ ready, defaultDirectory, onBack, onOpenSe
   const waiting = state === "waiting_input" || state === "waiting_approval";
   const viewingPast = active !== null && latest !== null && active.id !== latest.id;
   const gone = active !== null && deleted[active.id] === true;
+  const folder = active ? runFolder(active) : null;
   const sitesText = (sites: readonly string[]) => sites.length === FBA_CAPACITY_SITES.length ? copy.allSites : sites.join(" ");
   const storesText = (stores: readonly string[]) => stores.length > 2 ? `${stores.slice(0, 2).join("、")} +${stores.length - 2}` : stores.join("、");
   const note = !ready ? copy.notReady : installed === null && desktop ? copy.checkingSkill : latestBusy && latestState !== null ? copy.runInProgress : "";
@@ -300,13 +305,17 @@ export function FbaCapacityWorkbench({ ready, defaultDirectory, onBack, onOpenSe
         </ul>
       </section> : null}
 
-      {gone ? <p className="fba-capacity-hint">{copy.deletedHint}</p> : null}
+      {gone ? <div className="fba-capacity-gone">
+        <p className="fba-capacity-hint">{folder ? copy.deletedHintAt : copy.deletedHint}</p>
+        {folder ? <code className="fba-capacity-folder">{folder}</code> : null}
+      </div> : null}
       <div className="fba-capacity-actions">
         {!gone ? <button type="button" onClick={() => void openConversation(active)}>{copy.openConversation}<ArrowUpRight size={14} aria-hidden /></button> : null}
         {!gone && state && !settled(state) && state !== "stopping" ? <button type="button" onClick={() => void stop(active, state)}><Square size={13} aria-hidden />{copy.stop}</button> : null}
         {!gone && state && settled(state) && state !== "missing" ? <button type="button" onClick={() => void loadResults(active)}><RefreshCw size={13} aria-hidden />{copy.refresh}</button> : null}
+        {gone && folder && desktop ? <button type="button" onClick={() => void act(() => window.lxe!.desktop!.openWorkspace(folder))}><FolderOpen size={13} aria-hidden />{copy.openFolder}</button> : null}
         {gone || (state && settled(state)) ? <button type="button" className="fba-capacity-forget" onClick={() => forget(active)}><X size={13} aria-hidden />{copy.forget}</button> : null}
-        <span className="fba-capacity-output" title={active.output}>{copy.output}：<code>{active.output}</code></span>
+        <span className="fba-capacity-output" title={folder ?? active.output}>{copy.output}：<code>{active.output}</code></span>
       </div>
       {resultError ? <p className="workbench-error" role="alert">{resultError}</p> : null}
       {results && !gone ? results.length ? <section className="fba-capacity-files" aria-label={copy.workbooks}>

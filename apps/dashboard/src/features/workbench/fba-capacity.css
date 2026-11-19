@@ -146,6 +146,13 @@
 .fba-capacity-output { margin-left: auto; min-width: 0; color: var(--muted-light); font-size: .75rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .fba-capacity-output code { font-size: .75rem; color: var(--text-soft); }
 
+.fba-capacity-gone { display: grid; gap: 6px; justify-items: start; }
+.fba-capacity-gone p { margin: 0; }
+.fba-capacity-folder {
+  max-width: 100%; padding: 4px 8px; border-radius: 6px; background: var(--cds-alpha-1);
+  color: var(--text-soft); font-size: .75rem; overflow-wrap: anywhere;
+}
+
 .fba-capacity-files h3 { margin: 0 0 8px; color: var(--text); font-size: .8125rem; font-weight: 500; }
 .fba-capacity-files ul { list-style: none; margin: 0; padding: 0; border: 1px solid var(--border); border-radius: 8px; }
 .fba-capacity-files li {

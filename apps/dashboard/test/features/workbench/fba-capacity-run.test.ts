@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import {
-  FBA_CAPACITY_SITES, capacityPrompt, conversationDeleted, forgetRun, loadFullAccess, loadRuns, loadSelection, outputFolder, recordRun, resultFiles, runState, saveFullAccess, saveSelection,
+  FBA_CAPACITY_SITES, capacityPrompt, conversationDeleted, forgetRun, loadFullAccess, loadRuns, loadSelection, outputFolder, recordRun, resultFiles, runFolder, runState, saveFullAccess, saveSelection,
   type FbaCapacityRun,
 } from "../../../src/features/workbench/fba-capacity-run";
 
@@ -68,6 +68,18 @@ describe("FBA capacity run", () => {
     expect(forgetRun("b", storage).map(item => item.id)).toEqual(["c", "a"]);
     expect(loadRuns(storage).map(item => item.id)).toEqual(["c", "a"]);
     expect(forgetRun("missing", storage).map(item => item.id)).toEqual(["c", "a"]);
+  });
+
+  test("the workspace path is kept with the run and joined into the output folder", () => {
+    const storage = memoryStorage();
+    recordRun({ ...run("a"), directory: "/Users/me/workspace" }, storage);
+    recordRun(run("b"), storage);
+    const [b, a] = loadRuns(storage);
+    expect(a!.directory).toBe("/Users/me/workspace");
+    expect(b!.directory).toBeUndefined();
+    expect(runFolder(a!)).toBe("/Users/me/workspace/FBA库容报告/a");
+    expect(runFolder(b!)).toBeNull();
+    expect(runFolder({ directory: "C:\\Users\\me\\workspace\\", output: "FBA库容报告/a" })).toBe("C:\\Users\\me\\workspace\\FBA库容报告\\a");
   });
 
   test("only the runtime's missing-session message counts as a deleted conversation", () => {
