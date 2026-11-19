@@ -63,7 +63,10 @@ export function FbaCapacityWorkbench({ ready, defaultDirectory, onBack, onOpenSe
   const [pastStates, setPastStates] = useState<Record<string, FbaCapacityRunState>>({});
   const active = runs.find(run => run.id === activeId) ?? null;
   const latest = runs[0] ?? null;
-  const latestBusy = latest !== null && latest.id === active?.id && state !== null && !settled(state);
+  // Only one run at a time, whichever run is on screen: the newest run's own state decides,
+  // and an unknown state counts as busy until a lookup says otherwise.
+  const latestState = latest === null ? null : latest.id === active?.id ? state : pastStates[latest.id] ?? null;
+  const latestBusy = latest !== null && (latestState === null || !settled(latestState));
 
   const skills = useUserSkillsQuery();
   const installed = skills.data ? skills.data.items.some(item => item.name === FBA_CAPACITY_SKILL && item.available) : null;
@@ -130,7 +133,7 @@ export function FbaCapacityWorkbench({ ready, defaultDirectory, onBack, onOpenSe
       }));
       if (!current) return;
       setPastStates(previous => ({ ...previous, ...Object.fromEntries(found) }));
-      if (found.some(([, value]) => !settled(value) && value !== "unknown")) timer = setTimeout(() => void check(), POLL_MS);
+      if (found.some(([, value]) => !settled(value))) timer = setTimeout(() => void check(), POLL_MS);
     };
     void check();
     return () => { current = false; if (timer) clearTimeout(timer); };
@@ -161,6 +164,10 @@ export function FbaCapacityWorkbench({ ready, defaultDirectory, onBack, onOpenSe
     setError("");
     try { await action(); } catch (cause) { setError(errorText(cause)); }
   };
+  // The Gateway takes a turn id only for the turn that is executing. A queued run is the first turn
+  // in its own new session, so stopping by session clears it without touching anything older.
+  const stop = (run: FbaCapacityRun, phase: FbaCapacityRunState) =>
+    act(() => sessionActions.stop(run.session_id, phase === "queued" ? undefined : run.turn_id));
   const openConversation = (run: FbaCapacityRun) => act(async () => {
     const detail = await sessionActions.detail({ session_id: run.session_id, message_limit: 1 });
     await onOpenSession(detail.session, run.turn_id);
@@ -173,7 +180,7 @@ export function FbaCapacityWorkbench({ ready, defaultDirectory, onBack, onOpenSe
   const viewingPast = active !== null && latest !== null && active.id !== latest.id;
   const sitesText = (sites: readonly string[]) => sites.length === FBA_CAPACITY_SITES.length ? copy.allSites : sites.join(" ");
   const storesText = (stores: readonly string[]) => stores.length > 2 ? `${stores.slice(0, 2).join("、")} +${stores.length - 2}` : stores.join("、");
-  const note = !ready ? copy.notReady : installed === null && desktop ? copy.checkingSkill : latestBusy ? copy.runInProgress : "";
+  const note = !ready ? copy.notReady : installed === null && desktop ? copy.checkingSkill : latestBusy && latestState !== null ? copy.runInProgress : "";
 
   return <section className="workbench-tool-view workbench-detail fba-capacity" aria-labelledby="fba-capacity-title">
     <WorkbenchPageHeader title={copy.title} titleId="fba-capacity-title" description={copy.subtitle} onBack={onBack} />
@@ -273,7 +280,7 @@ export function FbaCapacityWorkbench({ ready, defaultDirectory, onBack, onOpenSe
 
       <div className="fba-capacity-actions">
         <button type="button" onClick={() => void openConversation(active)}>{copy.openConversation}<ArrowUpRight size={14} aria-hidden /></button>
-        {state && !settled(state) && state !== "stopping" ? <button type="button" onClick={() => void act(() => sessionActions.stop(active.session_id, active.turn_id))}><Square size={13} aria-hidden />{copy.stop}</button> : null}
+        {state && !settled(state) && state !== "stopping" ? <button type="button" onClick={() => void stop(active, state)}><Square size={13} aria-hidden />{copy.stop}</button> : null}
         {state && settled(state) && state !== "missing" ? <button type="button" onClick={() => void loadResults(active)}><RefreshCw size={13} aria-hidden />{copy.refresh}</button> : null}
         <span className="fba-capacity-output" title={active.output}>{copy.output}：<code>{active.output}</code></span>
       </div>

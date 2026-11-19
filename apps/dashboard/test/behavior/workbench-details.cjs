@@ -179,6 +179,13 @@ module.exports = async ({ win, js, step, load, waitFor, click, settle, state }) 
     assert.deepEqual(sequence[2].input, { session_id: "fba-full-session", permission_mode: "danger-full-access" });
     assert.equal(sequence[3].input.session_id, "fba-full-session", "the task goes to the raised session");
     await capture("fba-full-access-dark");
+    // Looking at an older run while the newest one is going does not free the start button.
+    await click(".fba-capacity-history li:nth-child(2) button");
+    await waitFor("document.querySelector('.fba-capacity-past') && document.querySelector('.fba-capacity-history li:first-child .fba-capacity-dot').dataset.state==='running'", "older run shown while the newest runs");
+    assert.equal(await js("document.querySelector('.fba-capacity-start button').disabled"), true, "one run at a time, whichever run is shown");
+    assert.ok(await js("document.querySelector('.fba-capacity-start').textContent.includes('上一次运行还没结束')"));
+    await click(".fba-capacity-past button");
+    await waitFor("document.querySelector('.fba-capacity-state')?.dataset.state==='running' && !document.querySelector('.fba-capacity-past')", "back on the running run");
     await js("behavior.fba.phase('completed')");
     await waitFor("document.querySelector('.fba-capacity-state')?.dataset.state==='completed'", "Full access run completed");
     // History rows carry how each run ended; an older run says so and offers the way back.
@@ -190,6 +197,17 @@ module.exports = async ({ win, js, step, load, waitFor, click, settle, state }) 
     await capture("fba-history-dark");
     await click(".fba-capacity-past button");
     await waitFor("!document.querySelector('.fba-capacity-past') && document.querySelector('.fba-capacity-history li:first-child button').getAttribute('aria-current')==='true'", "back to the latest run");
+    // A queued run stops by session; the Gateway takes a turn id only for the turn that is executing.
+    await js("behavior.fba.phase('queued')");
+    await waitFor("!document.querySelector('.fba-capacity-start button').disabled", "ready for another run");
+    await click(".fba-capacity-start button");
+    await waitFor("document.querySelector('.fba-capacity-state')?.dataset.state==='queued'", "run queued");
+    const beforeStop = (await state()).calls.length;
+    await click(".fba-capacity-actions button:nth-of-type(2)");
+    await waitFor("document.querySelector('.fba-capacity-state')?.dataset.state==='cancelled'", "queued run stopped");
+    const stop = (await state()).calls.slice(beforeStop).find(call => call.operation === "sessions.stop");
+    assert.deepEqual(stop.input, { session_id: "fba-full-session" }, "a queued run is stopped without its turn id");
+    assert.equal(await js("document.querySelector('.fba-capacity > [role=alert]')"), null, "stopping a queued run shows no error");
     await win.setContentSize(480, 900); await open(1, "en", "tasks");
     // A reload recreates the in-memory fixture; the run itself comes back from local history.
     await js("behavior.fba.phase('completed')");
