@@ -2,6 +2,7 @@ import { afterEach, expect, test } from "bun:test";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
+import type { LogFields, Logger } from "@lxe/core";
 import type { McpServerPreset } from "@lxe/desktop-protocol";
 import { ProcessAgentRuntime } from "../../src/orchestration/process-runtime";
 import { legacyReply, type WireMessage } from "../../../../packages/agent/runtime/test/tooling/protocol-mcp-server.fixture";
@@ -12,7 +13,7 @@ afterEach(async () => {
   for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });
 });
 
-function fixture(presets?: McpServerPreset[]) {
+function fixture(presets?: McpServerPreset[], logger?: Logger) {
   const root = mkdtempSync(join(tmpdir(), "lxe-preset-rpc-")); roots.push(root);
   const configPath = join(root, "config/mcp_servers.local.json");
   mkdirSync(join(root, "config"));
@@ -23,6 +24,7 @@ function fixture(presets?: McpServerPreset[]) {
     command: process.execPath, arguments: [resolve("apps/agent-cli/src/main.ts")], cwd: root, environment,
     skillsRoot: join(root, "skills"), userSkillsRoot: join(root, "user-skills"), llmConfigRoot: resolve("config/llm"),
     dataRoot: root, legacyWorkspace: { directory: root, worktree: root }, ...(presets ? { mcpServerPresets: presets } : {}),
+    ...(logger ? { logger } : {}),
   });
   runtimes.push(runtime);
   return { runtime, root, configPath, environment };
@@ -67,13 +69,16 @@ test("startup and restart sync through real JSON-RPC; the independent CLI reads 
   } finally { await f.runtime.stop(); await http.stop(true); }
 }, 15_000);
 
-test("a malformed user file fails startup with its actual error and is never overwritten", async () => {
-  const f = fixture([{ name: "skills", enabled: true, transport: "streamable-http", url: "https://example.com/mcp" }]);
+test("a malformed user file is logged with its actual error, left untouched, and does not block startup", async () => {
+  const warnings: { message: string; fields: LogFields | undefined }[] = [];
+  const logger: Logger = { debug() {}, info() {}, error() {}, warn: (message, fields) => { warnings.push({ message, fields }); }, child: () => logger };
+  const f = fixture([{ name: "skills", enabled: true, transport: "streamable-http", url: "https://example.com/mcp" }], logger);
   const contents = '{"servers":[]}';
   writeFileSync(f.configPath, contents);
-  await expect(f.runtime.start()).rejects.toThrow("MCP servers must be an object");
-  expect(f.runtime.isReady).toBe(false);
-  expect(f.runtime.status().message).toContain("MCP servers must be an object");
+  await f.runtime.start();
+  expect(f.runtime.isReady).toBe(true);
+  const warning = warnings.find(entry => entry.message === "mcp_preset_sync_failed");
+  expect(String((warning?.fields?.error as Error | undefined)?.message)).toContain("MCP servers must be an object");
   expect(readFileSync(f.configPath, "utf8")).toBe(contents);
 });
 

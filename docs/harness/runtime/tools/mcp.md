@@ -34,7 +34,7 @@ HTTP 连接和 OAuth 请求统一遵循 Harness 的[环境变量与系统手动�
 
 默认读取数据目录中的 `config/mcp_servers.local.json`；可用 `LXE_MCP_CONFIG_PATH` 指定另一个 JSON 文件。文件不存在或 `servers` 为空时，没有用户配置的服务器。
 
-桌面每次启动 Harness 时，通过 `sync_mcp_server_presets` RPC 传入[产品预置配置](../../../../config/mcp_servers.default.json)。Harness 加锁读取自己的用户配置，补齐缺失的 `team-skills`（默认启用），并同步其 `transport`、`url` 和服务简介（`connector_description`）。已有的启用开关、OAuth 设置、请求头及其他服务保留。配置没有变化时不写文件，损坏的 JSON 或冲突配置报告实际错误，不覆盖原文件。新安装和升级使用同一流程，用户删除的 `team-skills` 会在下次桌面启动时补回；要停用它，请关闭开关。
+桌面每次启动 Harness 时，通过 `sync_mcp_server_presets` RPC 传入[产品预置配置](../../../../config/mcp_servers.default.json)。Harness 加锁读取自己的用户配置，补齐缺失的 `team-skills`（默认启用），并同步其 `transport`、`url` 和服务简介（`connector_description`）。已有的启用开关、OAuth 设置、请求头及其他服务保留。配置没有变化时不写文件，损坏的 JSON 或冲突配置报告实际错误，不覆盖原文件；桌面把该错误记为警告后照常启动，只是本次未补齐预置服务。新安装和升级使用同一流程，用户删除的 `team-skills` 会在下次桌面启动时补回；要停用它，请关闭开关。
 
 同步完成后桌面才进入就绪状态。同步只维护配置，不连接服务、不发起授权；需要登录时仍由用户主动运行登录命令。`team-skills` 写在普通用户配置中，因此独立终端的 `mcp list/login/logout` 也能使用。独立启动 agentcli 不会自行预置产品服务；`lxe_desktop` 仍由桌面在运行时注入，不写入此文件。
 

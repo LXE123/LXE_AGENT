@@ -240,7 +240,14 @@ export class ProcessAgentRuntime implements DirectAgentRuntime {
       }
       if (this.child !== child) throw new AgentProcessError("agent-cli connection changed during initialization");
       if (this.options.mcpServerPresets?.length) {
-        await this.request("sync_mcp_server_presets", { servers: this.options.mcpServerPresets });
+        // Presets only add optional services, so a user file that cannot be reconciled
+        // must not keep the agent from starting. Harness leaves that file untouched.
+        try {
+          await this.request("sync_mcp_server_presets", { servers: this.options.mcpServerPresets });
+        } catch (error) {
+          if (this.child !== child) throw error;
+          this.logger.warn("mcp_preset_sync_failed", { error });
+        }
         if (this.child !== child) throw new AgentProcessError("agent-cli exited during MCP preset synchronization");
       }
       this.setStatus("ready", "agent-cli is ready");
