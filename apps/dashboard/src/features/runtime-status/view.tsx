@@ -9,6 +9,7 @@ import type { DesktopSettingsSection } from "../../desktop/settings-model";
 import { formatDate } from "../../shared/format";
 import { useUiText } from "../../shared/i18n";
 import { ProviderBrandMark } from "../../shared/ui/provider-brand-mark";
+import { currentModelDisplayName } from "../models/model";
 import {
   aggregateAgentState,
   aggregateRuntimeTone,
@@ -156,7 +157,7 @@ export function RuntimeStatusPopover({
             <RuntimeStatusItem
               icon={<ProviderBrandMark provider={currentModel?.provider} size={18} />}
               label={t.home.currentModel}
-              meta={currentModel?.model || t.home.channelStates.unavailable}
+              meta={currentModelDisplayName(currentModel) || t.home.channelStates.unavailable}
               onClick={() => closeAndRun(onOpenModels)}
               provider={currentModel?.provider}
               tone={modelTone}

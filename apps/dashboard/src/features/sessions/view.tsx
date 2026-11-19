@@ -88,6 +88,7 @@ import { useDialogFocus } from "../../shared/ui/use-dialog-focus";
 import { ProviderBrandMark } from "../../shared/ui/provider-brand-mark";
 import {
   conversationModelChoices,
+  currentModelDisplayName,
   modelDisabledReasonLabel,
   modelThinkingLevelLabel,
 } from "../models/model";
@@ -708,7 +709,7 @@ export function ConversationModelPicker({
   const choices = useMemo(() => conversationModelChoices(models), [models]);
   const triggerLabel = loading
     ? t.common.loading
-    : current?.credential_source === "cloud" ? "云端" : current?.model || t.models.modelOptionUnavailable;
+    : current?.credential_source === "cloud" ? "云端" : currentModelDisplayName(current) || t.models.modelOptionUnavailable;
 
   useEffect(() => {
     if (!open) return;

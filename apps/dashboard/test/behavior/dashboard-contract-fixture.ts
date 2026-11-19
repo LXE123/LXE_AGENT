@@ -19,7 +19,7 @@ export function createDashboardContractFixture(calls: Call[]) {
   const models: ModelPayload[] = [
     modelRow("deepseek", "local", "DeepSeek", [modelOption("fixture-model"),
       ...Array.from({length: 14}, (_, i) => modelOption(`catalog-model-${i}`)), modelOption("next-model")]),
-    modelRow("kimi_coding", "local", "Kimi Coding", [modelOption("kimi-model")]),
+    modelRow("kimi_coding", "local", "Kimi Coding", [{ ...modelOption("k3"), display_name: "Kimi K3" }]),
     modelRow("openrouter", "cloud", "OpenRouter", [modelOption("unavailable-model")], false),
   ];
   let current = models[0]!;

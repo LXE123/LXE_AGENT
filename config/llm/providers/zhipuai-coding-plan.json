@@ -9,6 +9,7 @@
   "aliases": ["zhipuai-coding-plan", "zhipu-coding-plan", "zai-coding-cn"],
   "models": {
     "glm-5.3": {
+      "display_name": "GLM-5.3",
       "context_window_tokens": 1000000,
       "max_tokens": 131072,
       "supports_vision": false,
@@ -20,6 +21,7 @@
       "thinking_default": "max"
     },
     "glm-5.3-flash": {
+      "display_name": "GLM-5.3 Flash",
       "context_window_tokens": 1000000,
       "max_tokens": 131072,
       "supports_vision": true,

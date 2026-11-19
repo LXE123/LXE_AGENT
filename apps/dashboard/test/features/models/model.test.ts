@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 
 import {
   conversationModelChoices,
+  currentModelDisplayName,
   groupModelsByProvider,
   modelsInDisplayOrder,
   reconcileShowcaseSelections,
@@ -124,6 +125,15 @@ describe("model display order", () => {
 });
 
 describe("conversation model choices", () => {
+  test("looks up the selected model by ID and falls back for an unknown ID", () => {
+    const model = showcasePayload({
+      provider: "google", credential_source: "local", configured: true, model: "gemini-4-carbon",
+      model_options: [showcaseOption("gemini-4-argon"), { ...showcaseOption("gemini-4-carbon"), display_name: "Gemini 4 Carbon" }],
+    });
+    expect(currentModelDisplayName(model)).toBe("Gemini 4 Carbon");
+    expect(currentModelDisplayName({ ...model, model: "legacy-id" })).toBe("legacy-id");
+  });
+
   test("keeps the cloud entry visible while omitting unavailable local providers", () => {
     expect(conversationModelChoices([
       {
@@ -132,7 +142,7 @@ describe("conversation model choices", () => {
         label: "DeepSeek",
         selectable: true,
         disabled_reason: "",
-        model_options: [{ model: "deepseek-chat" }, { model: "deepseek-reasoner" }],
+        model_options: [{ model: "deepseek-chat", display_name: "DeepSeek Chat" }, { model: "deepseek-reasoner" }],
       },
       {
         provider: "unconfigured",
@@ -161,7 +171,7 @@ describe("conversation model choices", () => {
     ])).toEqual([
       {
         provider: "deepseek", providerLabel: "DeepSeek", model: "deepseek-chat",
-        credentialSource: "local", selectable: true, disabledReason: "", title: "deepseek-chat", subtitle: "DeepSeek",
+        credentialSource: "local", selectable: true, disabledReason: "", title: "DeepSeek Chat", subtitle: "DeepSeek",
       },
       {
         provider: "deepseek", providerLabel: "DeepSeek", model: "deepseek-reasoner",

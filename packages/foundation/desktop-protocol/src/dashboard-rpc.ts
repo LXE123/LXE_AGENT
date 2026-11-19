@@ -28,6 +28,7 @@ export type ThinkingStatePayload = {
 
 export type ModelOptionPayload = {
   model: string;
+  display_name?: string;
   thinking_request_style: string;
   thinking_levels: string[];
   thinking_level_labels: Record<string, string>;

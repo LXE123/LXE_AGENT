@@ -11,7 +11,9 @@
 
 两类来源分别解析。公司模型不可用时返回配置或授权错误，不自动换用个人 Key 或本地默认模型。设备同步、加密缓存、下架与断网处理统一见 [云端接入手册](../../desktop/cloud-access.md)。
 
-使用 OpenAI 项目 Key 时，在「设置 → 模型设置 → 本地模型密钥」选择 OpenAI 并保存 Key，即可在对话栏选择 `gpt-6.2-sol`、`gpt-6.2-astra` 等 GPT-6 型号。独立 CLI 从数据目录的 `config/auth.json` 读取 `openai` 凭据。两个 6.2 型号均使用 272,000 tokens 的本地上下文窗口和 128,000 tokens 的最大输出，推理档位支持 low、medium、high、xhigh、max。完整列表见 [OpenAI 模型配置](../../../config/llm/providers/openai.json)。
+使用 OpenAI 项目 Key 时，在「设置 → 模型设置 → 本地模型密钥」选择 OpenAI 并保存 Key，即可在对话栏选择 GPT-6.2 Sol、GPT-6.2 Astra 等 GPT-6 型号。独立 CLI 从数据目录的 `config/auth.json` 读取 `openai` 凭据。两个 6.2 型号均使用 272,000 tokens 的本地上下文窗口和 128,000 tokens 的最大输出，推理档位支持 low、medium、high、xhigh、max。完整列表见 [OpenAI 模型配置](../../../config/llm/providers/openai.json)。
+
+内置型号通过目录的 `display_name` 指定桌面显示名称。会话偏好、自动化任务和供应商请求都使用目录中的原始模型 ID，例如 `gpt-6.2-sol`。
 
 首次配置个人 OpenAI Key 且尚无 OpenAI 型号偏好时，LXE 选用 `gpt-6.2-sol` 和 `medium`。在聊天里手动切换型号后，新会话会沿用最近一次选择。恢复已有会话时，先用为该会话选定的型号，再回看最近一轮实际使用的型号。详见[会话模型选择](../runtime/session-models.md)。
 

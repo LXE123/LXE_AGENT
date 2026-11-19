@@ -16,6 +16,11 @@ export function modelsInDisplayOrder<T extends Pick<ModelPayload, "provider"> & 
 
 export type CredentialSource = ModelPayload["credential_source"];
 
+export function currentModelDisplayName(current: ModelPayload | null): string {
+  if (!current) return "";
+  return current.model_options.find(option => option.model === current.model)?.display_name ?? current.model;
+}
+
 /** Resolve the exact target; a provider/source can have multiple cloud rows. */
 export function resolveModelSelection(
   models: readonly ModelPayload[],
@@ -112,7 +117,7 @@ export function conversationModelChoices(
         credentialSource: provider.credential_source,
         selectable: provider.selectable,
         disabledReason: provider.disabled_reason,
-        title: provider.credential_source === "cloud" ? "云端" : option.model,
+        title: provider.credential_source === "cloud" ? "云端" : option.display_name ?? option.model,
         subtitle: provider.credential_source === "cloud"
           ? `${provider.label} · ${option.model}`
           : provider.label,
