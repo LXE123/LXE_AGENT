@@ -84,7 +84,7 @@ app.whenReady().then(async () => {
       clipboard.clear();
       win.webContents.sendInputEvent({type:"keyDown",keyCode:"c",modifiers:[process.platform==="darwin"?"meta":"control"]});
       win.webContents.sendInputEvent({type:"keyUp",keyCode:"c",modifiers:[process.platform==="darwin"?"meta":"control"]});
-      await delay(150); assert.ok(clipboard.readText().length > 0, "selection copies actual cell content");
+      await delay(150); assert.ok((await clipboard.readText()).length > 0, "selection copies actual cell content");
       await js("document.querySelector('[role=separator]').dispatchEvent(new KeyboardEvent('keydown',{key:'ArrowLeft',bubbles:true}))");
       await delay(200); assert.equal(await js("Math.round(document.querySelector('.file-sidebar').getBoundingClientRect().width)"),440);
       assert.equal(await js("document.querySelector('#draft').value"), "keep this draft");
@@ -149,12 +149,12 @@ app.whenReady().then(async () => {
       clipboard.clear(); await click(".file-text-actions button"); await wait("document.querySelector('.file-text-actions button')?.textContent.includes('已复制')", "copy completed");
       const partial = await js("window.copiedPreviewText");
       assert.ok(partial.startsWith('# Preview heading\n')); assert.equal(partial.includes('const last = 2;'),false);
-      assert.equal(clipboard.readText().replaceAll('\r\n', '\n'), partial);
+      assert.equal((await clipboard.readText()).replaceAll('\r\n', '\n'), partial);
       await click(".file-load-more"); await wait("document.querySelector('.file-text code')?.textContent.includes('const last = 2;')", "second page");
       await click(".file-text-actions button");
       const complete = await js("window.copiedPreviewText");
       assert.ok(complete.endsWith('const last = 2;\n' + String.fromCharCode(96).repeat(3) + '\n'));
-      assert.equal(clipboard.readText().replaceAll('\r\n', '\n'), complete);
+      assert.equal((await clipboard.readText()).replaceAll('\r\n', '\n'), complete);
       await js("var s=document.querySelector('.file-document-toolbar select');s.value='rendered';s.dispatchEvent(new Event('change',{bubbles:true}))");
       await wait("document.querySelector('.file-markdown pre')?.textContent.includes('const last = 2;')", "cross-page fence");
     });
