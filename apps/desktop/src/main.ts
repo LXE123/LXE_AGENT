@@ -13,6 +13,8 @@ import { readFileSync } from "node:fs";
 import { prepareUpdate } from "./main/update-preparation";
 import { DesktopUpdateService } from "./main/update-service";
 import { ElectronUpdateInstaller } from "./main/update-electron";
+import { cleanUpdateCache } from "./main/update-cache";
+import { getAppCacheDir } from "electron-updater/out/AppAdapter";
 import { DesktopUpdateApi, UpdateConnectionMonitor, updateConnectionReady } from "./main/update-api";
 import { join } from "node:path";
 import {
@@ -451,6 +453,10 @@ async function bootstrap(): Promise<void> {
   const updateJournal = new UpdateJournal(join(paths.dataRoot, "updates", "last-attempt.json"));
   const installedBuild = updateSupported ? JSON.parse(readFileSync(join(app.getAppPath(), "package.json"), "utf8")).lxeBuildId as string | undefined : undefined;
   const lastAttempt = updateJournal.previous(app.getVersion(), installedBuild);
+  const updateCacheCleanup = updateSupported ? cleanUpdateCache(getAppCacheDir(), app.getVersion()).then(({removed, failed}) => {
+    if (removed.length) logger.info("desktop_update_cache_removed", {removed});
+    if (failed.length) logger.error("desktop_update_cache_cleanup_failed", {failed});
+  }) : Promise.resolve();
   let gatewayStopStarted = false;
   const updates = new DesktopUpdateService({
     ...(lastAttempt ? {lastAttempt} : {}),
@@ -459,7 +465,7 @@ async function bootstrap(): Promise<void> {
     supported: updateSupported,
     configured: () => updateConnectionReady(cloud.state()),
     api: new DesktopUpdateApi(() => cloud.state(), app.getVersion(), installedBuild),
-    installer: updateSupported ? new ElectronUpdateInstaller(error => activeUpdates?.recordFailure(error), message => logger.info("desktop_update_download", {message})) : {
+    installer: updateSupported ? new ElectronUpdateInstaller(error => activeUpdates?.recordFailure(error), message => logger.info("desktop_update_download", {message}), updateCacheCleanup) : {
       download: async () => { throw new Error("Updates unsupported"); },
       verify: async () => {}, install: () => {},
     },
