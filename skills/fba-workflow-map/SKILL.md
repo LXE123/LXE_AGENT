@@ -1,98 +1,34 @@
 ---
 name: fba-workflow-map
-description: FBA 模块路由图。用户询问 FBA skill 关系、FBA 流程、ERP 期初库存初始化和历史库存补录边界、采购批次与 FIFO 抵扣、只有 SP 单号该跑哪个、发货单 CSV 和 WMS 装箱 Excel 区别、上传真实发货量到 ERP、发票报关流程、采购汇总表生成、采购合同填写、备货单生成、退税流程时使用；这是路由/解释 skill，不直接执行 CLI。
+description: FBA 模块路由图。用户询问 FBA skill 关系、FBA 全流程、ERP 期初库存初始化和历史库存补录边界、只有 SP 单号该跑哪个、发货单 CSV 和 WMS 装箱 Excel 区别、采购与留存结算、建货件、发票报关或退税流程时使用；这是路由/解释 skill，不直接执行 CLI。
 type: amazon_fba
 ---
 
-# FBA Workflow Map
+# FBA 流程导览
 
-根据用户任务说明相关子流程，再按下表转到具体业务 Skill 或管理员入口执行。
+根据用户任务说明相关子流程，再按下表转到对应的 FBA Skill 或管理员入口。只有 `SP...` 单号但未说明用途时，先确认是导数据、采购、建货件、核销对账还是做单证/退税。
 
-## Terminology
-
-| Term | Meaning | Skill |
-|---|---|---|
-| FBA 发货单 / 发货单 SKU 数据 / 发货单表格 | 马帮 FBA 发货单导出的 SKU CSV | `mabang-delivery-export` |
-| WMS 装箱数据 / 托运单 Excel / 装箱 Excel | 马帮 WMS 托运单装箱数据 | `mabang-delivery-packing-list-export` |
-| 出口退税总表 | 用户提供的库存 SKU、产品名称、型号、原价、厂家总表 | `fba-purchase-summary-create` / `fba-restock-workbook-create` |
-| 期初库存表 / 进销存表 | ERP 上线前人工维护的历史合同、单价和剩余量 | 后端服务器管理员使用 `lxe-erp-admin`（非 Skill） |
-| 历史库存增量表 | ERP 上线前合同中因当时缺少装箱数据而未进入期初库存的历史 SP 剩余量 | ERP“留存库存”页管理员使用“补录历史库存”（非 Skill） |
-| 合同汇总模板 | 用户提供的采购合同模板 xlsx，一个 sheet 对应一个公司/厂家 | `fba-purchase-summary-create` |
-| Amazon FBA 创建货件 | 在 Seller Central 上传装箱并推进四阶段流程 | `fba-shipment-create` |
-
-只有 `SP...` 单号但没有说明“发货单”或“装箱/WMS/托运单”时，先确认用途。
-
-## Skill Map
+## 全流程关系图
 
 ```mermaid
 flowchart TD
-  A["mabang-delivery-export<br/>FBA 发货单 SKU CSV"] --> B["mabang-delivery-inventory-sku-export<br/>库存 SKU"]
-  A --> C["mabang-delivery-msku-export<br/>MSKU 明细"]
-  A --> D["fba-invoice-template-fill<br/>发票导入模板"]
-  A -->|MSKU发货量| R["fba-erp-packing-upload<br/>ERP 真实发货量与库存 SKU 对账"]
-
-  E["mabang-delivery-packing-list-export<br/>WMS 装箱数据"] --> F["fba-shipment-create<br/>Amazon FBA 创建货件"]
-  E --> D
-  L["备货单 xlsx"] --> D
-  A -->|重新下载 MSKU发货量| V["ERP 报关只读计算"]
-  V --> H["fba-customs-declaration-fill<br/>缺货预览 → 用户确认 → 报关资料"]
-  E -->|仅箱数与毛重| H
-  L -->|汇总表售价| H
-
-  A --> I["fba-export-tax-delivery-summary<br/>发货单退税汇总"]
-  J["fba-export-tax-products-manage<br/>退税白名单"] --> I
-  A --> M["fba-purchase-summary-create<br/>采购汇总表+批量备货单+正式合同"]
-  N["出口退税总表 xlsx"] --> M
-  Q["合同汇总模板 xlsx"] --> M
-  X["历史进销存 xlsx"] --> Y["后端管理员 lxe-erp-admin<br/>一次性期初库存（非 Skill）"]
-  Y --> M
-  Z["历史库存增量 xlsx"] --> W["ERP 留存库存页管理员<br/>补录历史库存（非 Skill）"]
-  W --> M
-  M --> R
-  A --> O["fba-restock-workbook-create<br/>单 SP 备货单兼容生成"]
-  N --> O
+  D["mabang-delivery-data<br/>马帮发货单 CSV / WMS 装箱 / 库存 SKU / MSKU"] -->|发货单 CSV| P["fba-purchase<br/>采购汇总·备货单·合同 / 批次重出 / 实发对账"]
+  D -->|WMS 装箱| S["fba-shipment-create<br/>Amazon FBA 创建货件（配合 ziniao-browser）"]
+  D -->|发货单 CSV + WMS 装箱| C["fba-customs-invoice<br/>报关资料（两阶段）与发票模板"]
+  D -->|发货单 CSV| T["fba-export-tax<br/>退税白名单与发货单退税汇总"]
+  X["历史进销存 / 增量 xlsx"] --> Y["ERP 管理员操作（非 Skill）<br/>期初库存 lxe-erp-admin / 留存页补录"] --> P
 ```
 
-## Entry Decision Table
+## 路由与术语对照表
 
-| User need | Route to |
-|---|---|
-| 下载 FBA 发货单、发货单 SKU CSV、SP 发货单表格 | `mabang-delivery-export` |
-| 下载 WMS 装箱数据、托运单 Excel、装箱 Excel | `mabang-delivery-packing-list-export` |
-| 上传真实发货量、同步发货数据到 ERP、生成装箱对账 | `fba-erp-packing-upload` |
-| 将现有进销存表初始化为 ERP 历史库存 | 说明这是部署前的一次性管理操作；由后端服务器管理员执行 `lxe-erp-admin opening-inventory` |
-| 补录 ERP 上线前、尚未进入期初库存的历史 SP 剩余库存 | 说明这是 ERP“留存库存”页的管理员操作；使用“补录历史库存”，不执行 Agent Skill |
-| 创建 Amazon FBA 货件、上传装箱、确认承运人、填追踪号 | `fba-shipment-create` |
-| 按发货单准备库存 SKU Excel | `mabang-delivery-inventory-sku-export` |
-| 下载 MSKU 明细、发票前准备 MSKU 数据 | `mabang-delivery-msku-export` |
-| 填写 invoice_Template、生成发票导入表 | `fba-invoice-template-fill` |
-| 填写报关资料、生成报关单/发票/箱单/合同 | `fba-customs-declaration-fill` |
-| 按一批发货单、出口退税总表和合同模板生成采购汇总表、批量备货单、正式合同 | `fba-purchase-summary-create` |
-| 生成正式采购合同 | `fba-purchase-summary-create`；合同由正式采购流程在本地一并生成，不再单独执行合同 Skill |
-| 按 ERP 采购批次号重新生成采购汇总、备货单和正式合同 | `fba-purchase-files-regenerate`；只读取当前有效版本并覆盖生成全部采购文件 |
-| 明确只按单个发货单独立生成备货单，且不需要整批正飞均价 | `fba-restock-workbook-create` |
-| 维护可退税 SKU 白名单 | `fba-export-tax-products-manage` |
-| 统计某个发货单的退税 SKU | `fba-export-tax-delivery-summary` |
-
-## Subflows
-
-| Subflow | Skills |
-|---|---|
-| 发货单数据 | `mabang-delivery-export` |
-| 装箱与货件创建 | `mabang-delivery-packing-list-export` -> `ziniao-browser` -> `fba-shipment-create` |
-| ERP 真实发货量 | 本地最新 FBA 发货单 CSV 的 `MSKU发货量` -> `fba-erp-packing-upload` 预览并经用户确认 -> ERP 按采购批次 MSKU 映射展开库存 SKU 并对账 |
-| ERP 期初库存 | 历史进销存 xlsx -> 后端管理员 CLI 预览 -> SHA-256 确认 -> FIFO 库存批次 |
-| ERP 历史库存补录 | 历史增量 xlsx -> ERP 留存库存页管理员预览 -> SHA-256 确认 -> FIFO 库存批次 |
-| 发票资料 | 备货单 + FBA 发货单 CSV + 本地 WMS 装箱数据 -> `fba-invoice-template-fill` |
-| 报关资料 | 备货单售价 + 最新发货单 CSV -> ERP 只读计算；结合 WMS 箱重，预览各型号缺货，经用户确认后生成 |
-| 采购文件预览 | 一批 FBA 发货单 CSV + 出口退税总表 + 合同汇总模板 + 毛利率 -> ERP 只读计算（默认 FIFO；用户明确要求时可不扣库存）-> `fba-purchase-summary-create --preview` 生成带占位合同号的完整预览文件；不创建批次或占库存 |
-| 正式采购文件生成 | 一批 FBA 发货单 CSV + 出口退税总表 + 合同汇总模板 + 毛利率 -> ERP 默认 FIFO，或按用户明确要求使用 `--inventory-deduction-mode none` 全量采购 -> `fba-purchase-summary-create` 一次生成采购汇总表、批量备货单和正式合同 |
-| 正式采购文件重新生成 | ERP 采购批次号 + 本机当前合同模板 -> `fba-purchase-files-regenerate` 只读取得冻结数据并覆盖生成采购汇总、备货单和合同 |
-| 单 SP 备货单兼容生成 | 单个 FBA 发货单 CSV + 出口退税总表 + 毛利率 -> `fba-restock-workbook-create` |
-| 出口退税 | `fba-export-tax-products-manage` -> `fba-export-tax-delivery-summary` |
-
-马帮下载步骤使用配置的马帮账号，由 CLI 管理认证；后续 Amazon Seller Central 货件创建使用紫鸟中的卖家店铺会话。
-
-ERP 实发量应使用仓库回填后重新导出的 FBA 发货单 CSV；同一 SP 有多份导出时，CLI 取最新一份。WMS 装箱 Excel 用于创建货件、发票和报关。
-
-日常正式采购流程应走 `fba-purchase-summary-create`，默认先由 ERP 确认 FIFO 库存抵扣；只有用户明确要求不使用留存库存或按计划全量采购时才使用 `--inventory-deduction-mode none`。随后由本地一次生成采购汇总表、备货单和正式合同；需要先看结果时用同一 Skill 的 `--preview`，正式执行重新计算并保持同一库存路线。正飞 `均价` 只按整批 SP 的本次新采购量计算。`fba-restock-workbook-create` 作为单 SP 备货单兼容入口。
+| 业务需求 / 术语 | 路由去向 | 关键说明 |
+|---|---|---|
+| 下载 FBA 发货单 CSV、WMS 装箱 Excel、库存 SKU 表、MSKU 明细 | `mabang-delivery-data` | 发货单 CSV（`MSKU发货量`）供采购、实发对账、退税共用；WMS Excel 供建货件、发票、报关使用 |
+| 按一批 SP 生成采购汇总表、备货单与正式合同（或 `--preview` 预览） | `fba-purchase` | 需出口退税总表和合同模板（长期资产）；默认走 ERP FIFO 抵扣，仅用户明确要求时 `--inventory-deduction-mode none`；正飞均价按整批新采购量计算 |
+| 按 ERP 批次号 `PB...` 重出采购汇总/备货单/合同，或单 SP 备货单兼容生成 | `fba-purchase` | 重出文件只读 ERP 冻结快照；单 SP 备货单兼容入口不出合同、不写 ERP |
+| 上传真实发货量到 ERP、库存 SKU 对账、留存库存结算或预览 | `fba-purchase` | 读取默认最新发货单 CSV 或 `--delivery-csv` 指定的用户修订版 `MSKU发货量`，先预览再经用户确认写入 |
+| 创建 Amazon FBA 货件（上传装箱、多包装箱、确认承运人、填追踪号） | `fba-shipment-create` | 先经 `ziniao-browser` 获取运行中 `store_id`，再执行四阶段 CLI |
+| 填写报关资料（申报要素/报关单/发票/箱单/合同）或 `invoice_Template` | `fba-customs-invoice` | 报关：汇总表售价 + 自动重下发货单经 ERP 预览后生成 + WMS 取箱重；发票：单 SP 备货单 + 本地 CSV + WMS 分箱实发量 |
+| 维护出口退税白名单或统计发货单退税 SKU | `fba-export-tax` | 共享出口退税产品白名单（长期资产） |
+| 初始化 ERP 期初库存（历史进销存表） | 非 Agent Skill | 部署前一次性管理操作，由后端服务器管理员执行 `lxe-erp-admin opening-inventory` |
+| 补录 ERP 上线前历史 SP 剩余库存（历史库存增量表） | 非 Agent Skill | 在 ERP「留存库存」页由管理员执行「补录历史库存」 |

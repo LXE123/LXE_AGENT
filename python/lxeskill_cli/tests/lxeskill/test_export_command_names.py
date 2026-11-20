@@ -43,7 +43,14 @@ def test_commands_dispatch_with_flags_only(name, command, options, monkeypatch, 
     entry = load_catalog()[name]
     assert entry["input_modes"] == ["flags"]
     assert not entry.get("legacy_aliases")
-    assert entry["owner_skills"] == ["vietnam-replenishment" if command.startswith("vietnam") else command.replace(" ", "-")]
+    expected_owner = (
+        "vietnam-replenishment"
+        if command.startswith("vietnam")
+        else "mabang-delivery-data"
+        if command.startswith("mabang delivery ")
+        else command.replace(" ", "-")
+    )
+    assert entry["owner_skills"] == [expected_owner]
     assert cli.main([*command.split(), "--help"]) == 0
 
 

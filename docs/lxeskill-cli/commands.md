@@ -79,7 +79,7 @@ FBA：发货、采购、装箱、货件及相关单据
   fba shipment enter-tracking-codes  填写追踪号
   fba shipment prepare-multi-box     准备多包装箱文件
   fba shipment prepare-upload        准备货件上传
-  fba erp packing-upload             预览并确认实际发货量上传到 ERP
+  fba erp packing-upload             预览 SP 实发量（可指定发货单 CSV），确认后上传到 ERP
 
 以上为现有完整命令路径，执行时加 lxeskill 前缀；不需要再加业务分组名。
 使用 lxeskill <完整命令> --help 查看参数和示例。
