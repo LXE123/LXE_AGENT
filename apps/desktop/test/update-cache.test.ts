@@ -14,7 +14,8 @@ function fixture(pendingInfo?:string){
 const info=(version:string)=>JSON.stringify({fileName:`LXE-Agent-${version}-windows-x64.exe`,sha512:"x",isAdminRightsRequired:false});
 
 test("cache directory matches the packaged updater configuration",()=>{
- expect(readFileSync(join(import.meta.dir,"../resources/app-update.yml"),"utf8")).toContain(`updaterCacheDirName: ${UPDATE_CACHE_DIR}\n`);
+ const config = Bun.YAML.parse(readFileSync(join(import.meta.dir,"../resources/app-update.yml"),"utf8"));
+ expect(config).toHaveProperty("updaterCacheDirName", UPDATE_CACHE_DIR);
 });
 
 test("installed, older and unreadable pending downloads are removed while the differential base stays",async()=>{
