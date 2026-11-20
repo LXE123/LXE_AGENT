@@ -285,7 +285,7 @@ def test_task_deadline_stops_and_reports(monkeypatch,tmp_path):
 
 def test_cli_partial_result_preserves_successful_attachments(monkeypatch,tmp_path,capsys):
     from lxeskill import cli
-    from services.agent_cli.mabang import brazil_overseas_export as adapter
+    from services.commands.mabang import brazil_overseas_export as adapter
     from shared.workspace import activate_external_workspace,activate_project_workspace,artifact_root
     try:
         monkeypatch.setenv('LXE_DATA_ROOT',str(tmp_path/'var'))

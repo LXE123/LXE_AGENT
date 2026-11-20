@@ -15,10 +15,9 @@ import { ChannelRegistry, type ChannelAdapter } from "../channels/registry";
 import { GatewayEmitter } from "../channels/emitter";
 import { FeishuAdapter, type FeishuAdapterOptions } from "../channels/feishu/adapter";
 import { GatewayLifecycle } from "./lifecycle";
-import { HeartbeatBridge, type HeartbeatClock } from "./heartbeat-bridge";
 import { SessionRouter } from "./router";
 import { DesktopConversationChannel, LocalConversationController } from "./local-conversation";
-import { HeartbeatWakeQueue, RunHandle, SessionScheduler, type RuntimePort, type SteeringMessage } from "./scheduler";
+import { RunHandle, SessionScheduler, type RuntimePort, type RoutedSteeringMessage } from "./scheduler";
 import { SessionBindingStore } from "../state/session-bindings";
 import { SessionRuntimeState } from "../state/session-state";
 import { SessionStatusCoordinator } from "./session-status";
@@ -34,7 +33,7 @@ export interface DirectAgentRuntime {
   stop(): Promise<void>;
   runTurn(job: AgentJob, handle: RunHandle): Promise<DirectRuntimeOutcome>;
   cancelTurn?(handle: RunHandle, reason?: "user_stop"): Promise<void>;
-  steerTurn?(handle: RunHandle, message: Required<SteeringMessage>): Promise<void>;
+  steerTurn?(handle: RunHandle, message: RoutedSteeringMessage): Promise<void>;
 }
 
 export interface DirectGatewayStorage {
@@ -45,8 +44,6 @@ export interface DirectGatewayStorage {
     source: JsonObject;
     workspace: WorkspaceContext;
   } | undefined>;
-  appendPendingEvent(sessionId: string, event: JsonObject): Promise<void>;
-  hasPendingEvents(sessionId: string): Promise<boolean>;
   getResponseRoute(responseRouteId: string): Promise<ResponseRouteRecord | undefined>;
   patchResponseRoute(responseRouteId: string, update: ResponseRoutePatch): Promise<void>;
 }
@@ -61,7 +58,6 @@ export interface DirectGatewayCompositionOptions {
   bootId?: string;
   channels?: readonly ChannelAdapter[];
   feishu?: Omit<FeishuAdapterOptions, "store" | "hasInflight">;
-  heartbeatClock?: HeartbeatClock;
   onRunFailure?: (handle: RunHandle, error: Error) => void;
   onObserverError?: (error: Error) => void;
   onConversationActivity?: (activity: DesktopConversationActivityPayload) => void;
@@ -78,8 +74,6 @@ export interface DirectGatewayComposition {
     router: SessionRouter;
     conversations: LocalConversationController;
     sessionStatus?: SessionStatusCoordinator;
-    heartbeatQueue: HeartbeatWakeQueue;
-    heartbeatBridge: HeartbeatBridge;
     channels: ChannelRegistry;
     lifecycle: GatewayLifecycle;
     emitter?: GatewayEmitter;
@@ -120,7 +114,7 @@ export function createDirectGatewayComposition(options: DirectGatewayComposition
               job_id: handle.jobId,
               status: outcome.status,
               remaining_steering: outcome.remaining_steering.map((item) => ({
-                text: item.text,
+                ...item,
                 response_route_id: item.response_route_id ?? "",
                 message_id: item.message_id ?? "",
               })),
@@ -143,8 +137,9 @@ export function createDirectGatewayComposition(options: DirectGatewayComposition
       if (options.runtime.cancelTurn) await options.runtime.cancelTurn(handle, reason);
       await handle.abort(reason);
     },
-    steerTurn: async (handle, message: Required<SteeringMessage>) => {
-      await options.runtime.steerTurn?.(handle, message);
+    steerTurn: async (handle, message: RoutedSteeringMessage) => {
+      if (!options.runtime.steerTurn) throw new Error("agent-cli steering is unavailable");
+      await options.runtime.steerTurn(handle, message);
     },
   };
   scheduler = new SessionScheduler({
@@ -166,18 +161,6 @@ export function createDirectGatewayComposition(options: DirectGatewayComposition
     scheduler.setRuntimeReady(options.runtime.isReady);
   };
 
-  const heartbeatQueue = new HeartbeatWakeQueue({
-    scheduler,
-    hasPendingEvents: (sessionId) => options.storage.hasPendingEvents(sessionId),
-    loadSession: (sessionId) => options.storage.getSession(sessionId),
-    isSuspended: (sessionId) => runtimeState.isAutonomySuspended(sessionId),
-  });
-  const heartbeatBridge = new HeartbeatBridge({
-    queue: heartbeatQueue,
-    ...(options.heartbeatClock ? { clock: options.heartbeatClock } : {}),
-    ...(options.onObserverError ? { onError: options.onObserverError } : {}),
-  });
-
   if (options.feishu) {
     channels.register(new FeishuAdapter({
       ...options.feishu,
@@ -189,7 +172,6 @@ export function createDirectGatewayComposition(options: DirectGatewayComposition
   conversations = new LocalConversationController({
     storage: options.storage,
     scheduler,
-    runtimeState,
     defaultWorkspace: options.defaultWorkspace,
     ...(options.onConversationActivity ? { onActivity: options.onConversationActivity } : {}),
     ...(options.onConversationStreamBatch ? { onStreamBatch: options.onConversationStreamBatch } : {}),
@@ -230,7 +212,6 @@ export function createDirectGatewayComposition(options: DirectGatewayComposition
     state: bindings,
     runtime: runtimeLifecycle,
     scheduler,
-    heartbeat: heartbeatBridge,
     channels,
     inbound: (event) => router.routeMessage(event).then(() => undefined),
   });
@@ -242,8 +223,6 @@ export function createDirectGatewayComposition(options: DirectGatewayComposition
     router,
     conversations,
     ...(sessionStatus ? {sessionStatus} : {}),
-    heartbeatQueue,
-    heartbeatBridge,
     channels,
     lifecycle,
     ...(emitter ? { emitter } : {}),

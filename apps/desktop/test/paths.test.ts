@@ -22,11 +22,10 @@ describe("desktop private runtime paths", () => {
     });
 
     expect(paths.resourceRoot).toBe(sourceRoot);
-    expect(paths.agentSoulPath).toBe(posix.join(sourceRoot, "SOUL.md"));
     expect(paths.skillsRoot).toBe(posix.join(sourceRoot, "skills"));
     expect(paths.userSkillsRoot).toBe(posix.join(sourceRoot, "var", "skills"));
     expect(paths.llmConfigRoot).toBe(posix.join(sourceRoot, "config", "llm"));
-    expect(paths.mcpDefaultPath).toBe(posix.join(sourceRoot, "config", "mcp_servers.default.yaml"));
+    expect(paths.mcpDefaultPath).toBe(posix.join(sourceRoot, "config", "mcp_servers.default.json"));
     expect(paths.projectRoot).toBe(sourceRoot);
     expect(paths.dataRoot).toBe(posix.join(sourceRoot, "var"));
     expect(paths.defaultWorkspaceRoot).toBe(posix.join(sourceRoot, "var", "workspace"));
@@ -56,17 +55,16 @@ describe("desktop private runtime paths", () => {
 
     expect(paths.projectRoot).toBe("D:\\Apps\\LXE Agent");
     expect(paths.resourceRoot).toBe(root);
-    expect(paths.agentSoulPath).toBe(win32.join(root, "agent", "SOUL.md"));
     expect(paths.skillsRoot).toBe(win32.join(root, "skills"));
     expect(paths.userSkillsRoot).toBe(win32.join(paths.dataRoot, "skills"));
     expect(paths.llmConfigRoot).toBe(win32.join(root, "config", "llm"));
-    expect(paths.mcpDefaultPath).toBe(win32.join(root, "config", "mcp_servers.default.yaml"));
+    expect(paths.mcpDefaultPath).toBe(win32.join(root, "config", "mcp_servers.default.json"));
     expect(paths.dataRoot).toBe("C:\\Users\\tester\\AppData\\Local\\LXE Agent");
     expect(paths.defaultWorkspaceRoot).toBe(win32.join(paths.dataRoot, "workspace"));
     expect(paths.agentCommand).toBe(win32.join(root, "runtime", "agent-cli", "agent-cli.exe"));
     expect(paths.agentArguments).toEqual([]);
-    expect(paths.lxeskillModulePath).toBe(
-      win32.join(root, "runtime", "python", "Lib", "site-packages", "lxeskill", "__init__.py"),
+    expect(paths.lxeskillExecutablePath).toBe(
+      win32.join(root, "runtime", "python", "lxeskill.exe"),
     );
     expect(paths.exifToolPath).toBe(
       win32.join(root, "runtime", "tools", "exiftool", "exiftool.exe"),

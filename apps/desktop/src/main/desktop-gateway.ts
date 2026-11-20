@@ -1,3 +1,6 @@
+import { DesktopAutomations } from "./automations";
+import { loadDesktopMcpPresets } from "./mcp-presets";
+import { DESKTOP_MCP_NAME, AUTOMATION_OPERATIONS, type AutomationOperation } from "@lxe/desktop-protocol";
 import { FilePreviewService } from "./file-preview/service";
 import { OfficePreviewCache } from "./file-preview/office-cache";
 import type { DesktopFileCall, DesktopFileOperations } from "@lxe/desktop-protocol";
@@ -24,7 +27,7 @@ import type {
   SessionWorkspaceRequest,
   WorkspaceContext,
 } from "@lxe/protocol";
-import { createLogger, resolveWorkspaceContext } from "@lxe/core";
+import { createLogger, resolveWorkspaceContext, withExecutablePath, managedPythonEnvironment } from "@lxe/core";
 import {
   createDirectGatewayComposition,
   loadFeishuConfig,
@@ -90,14 +93,6 @@ class SplitGatewayStorage implements DirectGatewayStorage {
     }
   }
 
-  appendPendingEvent(sessionId: string, event: JsonObject): Promise<void> {
-    return this.agent.appendPendingEvent(sessionId, event);
-  }
-
-  hasPendingEvents(sessionId: string): Promise<boolean> {
-    return this.agent.hasPendingEvents(sessionId);
-  }
-
   getResponseRoute(responseRouteId: string): Promise<ResponseRouteRecord | undefined> {
     return this.gateway.getResponseRoute(responseRouteId);
   }
@@ -129,8 +124,10 @@ export interface DesktopGatewayOptions {
   onManagedLlmAuthenticationFailure?: (revision: string) => Promise<void> | void;
 }
 
+
 export class DesktopGateway {
   private updatePreparing = false;
+  private automations: DesktopAutomations | undefined;
   private readonly imageProcessor = new ElectronInboundImageProcessor();
   private composition: DirectGatewayComposition | undefined;
   private runtime: ProcessAgentRuntime | undefined;
@@ -169,6 +166,7 @@ export class DesktopGateway {
     });
   }
   fileCall<K extends keyof DesktopFileOperations>(call: DesktopFileCall<K>): Promise<DesktopFileOperations[K]["result"]> { return this.fileService().call(call); }
+  clickedFileLink(session: string, path: string): void { this.fileService().clickedFileLink(session, path); }
   fileRead(handle: string, relativeImage?: string): Promise<Uint8Array> { return this.fileService().read(handle, relativeImage); }
   htmlPreviewDocument(token: string): Promise<string> { return this.fileService().htmlDocument(token); }
   releaseFilePreviews(): void { this.files?.releaseAll(); }
@@ -192,10 +190,9 @@ export class DesktopGateway {
       delete target.LXE_ROOT;
       delete target.LXE_RESOURCE_ROOT;
     }
-    const environment: Record<string, string | undefined> = {
+    const environment: Record<string, string | undefined> = withExecutablePath(managedPythonEnvironment({
       ...withoutDataServerEnvironment(processEnvironment),
       ...withoutDataServerEnvironment(configuredEnvironment),
-      LXE_AGENT_SOUL_PATH: this.options.paths.agentSoulPath,
       LXE_SKILLS_ROOT: this.options.paths.skillsRoot,
       LXE_USER_SKILLS_ROOT: this.options.paths.userSkillsRoot,
       LXE_LLM_CONFIG_ROOT: this.options.paths.llmConfigRoot,
@@ -206,7 +203,7 @@ export class DesktopGateway {
       TEMP: join(this.options.paths.dataRoot, "tmp"),
       TMPDIR: join(this.options.paths.dataRoot, "tmp"),
       AGENT_SESSION_BINDINGS_PATH: join(this.options.paths.dataRoot, "db", "sessions.json"),
-      LXE_MCP_CONFIG_PATH: join(this.options.paths.dataRoot, "config", "mcp_servers.local.yaml"),
+      LXE_MCP_CONFIG_PATH: join(this.options.paths.dataRoot, "config", "mcp_servers.local.json"),
       LXE_MANAGED_PATH: this.options.paths.managedPath,
       LXE_FD_PATH: this.options.paths.fdPath,
       LXE_MANAGED_PYTHON: this.options.paths.managedPythonPath,
@@ -232,15 +229,15 @@ export class DesktopGateway {
         managedEnvironment: configuredEnvironment,
         machineIdentityPath: join(this.options.paths.dataRoot, "db", "machine_identity.json"),
       }),
-    };
+    }), this.options.paths.managedPath);
     void this.lxeskillHealth?.stop();
     this.lxeskillQueryOptions = {
-      pythonPath: this.options.paths.managedPythonPath, cwd: this.options.paths.dataRoot, environment,
+      executablePath: this.options.paths.lxeskillExecutablePath, cwd: this.options.paths.dataRoot, environment: { ...environment },
     };
     this.lxeskillHealth = new DesktopLxeSkillHealth({
-      pythonPath: this.options.paths.managedPythonPath,
+      executablePath: this.options.paths.lxeskillExecutablePath,
       dataRoot: this.options.paths.dataRoot,
-      environment,
+      environment: { ...environment },
       recovery: this.options.packaged ? "Reinstall or rebuild LXE Agent"
         : `Run uv sync --frozen --all-groups --python 3.12.10 in ${this.options.paths.sourceRoot}`,
       onChanged: () => this.publishHealth(),
@@ -248,12 +245,12 @@ export class DesktopGateway {
     const feishu = loadFeishuConfig(environment);
     const allowedSkillTypes = this.options.allowedSkillTypes();
     let composition: DirectGatewayComposition | undefined;
+    const agentEnvironment = { ...environment };
     const runtime = new ProcessAgentRuntime({
       command: this.options.paths.agentCommand,
       arguments: this.options.paths.agentArguments,
       cwd: this.options.paths.dataRoot,
-      environment,
-      agentSoulPath: this.options.paths.agentSoulPath,
+      environment: agentEnvironment,
       skillsRoot: this.options.paths.skillsRoot,
       userSkillsRoot: this.options.paths.userSkillsRoot,
       llmConfigRoot: this.options.paths.llmConfigRoot,
@@ -261,6 +258,7 @@ export class DesktopGateway {
       legacyWorkspace,
       allowedSkillTypes,
       managedLlmState: this.options.config.managedLlmState(),
+      mcpServerPresets: loadDesktopMcpPresets(this.options.paths.mcpDefaultPath),
       onEmit: async (request) => {
         const emitter = composition?.parts.emitter;
         if (!emitter) throw new Error("Gateway emitter is unavailable");
@@ -275,7 +273,6 @@ export class DesktopGateway {
       onTyping: async (request) => {
         await composition?.parts.emitter?.typing(request);
       },
-      onWake: (request) => composition?.parts.heartbeatBridge.handle(request),
       onEvent: (event) => {
         if (event.type === "managed_llm.authentication_failed") {
           void this.options.onManagedLlmAuthenticationFailure?.(
@@ -342,7 +339,19 @@ export class DesktopGateway {
     this.composition = composition;
     try {
       void this.lxeskillHealth.check();
+      this.automations = new DesktopAutomations({
+        timeWorker: this.options.packaged ? join(process.resourcesPath, "app.asar.unpacked", "dist", "automation-time-worker.mjs")
+          : join(this.options.paths.sourceRoot, "apps", "desktop", "dist", "automation-time-worker.mjs"),
+        store: store.automations!, composition, runtime, environment: agentEnvironment,
+        node: this.options.paths.officeNodePath,
+        script: this.options.packaged ? join(process.resourcesPath, "app.asar.unpacked", "dist", "desktop-mcp.mjs")
+          : join(this.options.paths.sourceRoot, "apps", "desktop", "dist", "desktop-mcp.mjs"),
+        changed: () => this.options.onDashboardInvalidated?.(["automations"], []),
+        onError: error => createLogger("desktop.automations").error("automation_dispatch_error", { error }),
+      });
+      await this.automations.openPipe();
       await composition.start();
+      this.automations.service.start();
       this.gatewayState = "ready";
       this.lastError = "";
       this.publishHealth();
@@ -351,6 +360,7 @@ export class DesktopGateway {
       this.lastError = error.message;
       this.gatewayState = "error";
       await Promise.allSettled([composition.stop()]);
+      await this.closeDesktopPipes();
       store.stop();
       this.composition = undefined;
       this.runtime = undefined;
@@ -375,7 +385,12 @@ export class DesktopGateway {
     return () => { this.updatePreparing = false; release(); };
   }
 
+  private async closeDesktopPipes(): Promise<void> {
+    await this.automations?.close(); this.automations = undefined;
+  }
+
   async stop(strict = false): Promise<void> {
+    await this.automations?.service.stop();
     await this.lxeskillHealth?.stop();
     await this.files?.dispose(); this.files = undefined;
     const composition = this.composition;
@@ -384,6 +399,7 @@ export class DesktopGateway {
     if (strict && composition?.parts.lifecycle.shutdownError) {
       throw new Error("更新前清理失败：" + composition.parts.lifecycle.shutdownError + "。请手动重启应用后重试");
     }
+    await this.closeDesktopPipes();
     this.composition = undefined;
     this.store?.stop();
     this.store = undefined;
@@ -395,6 +411,7 @@ export class DesktopGateway {
 
   async recoverAfterUpdate(): Promise<void> {
     if (this.runtime?.hasProcess) throw new Error("Agent process exit is unconfirmed; restart the application before retrying");
+    await this.closeDesktopPipes();
     this.composition = undefined;
     this.store?.stop(); this.store = undefined; this.runtime = undefined;
     await this.start();
@@ -469,12 +486,28 @@ export class DesktopGateway {
       if (!this.lxeskillQueryOptions) throw new Error("Desktop CLI configuration is not ready");
       return await listLxeSkillCommands(this.lxeskillQueryOptions) as DashboardRpcResult<O>;
     }
+    if (AUTOMATION_OPERATIONS.includes(call.operation as AutomationOperation)) {
+      if (!this.automations) throw new Error("Desktop automations are unavailable");
+      return await this.automations.call(call as DashboardRpcCall<AutomationOperation>) as DashboardRpcResult<O>;
+    }
     if (!this.composition || !this.runtime?.isReady) throw new Error("Desktop Gateway is not ready");
+    if (call.operation === "mcp.servers.update" && call.input.name === DESKTOP_MCP_NAME) {
+      if (!this.automations) throw new Error("Desktop automations are unavailable");
+      return await this.automations.setMcpEnabled(call.input.enabled) as DashboardRpcResult<O>;
+    }
     if (call.operation === "channels.health") {
       const items = publicDashboardChannelHealth(
         await this.composition.parts.channels.healthSnapshot(),
       );
       return { items, total: Object.keys(items).length } as DashboardRpcResult<O>;
+    }
+    if (call.operation === "sessions.fork") {
+      const activity = this.composition.parts.conversations.activity(call.input.session_id);
+      if (call.input.turn_id ? activity.active?.turn_id === call.input.turn_id :
+        this.composition.parts.scheduler.hasInflightWork(call.input.session_id) || activity.active || activity.queued.length) {
+        throw new DashboardRpcError("failed_precondition", "Wait for the current turn to finish");
+      }
+      return this.runtime.dashboardCall(call as AgentDashboardRpcCall<"sessions.fork">) as Promise<DashboardRpcResult<O>>;
     }
     if (call.operation === "sessions.delete") {
       await this.composition.parts.sessionStatus?.flush();
@@ -498,6 +531,7 @@ export class DesktopGateway {
         const result = await this.runtime.dashboardCall(
           call as AgentDashboardRpcCall<"sessions.delete">,
         );
+        this.automations?.service.pauseSession(sessionId, "绑定的会话已删除，请修改任务");
         this.composition.parts.conversations.forgetSession(sessionId);
         this.composition.parts.runtimeState.forget(sessionId);
         return result as DashboardRpcResult<O>;
@@ -513,18 +547,21 @@ export class DesktopGateway {
       const attachmentIds = call.input.attachment_ids ?? [];
       let held = false;
       try {
-        const staged = attachmentIds.length > 0 ? this.options.attachments.beginSend(attachmentIds) : [];
-        held = true;
-        const attachments = prepareConversationAttachments(staged,
-          (bytes, mediaType) => this.imageProcessor.prepareModelBlock(bytes, mediaType));
         const result = await this.composition.parts.conversations.send({
           ...(call.input.directory === undefined ? {} : { directory: call.input.directory }),
           ...(call.input.session_id ? { session_id: call.input.session_id } : {}),
           text: call.input.text,
+          ...(call.input.steer_turn_id ? { steer_turn_id: call.input.steer_turn_id } : {}),
           ...(call.input.client_message_id ? { client_message_id: call.input.client_message_id } : {}),
-          attachments,
+          attachments: () => {
+            if (!attachmentIds.length) return [];
+            const staged = this.options.attachments.beginSend(attachmentIds);
+            held = true;
+            return prepareConversationAttachments(staged,
+              (bytes, mediaType) => this.imageProcessor.prepareModelBlock(bytes, mediaType));
+          },
         });
-        this.options.attachments.consume(attachmentIds);
+        if (held) this.options.attachments.consume(attachmentIds);
         return result as DashboardRpcResult<O>;
       } catch (error) {
         if (error instanceof LocalConversationSessionNotFoundError) {
@@ -590,7 +627,7 @@ export class DesktopGateway {
       } catch (error) { return { opened: false, error: error instanceof Error ? error.message : String(error) } as DashboardRpcResult<O>; }
     }
     const result = await this.runtime.dashboardCall(call as AgentDashboardRpcCall) as DashboardRpcResult<O>;
-    if (call.operation === "models.update" || call.operation === "models.thinking.update") {
+    if ((call.operation === "models.update" || call.operation === "models.thinking.update") && call.input.remember_default !== false) {
       const model = result as unknown as {
         provider: string;
         model: string;

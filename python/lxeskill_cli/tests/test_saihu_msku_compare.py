@@ -56,3 +56,7 @@ def test_replay_uses_fixed_inputs_and_changes_only_sales():
     assert a[0]['unlinked_quantity']==b[0]['unlinked_quantity']==3
     assert a[0]['weighted_daily_sales']*2==b[0]['weighted_daily_sales']
     assert replay(inputs,{}, {'stock':Decimal(200)},'saihu',{'one':3})[0]==b
+    second = dict(source, ASIN='SECOND', **{'7天销量':28,'14天销量':56,'30天销量':120})
+    combined, _, _ = replay([*inputs, (second, binding, metrics)], {}, {'stock':Decimal(200)}, 'mabang', {'one':3})
+    assert [row['asin'] for row in combined] == ['ASIN', 'SECOND']
+    assert combined[0]['weighted_daily_sales'] * 2 == combined[1]['weighted_daily_sales']

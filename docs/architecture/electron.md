@@ -4,7 +4,7 @@
 
 Electron 模块是面向用户的应用层，也是 LXE_AGENT 的用户交互入口。它提供统一的交互界面，通过 JSON-RPC 2.0 对接 agentcli 的 Agent 能力，通过 lxeskillCLI 暴露的命令调用业务能力。
 
-对话入口将用户消息交给 agentcli，由模型推进任务；工作台和设置等明确的功能入口，由 Electron 调用相应应用服务或 lxeskillCLI 暴露的命令。Gateway 负责消息接入、会话绑定、任务调度和结果交付。
+对话入口将用户消息交给 agentcli，由模型推进任务；工作台和设置等明确的功能入口，由 Electron 调用相应应用服务或 lxeskillCLI 暴露的命令。少数工作台表单（如 FBA 库容报告）把参数拼成提示词，在默认工作区新建普通对话交给 agentcli 执行。Gateway 负责消息接入、会话绑定、任务调度和结果交付。
 
 ## 1. 界面与交互模块
 
@@ -13,6 +13,10 @@ Electron 模块是面向用户的应用层，也是 LXE_AGENT 的用户交互入
 - 提供对话、工作台、设置、统计等界面。
 - 展示消息、执行进度、工具调用和文件结果。
 - 将用户操作转换为应用请求，并展示处理结果。
+
+Dashboard 的 `AppFrame` 统一管理主内容区的边框、四角圆角和外侧留白；会话列表、当前页面与工具侧栏都放在这一层内部。左侧导航栏和顶部窗口栏留在外框之外，页面自身只负责内部布局，避免切换页面或收起侧栏时重复绘制边界。macOS 的对话标题与工具标签通过 Portal 放入顶部窗口栏，保留原来的组件状态和事件；Windows 沿用独立的系统标题栏。
+
+外观提供跟随系统、浅色和深色三种选择。Renderer 将原始选择通过 `desktop.applyAppearance` 交给 Main，Main 设置 Electron 的 `nativeTheme.themeSource`，并按 `shouldUseDarkColors` 更新窗口底色和 Windows 标题栏。内嵌网页通过标准 `prefers-color-scheme` 接收同一外观；切回“跟随系统”会撤销手动覆盖，之后继续响应系统变化。网页仍需自身支持暗色；网页内固定选择的主题由网页自行管理。
 
 ## 2. 桌面通信模块
 

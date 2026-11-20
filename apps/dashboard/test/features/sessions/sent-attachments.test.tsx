@@ -10,8 +10,8 @@ import type { ConversationRow } from "../../../src/features/sessions/presentatio
 const image = { attachment_id: "image", name: "photo.png", size_bytes: 1, media_type: "image/png" };
 const file = { attachment_id: "file", name: "report.zip", size_bytes: 1, media_type: "application/zip" };
 const noop = async () => {};
-function markup(attachments: typeof file[], text = "Message text") {
-  const row: ConversationRow = { id: "row", groupId: "group", turnId: "turn", kind: "message", createdAt: 1,
+function markup(attachments: typeof file[], text = "Message text", status?: string) {
+  const row: ConversationRow = { id: "row", groupId: "group", turnId: "turn", kind: "message", createdAt: 1, status,
     message: { role: "user", display_group_id: "group", content: text, attachments } };
   return renderToStaticMarkup(<QueryClientProvider client={new QueryClient()}>
     <UnifiedConversationRow row={row} expanded={false} onToggle={() => {}}
@@ -31,6 +31,14 @@ test("omits empty sections and the text bubble in attachment-only messages", () 
   expect(markup([image])).not.toContain('class="sent-file-list"');
   expect(markup([file, image], "")).not.toContain('class="message-card role-user"');
   expect(markup([], "text")).not.toContain('class="sent-attachments"');
+});
+test("queued attachments show one status with the message, including when there is no text", () => {
+  const fileOnly = markup([file], "", "queued");
+  expect(fileOnly.match(/role="status">已排队/g)).toHaveLength(1);
+  expect(fileOnly).not.toContain('class="message-card role-user"');
+  const withText = markup([file], "Message text", "queued");
+  expect(withText.match(/role="status">已排队/g)).toHaveLength(1);
+  expect(withText).toMatch(/<article class="message-card role-user">.*已排队<\/div><\/article>/);
 });
 test("sent file cards share the draft icon and extension display", () => {
   const attachments = ["orders.csv", "page.html", "old.xls", "new.xlsx", "archive.zip", "README"]

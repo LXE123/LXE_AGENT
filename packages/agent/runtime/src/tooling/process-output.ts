@@ -1,7 +1,9 @@
-import { createWriteStream, mkdirSync, readdirSync, statSync, unlinkSync, type WriteStream } from "node:fs";
+import { createWriteStream, lstatSync, mkdirSync, readdirSync, rmdirSync, unlinkSync, type WriteStream } from "node:fs";
 import { dirname, join } from "node:path";
 import iconv from "iconv-lite";
+import { resolveUnlinkedDirectory } from "@lxe/core";
 import type { JsonObject } from "@lxe/protocol";
+import type { ExecutionPaths } from "../permissions/execution-paths";
 
 const CONTROL_KEYS = [
   "exec_id",
@@ -356,17 +358,83 @@ export class ProcessOutputStore {
   }
 }
 
-/** Best-effort removal of transcripts left behind by earlier runs or crashes. */
-export function sweepSpillDirectory(directory: string, now = Date.now()): void {
+const spillDirectory = (dataRoot: string, path: string): string | undefined => {
+  try { return resolveUnlinkedDirectory(dataRoot, path); } catch { return undefined; }
+};
+
+/** Removes expired, inactive logs from an unlinked spill directory. */
+const sweepSpillLogs = (
+  dataRoot: string,
+  directory: string,
+  now: number,
+  activePaths?: ReadonlySet<string>,
+): void => {
+  const resolved = spillDirectory(dataRoot, directory);
+  if (!resolved) return;
+  let names: string[];
   try {
-    for (const name of readdirSync(directory)) {
-      if (!name.endsWith(".log")) continue;
-      const path = join(directory, name);
-      try {
-        if (now - statSync(path).mtimeMs > SPILL_RETENTION_MS) unlinkSync(path);
-      } catch { /* Concurrent removal or a locked file; skip it. */ }
-    }
-  } catch { /* The directory does not exist yet; nothing to sweep. */ }
+    names = readdirSync(resolved);
+  } catch { return; /* Concurrent removal; nothing to sweep. */ }
+  for (const name of names) {
+    if (!name.endsWith(".log") || activePaths?.has(join(directory, name))) continue;
+    const path = join(resolved, name);
+    try {
+      const stats = lstatSync(path);
+      if (stats.isFile() && now - stats.mtimeMs > SPILL_RETENTION_MS
+        && spillDirectory(dataRoot, directory) === resolved) unlinkSync(path);
+    } catch { /* Concurrent removal or a locked file; skip it. */ }
+  }
+};
+
+/**
+ * Sweeps every session's spill directory below `root` (`<data-root>/tmp/exec`), plus
+ * logs left directly in `root` by the older flat layout. Links below the configured
+ * data root are skipped. A session directory is removed only when it is empty and had
+ * no entries added or removed within the retention window, so a directory that another
+ * runtime is about to write into is left alone.
+ */
+export function sweepSpillRoot(paths: ExecutionPaths, now = Date.now(), activePaths?: ReadonlySet<string>): void {
+  const { dataRoot } = paths;
+  const root = paths.outputRoot();
+  const resolvedRoot = spillDirectory(dataRoot, root);
+  if (!resolvedRoot) return;
+  sweepSpillLogs(dataRoot, root, now, activePaths);
+  let names: string[];
+  try {
+    names = readdirSync(resolvedRoot);
+  } catch { return; /* Concurrent removal; nothing to sweep. */ }
+  for (const name of names) {
+    const directory = join(root, name);
+    const resolved = spillDirectory(dataRoot, directory);
+    if (!resolved) continue;
+    let idle: boolean;
+    try {
+      idle = now - lstatSync(resolved).mtimeMs > SPILL_RETENTION_MS;
+    } catch { continue; /* Concurrent removal; skip it. */ }
+    sweepSpillLogs(dataRoot, directory, now, activePaths);
+    if (!idle || spillDirectory(dataRoot, directory) !== resolved) continue;
+    try {
+      rmdirSync(resolved);
+    } catch { /* Concurrent write or removal; leave it for the next sweep. */ }
+  }
+}
+
+/** A long-running Runtime sweeps again once this much time has passed since the last sweep. */
+export const SPILL_SWEEP_INTERVAL_MS = 60 * 60 * 1_000;
+
+/** Sweeps the Runtime's spill root on first use and then at most once per interval. */
+export class SpillSweeper {
+  private lastSweptAt?: number;
+  constructor(
+    private readonly paths: ExecutionPaths,
+    private readonly activePaths?: () => ReadonlySet<string>,
+  ) {}
+
+  sweepIfDue(now = Date.now()): void {
+    if (this.lastSweptAt !== undefined && now - this.lastSweptAt < SPILL_SWEEP_INTERVAL_MS) return;
+    this.lastSweptAt = now;
+    sweepSpillRoot(this.paths, now, this.activePaths?.());
+  }
 }
 
 const plainScalar = (value: unknown): string => {
@@ -489,7 +557,7 @@ const decodeUtf8Boundary = (bytes: Uint8Array, fromEnd: boolean): string => {
   return "";
 };
 
-const trimFormattedBody = (
+const trimOutputBody = (
   value: string,
   maxBytes: number,
 ): { text: string; omittedTokens: number } => {
@@ -517,6 +585,19 @@ const trimFormattedBody = (
     ),
   };
 };
+
+/** Preserve raw output (including JSON and newlines) for script callers. */
+export function budgetCommandScriptResult(payload: JsonObject, maxOutputTokens: number): JsonObject {
+  const key = "new_output" in payload ? "new_output" : "output";
+  const output = payload[key];
+  if (typeof output !== "string") return payload;
+  const body = trimOutputBody(output, maxOutputTokens * APPROX_BYTES_PER_TOKEN);
+  if (!body.omittedTokens) return payload;
+  return {
+    ...payload, [key]: body.text, observation_truncated: true,
+    observation_original_tokens: estimatedTokens(output), observation_omitted_tokens: body.omittedTokens,
+  };
+}
 
 /**
  * Applies the command observation budget to the formatted output body while
@@ -567,7 +648,7 @@ export function formatCommandPayloadWithBudget(
     0,
     resultBytes - Buffer.byteLength(reservedPrefix, "utf8"),
   );
-  const body = trimFormattedBody(outputBody, Math.min(requestedBytes, availableResultBytes));
+  const body = trimOutputBody(outputBody, Math.min(requestedBytes, availableResultBytes));
   metadataPayload.observation_omitted_tokens = body.omittedTokens;
   const metadata = formatCommandPayload(metadataPayload);
   const prefix = `${metadata ? `${metadata}\n` : ""}${outputKey}:\n`;

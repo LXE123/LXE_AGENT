@@ -1,24 +1,51 @@
 # LXE 如何适配 CDS
 
-本页主体记录 `d40cc1b8`（设置页）与 `7e2bef2d`（能力页、共享变量）的历史设计决定。它们是 CDS-inspired 实现，没有安装或调用官方 `@ant/cds` 组件库。**当前状态**请先看[适配总表](current-adaptation.md)和后续[案例](examples/README.md)，不要把下方历史覆盖范围当成今天的全貌。
+本页主体记录 `d40cc1b8`（设置页）与 `7e2bef2d`（能力页、共享变量）的历史设计决定。它们是 CDS-inspired 实现，没有安装或调用官方 `@ant/cds` 组件库。**当前状态**请先看[适配总表](current-adaptation.md)与下方生产源码入口，不要把历史设计记录当成今天的全貌。
 
-## 当前覆盖范围（2026-10-20）
+## 覆盖范围
 
-生产共享主题现在用于设置、能力、活动、工作台、首页、部分会话控件与运行状态；并非所有对话元素都已迁移。首批当前总表逐项核对输入框、会话导航行、工具调用条。其余页面保留既有案例，未据此宣称完成全站状态审计。
+生产共享主题现在用于设置、能力、活动、工作台、首页、定时任务、部分会话控件与运行状态；并非所有对话元素都已迁移。首批当前总表逐项核对输入框、会话导航行、工具调用条。定时任务的页面和控件状态单独记录于[定时任务适配与验收](automations.md)。其余页面从生产源码和实际界面核对，尚未完成全站状态审计。
 
-- 会话导航行选中使用背景 90% + 前景 10% 的不透明混色；设置导航暗色选中仍为白 15%，两者是不同局部适配。
-- 工具调用条的悬停文字已统一，默认态、状态图标和焦点边框仍含旧变量；不能把它视为完整主题迁移。
+- 会话导航行选中使用不透明混色：浅色背景 94% + 前景 6%，暗色背景 90% + 前景 10%；选中标题为 400 字重（2026-10-23 调整）。设置导航暗色选中仍为白 15%，两者是不同局部适配。
+- 会话单条工具调用及展开详情接入共享主题：alpha 边框、panel 表面、主次文字、中性复制按钮与蓝色焦点；错误状态保留语义红色。命令和已知语言的源文件结果复用回答正文的高亮配色，普通执行输出不猜测语言。布局和操作方式保持原样；这些是 LXE 适配，不代表 Claude 工具详情的完整规范。
 - 原变量快照仍对应 `7e2bef2d`，作为历史证据保留。当前生产源码是维护入口。
+
+权限审查卡片使用共享会话主题，操作标题、权限与原因层级、命令区及左右按钮是 LXE 适配；Claude 审批卡专用完整规则仍未确认。源码见下方入口。
+
+会话运行状态使用 CDS 次文字与弱化计时颜色；过程折叠按钮的文字和箭头在悬停时提亮，保持普通箭头指针，不增加底色。键盘焦点显示蓝色轮廓，错误文字保留语义红色。展开／折叠、计时和布局沿用现有实现。
+
+删除会话与删除工作区共用确认弹窗样式：使用弹层表面、alpha 边框、主／次文字和危险操作按钮 token。会话删除保留永久删除历史但不删除附件与产物的说明；工作区删除分别说明从列表移除，以及保留文件夹与会话、会话归入“未分组”的结果。440px 最大宽度、24px 内边距、18px 标题和 32px 按钮是 LXE 的布局选择，不代表已取得 Claude 删除弹窗的完整规范。样式位于 `conversation-theme.css`；重命名和权限弹窗沿用各自样式。
+
+右侧工具侧栏通过 `tool-sidebar-theme` 接入共享 CDS 色板：侧栏底色、标签栏、开始页入口、文件树、阅读与浏览器工具栏统一表面、文字、alpha 边框、悬停、禁用与蓝色键盘焦点；文件打开菜单和错误通知在 portal 上显式接入主题。终端的底色、普通文字、光标与选区随主题更新，复用已有终端实例和输出缓冲，保留 ANSI 语义色。网页、PDF 和表格原始内容保留自身颜色。宽度、布局、字号、间距、圆角和操作流程沿用原实现；这些是 LXE 的配色适配，不是已取得 Claude 工具侧栏的完整规范。
+
+文件预览的源码与 Markdown 代码块和对话共用 `styles.css` 中的亮暗语法色板，包括注释样式、TypeScript 与 JSON 的专用 token 规则，不再借用界面的强调色、警告色等用途变量。预览的行号、字号、换行规则、背景和工具栏布局保持原样；纯文本仍不猜测语言。
+
+文件打开菜单另做了比例调整：portal 显式使用 0.8125rem（默认 13px）菜单字号，常规行高约 30px；“默认”在右侧用较小、较弱的文字显示，文件管理器入口用独立细线分组。菜单随内容定宽，最大 300px，长应用名可换行；保留原有打开、键盘导航和焦点行为。它是 LXE 的局部排版选择，其余工具侧栏布局不变。
 
 ## 实现入口
 
-| 职责 | 当前源码 | 归档快照 |
-| --- | --- | --- |
-| 共用色彩、亮暗主题和旧变量映射 | [cds-theme.css](../../../apps/dashboard/src/shared/cds-theme.css) | [变量快照](tokens/lxe-theme.snapshot.css) |
-| 设置页布局与控件 | [settings-theme.css](../../../apps/dashboard/src/desktop/settings-theme.css) | [设置样式快照](examples/styles/settings-theme.snapshot.css) |
-| 能力页与相关详情弹层 | [theme.css](../../../apps/dashboard/src/features/capabilities/theme.css) | [能力样式快照](examples/styles/capabilities-theme.snapshot.css) |
+工作台、能力页和 ERP 设置共用下划线页签。当前页签用主文字色和 2px 下划线标记，键盘焦点用蓝色轮廓标记，窄窗口允许横向滚动。见[公共页签样式](../../../apps/dashboard/src/shared/workspace-subnav.css)。
 
-页面样式快照保留原内容，包括原相对 `@import`；它们用于历史核对，不是从文档目录直接运行的页面。完整 JSX 和业务逻辑由 Git 中上述提交保存。
+顶部标题栏与最左侧主导航共用应用外框配色：浅色 `#f7f7f6`，暗色 `#1a1a19`，与会话列表保留轻微层次差。图标使用 CDS 主／次文字，悬停为 5% alpha，选中为浅色主文字 6%／暗色白色 10%，键盘焦点使用蓝色。Windows 原生标题栏同步同一底色与图标色。具体数值是 LXE 适配，不代表 Claude 标题栏的完整规范。
+
+外框只从共享主题取得色板，在标题栏控件内映射旧变量；不会把 `--bg`、`--text` 等别名覆盖到整个应用。几何尺寸、圆角、分隔线位置和主导航动效仍由原实现管理。
+
+| 职责 | 当前源码 |
+| --- | --- |
+| 共享色彩与亮暗主题 | [cds-theme.css](../../../apps/dashboard/src/shared/cds-theme.css) |
+| 标题栏与主导航外框 | [app-chrome.css](../../../apps/dashboard/src/shared/app-chrome.css)、[navigation-rail.css](../../../apps/dashboard/src/shared/navigation-rail.css)、[window-options.ts](../../../apps/desktop/src/main/window-options.ts) |
+| 设置页 | [settings-theme.css](../../../apps/dashboard/src/desktop/settings-theme.css) |
+| 能力页与详情 | [theme.css](../../../apps/dashboard/src/features/capabilities/theme.css) |
+| 定时任务列表、详情与编辑器 | [AutomationsPage.tsx](../../../apps/dashboard/src/features/automations/AutomationsPage.tsx)、[theme.css](../../../apps/dashboard/src/features/automations/theme.css) |
+| 会话输入、文件、消息与空状态 | [conversation-theme.css](../../../apps/dashboard/src/features/sessions/conversation-theme.css) |
+| 会话侧栏 | [sidebar-theme.css](../../../apps/dashboard/src/features/sessions/sidebar-theme.css) |
+| 浏览器工具栏 | [browser-toolbar.tsx](../../../apps/dashboard/src/shared/ui/browser-toolbar.tsx)、[browser-toolbar.css](../../../apps/dashboard/src/shared/ui/browser-toolbar.css)。对话侧栏与团队技能页共用工具栏。导航按钮组和地址栏以无描边的圆角底色区分，键盘聚焦时显示蓝色焦点环。工具栏使用导航表面色，深色模式比窗口外框略深，浅色模式比外框略浅。团队技能页的目录 Logo 位于最右侧。 |
+| 右侧工具侧栏与文件打开菜单 | [sidebar.css](../../../apps/dashboard/src/features/file-preview/sidebar.css)、[Sidebar.tsx](../../../apps/dashboard/src/features/file-preview/Sidebar.tsx)、[ToolPanels.tsx](../../../apps/dashboard/src/features/file-preview/ToolPanels.tsx)、[OpenFileButton.tsx](../../../apps/dashboard/src/features/file-preview/OpenFileButton.tsx) |
+| 权限审批 | [permissions.tsx](../../../apps/dashboard/src/features/sessions/permissions.tsx)、[permissions.css](../../../apps/dashboard/src/features/sessions/permissions.css) |
+| 首页 | [home/theme.css](../../../apps/dashboard/src/features/home/theme.css) |
+| 活动与工作台 | [stats/theme.css](../../../apps/dashboard/src/features/stats/theme.css)、[workbench/detail-theme.css](../../../apps/dashboard/src/features/workbench/detail-theme.css) |
+
+组件和页面样式只在生产代码中维护，历史版本由 Git 保存。[变量表](tokens/README.md)保留最初引入时的快照及其版本说明。
 
 ## 规则如何落地
 
@@ -66,8 +93,8 @@
 
 ## 已验证到哪里
 
-两次实现做过定向类型／行为检查和真实 Electron 渲染检查，覆盖亮暗主题、能力四页及详情、键盘焦点、Escape、英文长文本和窄屏。截图和限制见[案例索引](examples/README.md)。
+两次实现做过定向类型／行为检查和真实 Electron 渲染检查，覆盖亮暗主题、能力四页及详情、键盘焦点、Escape、英文长文本和窄屏。历史验证记录通过 Git 查阅；当前组件检查范围见[适配总表](current-adaptation.md)。
 
 设置任务的全量验证通过。能力任务的全量验证中有一项未改动的文件预览测试首次超时，独立重跑通过；Python 部分另行完成，2401 通过、14 跳过。不能把首次全量运行描述成零失败。
 
-本次收藏任务只核对文件、哈希、引用和快照，不重新运行应用测试。没有据此宣称每个颜色组合都满足某个对比度标准；后续改变表面、文字大小或状态，需要针对实际组合检查。
+上述验证是对应实现阶段的记录；后续改变表面、文字大小或状态，需要检查受影响的实际组合，不能仅凭已有截图宣称全部通过。

@@ -70,6 +70,4 @@ test("permission facts survive replay, participate in change detection and toler
     expect(environmentChanged([restored], { ...current, permission_approvals: "changed" })).toBe(true);
     if (mode === "workspace-write") expect(permissions.permission_description).toContain("/tmp, /user-temp");
   }
-  const noChannel = permissionEnvironment({ mode: "read-only", workspaceRoot: "/work", sessionId: "s" }, paths, false);
-  expect(noChannel.permission_approvals).toContain("No single-operation approval channel");
 });

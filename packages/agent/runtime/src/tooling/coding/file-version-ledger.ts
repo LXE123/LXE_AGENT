@@ -34,11 +34,11 @@ export class FileVersionLedger {
   assertVersion(sessionId: string, path: string, action: string, current: FileVersion | undefined): void {
     const key = `${sessionId}\0${path}`;
     const recorded = this.entries.get(key);
-    if (recorded === undefined) throw new Error(`${action} 被拒绝：请先用 read 读取该文件再修改: ${path}`);
+    if (recorded === undefined) throw new Error(`${action} rejected. Use read before modifying this file: ${path}`);
     // Compare the caller's fresh observation without another filesystem read.
     // The ledger key remains the read spelling, even when writes use a real path.
     if (current !== recorded) {
-      throw new Error(`${action} 被拒绝：文件在上次 read 之后被修改过，请重新 read 确认最新内容: ${path}`);
+      throw new Error(`${action} rejected. The file changed since the last read. Read it again before modifying it: ${path}`);
     }
   }
 }

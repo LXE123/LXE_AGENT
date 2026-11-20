@@ -146,13 +146,12 @@ def test_download_preserves_web_identity_and_missing_local_sku_without_official_
     assert verified.records[0]["站点"] == "欧洲站"
     assert verified.records[0]["店铺名称"] == store_label
     assert verified.metadata["binding_verified_row_count"] == 0
-    assert verified.metadata["unverified_rows"][0]["reason"] == "源表无本地SKU，不参与备货计算"
     assert list(tmp_path.iterdir()) == [target]
 
 
 @pytest.mark.parametrize("existing", [False, True])
 def test_catalog_later_page_failure_has_no_publication_or_auth_retry(monkeypatch, tmp_path, existing):
-    from services.agent_cli.mabang import download_store_msku_excel as cli
+    from services.commands.mabang import download_store_msku_excel as cli
     from services.mabang.amazon.fba import sku_catalog
 
     calls = mock_pages(monkeypatch)

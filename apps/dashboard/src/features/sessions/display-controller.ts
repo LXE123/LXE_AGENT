@@ -19,6 +19,7 @@ export interface ConversationDisplaySnapshot {
   pending: PendingMessage[];
   connection: WindowConnection;
   following: boolean;
+  historyTarget?: { turnId: string; version: number } | undefined;
   loadState: "loading" | "ready" | "error";
   error: string;
   jump: number;
@@ -97,6 +98,19 @@ export class ConversationDisplayController {
     }
     this.publish();
   }
+  beginTargetHistory(): HistoryTicket {
+    this.window++;
+    this.state = { ...this.state, following: false };
+    this.notify();
+    return this.beginHistory();
+  }
+  openHistory(page: SessionDetailPayload, turnId: string, ticket: HistoryTicket): boolean {
+    if (!this.isCurrent(ticket) || page.session.session_id !== this.state.sessionId) return false;
+    this.window++; this.historyProjection = undefined; this.visible = [];
+    this.state = { ...this.state, detail: undefined, following: false, historyTarget: { turnId, version: this.window } };
+    this.receiveHistory(page, "older");
+    return true;
+  }
   setDraftDirectory(directory: string): void {
     if (this.state.sessionId || this.state.pending.some(item => !item.error)) return;
     this.draftDirectories.set(this.state.viewKey, directory);
@@ -157,7 +171,7 @@ export class ConversationDisplayController {
       ? mergeLatestConversationWindow(previous, page, this.state.following)
       : direction === "older" ? prependConversationWindow(previous, page) : appendConversationWindow(previous, page);
     const tail = latest?.messages_page.newest_cursor;
-    let connection: WindowConnection = !tail || groups(detail).has(tail) ? "attached" : "detached";
+    let connection: WindowConnection = (tail ? groups(detail).has(tail) : !detail.messages_page.has_next) ? "attached" : "detached";
     const tailMessages = connection === "detached" ? latest?.messages.filter(message => !groups(detail).has(message.display_group_id)) ?? [] : [];
     detail = boundConversationWindow(detail, this.visible, direction === "older" ? "older" : "newer", {
       groups: Math.max(1, CONVERSATION_GROUP_BUDGET - new Set(tailMessages.map(message => message.display_group_id)).size),
@@ -204,6 +218,11 @@ export class ConversationDisplayController {
     for (const value of [activity.active, activity.latest, ...activity.queued]) {
       if (!value) continue;
       const previous = this.turns.get(value.turn_id);
+      if (value.state === "cancelled") {
+        for (const [id, item] of this.pending) {
+          if (item.steering && item.turnId === value.turn_id) this.pending.delete(id);
+        }
+      }
       const savedStatus = history.savedStatus.get(value.turn_id);
       // Confirmed payloads may already have been released. A delayed running push
       // must not revive that turn or replace the persisted final text with a draft.
@@ -228,7 +247,7 @@ export class ConversationDisplayController {
   jumpToLatest = (): void => {
     this.visible = [];
     this.window += 1;
-    this.state = { ...this.state, detail: this.state.latest, connection: "attached", following: true,
+    this.state = { ...this.state, detail: this.state.latest, connection: "attached", following: true, historyTarget: undefined,
       loadState: this.state.latest || !this.state.sessionId ? "ready" : "loading", error: "", jump: this.state.jump + 1 };
     this.pruneUnreferencedTurns();
     this.publish();
@@ -243,8 +262,9 @@ export class ConversationDisplayController {
   }
   acceptSend(ticket: SendTicket, result: DesktopConversationSendPayload): boolean {
     const item = this.pending.get(ticket.pendingId) ?? ticket.message;
-    const accepted = { ...item, sessionId: result.session_id, turnId: result.turn_id, messageId: result.message_id };
-    this.pending.set(ticket.pendingId, accepted);
+    const accepted = { ...item, sessionId: result.session_id, turnId: result.turn_id, messageId: result.message_id, steering: result.state === "steered" };
+    if (accepted.steering && this.turns.get(result.turn_id)?.state === "cancelled") this.pending.delete(ticket.pendingId);
+    else this.pending.set(ticket.pendingId, accepted);
     const selected = ticket.selection === this.selection && ticket.sessionId === this.state.sessionId;
     if (selected && !ticket.sessionId) this.state = { ...this.state, sessionId: result.session_id, loadState: "loading" };
     if (result.session_id === this.state.sessionId) {
@@ -332,7 +352,8 @@ export class ConversationDisplayController {
     for (let index = 0; index < rows.length; index++) {
       const row = rows[index]!;
       const step = row.kind === "tool" ? byRow.get(row.id) : undefined;
-      if (step) rows[index] = { ...row, operation: undefined, liveTool: step };
+      if (step) rows[index] = { ...row, operation: undefined, liveCall: row.operation?.call ?? row.liveCall,
+        liveTool: row.liveTool?.input_block ? { ...step, input_block: row.liveTool.input_block } : step };
     }
     this.state = { ...this.state, pending, rows };
     this.notify();
@@ -342,10 +363,12 @@ export class ConversationDisplayController {
 
 /** Shared by the production send handler and browser fixtures. */
 export async function sendConversationMessage(controller: ConversationDisplayController, text: string, attachments: DesktopInputAttachmentPayload[],
-  send: (input: { session_id?: string; directory?: string; text: string; client_message_id: string; attachment_ids?: string[] }) => Promise<DesktopConversationSendPayload>) {
+  send: (input: { session_id?: string; directory?: string; text: string; client_message_id: string; attachment_ids?: string[]; steer_turn_id?: string }) => Promise<DesktopConversationSendPayload>) {
+  const active = controller.getSnapshot().activity?.active;
   const ticket = controller.beginSend(text, attachments);
   try {
     const result = await send({ ...(ticket.sessionId ? { session_id: ticket.sessionId } : {}),
+      ...(ticket.sessionId && active?.state === "running" ? { steer_turn_id: active.turn_id } : {}),
       ...(ticket.directory === undefined ? {} : { directory: ticket.directory }), text, client_message_id: ticket.pendingId,
       ...(attachments.length ? { attachment_ids: attachments.map(attachment => attachment.attachment_id) } : {}) });
     return { result, ticket, selected: controller.acceptSend(ticket, result) };

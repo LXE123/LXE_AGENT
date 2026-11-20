@@ -40,7 +40,6 @@ const setup = (options: {
   const worktree = join(root, "worktree");
   mkdirSync(join(resourceRoot, "skills", "demo"), { recursive: true });
   mkdirSync(join(worktree, "packages", "app"), { recursive: true });
-  writeFileSync(join(resourceRoot, "SOUL.md"), "Be practical.", "utf8");
   writeFileSync(
     join(resourceRoot, "skills", "demo", "SKILL.md"),
     "---\nname: demo\ntype: default\ndescription: Demo workflow\n---\n# Demo\n",
@@ -48,7 +47,6 @@ const setup = (options: {
   );
   const catalog = new SkillCatalog(resourceRoot, join(root, "missing-user"), { sharedSkillsRoot: false });
   const manager = new WorkspaceInstanceManager({
-    soulPath: join(resourceRoot, "SOUL.md"),
     skillCatalog: catalog,
     skillOptions: () => ({ allowedTypes: options.allowedTypes ?? new Set(["default"]) }),
     checkIntervalMs: options.checkIntervalMs ?? 0,
@@ -184,7 +182,7 @@ describe("WorkspaceInstanceManager", () => {
     after.release();
   });
 
-  test("force reload rereads global content and invalidates every directory view", async () => {
+  test("force reload rereads skills and invalidates every directory view", async () => {
     const { manager, resourceRoot, worktree, workspace } = setup();
     const directory = join(worktree, "packages", "app");
     const nestedBefore = await manager.acquire(workspace(directory));
@@ -192,7 +190,6 @@ describe("WorkspaceInstanceManager", () => {
     nestedBefore.release();
     rootBefore.release();
 
-    replaceKeepingTimes(join(resourceRoot, "SOUL.md"), "Be adaptable.");
     replaceKeepingTimes(
       join(resourceRoot, "skills", "demo", "SKILL.md"),
       "---\nname: demo\ntype: default\ndescription: Other process\n---\n# Demo\n",
@@ -201,7 +198,6 @@ describe("WorkspaceInstanceManager", () => {
     const rootReload = await manager.reload(workspace(), "test_global_force");
     const nestedAfter = await manager.acquire(workspace(directory));
     expect(rootReload.changed).toBe(true);
-    expect(nestedAfter.snapshot.soul).toBe("Be adaptable.");
     expect(nestedAfter.snapshot.skills.prompt).toContain("Other process");
     expect(nestedAfter.snapshot.generation).toBeGreaterThan(nestedBefore.snapshot.generation);
     nestedAfter.release();
@@ -302,7 +298,7 @@ describe("WorkspaceInstanceManager", () => {
     const lease = await manager.acquire(workspace());
     await manager.disposeAll("runtime_stop");
     expect(manager.diagnostics().instances).toBe(1);
-    expect(lease.snapshot.soul).toBe("Be practical.");
+    expect(lease.snapshot.skills.names).toEqual(["demo"]);
     lease.release();
     expect(manager.diagnostics().instances).toBe(0);
   });

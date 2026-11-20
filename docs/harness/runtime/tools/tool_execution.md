@@ -20,11 +20,12 @@ Runtime 只 dispatch 当前 assistant message 中结构有效的 tool use。每�
 
 ## Native 工具
 
-Native handler 与 Runtime 同进程执行。Coding tools 包括 read、write、edit、grep、find、ls、exec、wait 和 send_files：
+Native handler 与 Runtime 同进程执行。普通会话的 coding tools 包括 read、write、edit、exec、wait 和 send_files，文件搜索通过 exec 执行。
 
 - 路径先相对 Session working directory 解析；绝对路径、`~`、`..` 和跨 workspace 符号链接都交给宿主文件系统处理。
 - 读取、搜索、文件交付和 `exec.cwd` 的路径访问受宿主用户的操作系统权限约束；`exec`、`write`、`edit` 的写入还需应用 [会话权限策略](../permission-policy.md)。指定工作区外的 cwd 不会扩大写入范围。`EACCES`、`EPERM` 等实际系统错误按 [AGENTS.md](../../../../AGENTS.md#红线违反--生产事故)保留，不改写成泛化提示。
-- read 输出稳定行号，并记录 session read version。
+- `read` 读取文本时，每页最多 2,000 行、50 KiB UTF-8 正文。直接调用显示行号，`codemode` 返回纯文本。两种调用均记录会话读取的文件版本。
+- 指定 `limit` 时，未读完会提示剩余行数和下一次的 `offset`；触及页上限会显示已读范围和总行数。行号从 1 开始，末尾换行按 Pi 的规则计入一个可寻址的空行。若起始行本身超过 50 KiB，只返回实际大小及使用 `exec` 按字节读取的提示。
 - 修改现有文件要求 read-before-modify；外部 mtime/content 变化导致 stale edit。
 - binary 不通过文本 read；一个或多个 artifact 使用 `send_files(paths=[...])` 一次交付。
 - `exec` 观察到 `yield-time-ms` 后仍未结束会返回 `status=running` 和 `exec_id`；Session manager 继续持有命令。
@@ -36,14 +37,32 @@ Process stdout/stderr 使用有界内存尾部和落盘截断机制。取消观�
 
 `McpManager` 读取 local YAML，替换环境占位并连接 enabled stdio 或 streamable-http server。每个 server 独立 startup timeout；失败只记录 server error，不阻塞 Runtime start。
 
+Runtime 使用官方 `@modelcontextprotocol/client` 2.3.1，支持 MCP `2026-07-28`，并兼容 SDK 支持的旧版服务。测试服务使用同版本 `@modelcontextprotocol/server`；生产运行不依赖测试服务。
+
+每个 server 可设置 `protocol_mode`：
+
+| 值 | 连接行为 |
+| --- | --- |
+| `auto`（默认） | 通过 `server/discover` 识别新版；按 SDK 协商规则连接旧版服务。 |
+| `legacy` | 直接使用旧版 `initialize` 握手，适用于不接受新版探测的服务。 |
+| `2026-07-28` | 要求服务支持该版本，不满足时连接失败。 |
+
+既有 YAML 不需要迁移，省略字段就是 `auto`。新版消息、版本信息和取消协议由 SDK 负责；不手工修改版本字符串来模拟支持。探测超时为 `min(2 秒, startup_timeout_s / 2)`，不重复探测，整个连接与工具发现仍受 startup timeout 限制。STDIO 自动协商可能先启动一个短暂的探测子进程；禁用、超时或退出会关闭探测及会话连接。
+
+认证失败、服务端异常和 HTTP 网络超时会保留实际错误，不通过回退旧版掩盖。赛狐连接继续使用原来的设备认证和直连适配，不添加 token 或 cookie。日志 `mcp_connected` 中的 `protocol_version`、`protocol_era` 记录实际协商结果；排查兼容问题时先查看连接错误和这些字段，再决定是否对该服务设置 `legacy`。
+
 Tool call 使用 server-specific timeout 和 turn abort signal。调用失败更新 MCP status 并返回 tool error。Enable/disable 会注册或移除该 server definition，不在 Dashboard PATCH 时隐式调用模型。
+
+工具列表分页由 SDK 聚合。`structuredContent` 按 JSON 值保留，包括数组、`null`、`false`、`0` 和空字符串，并转为模型可读的结果文本进入现有历史流程。图片继续走既有归一化和持久化流程。工具返回 `isError=true` 或 SDK 抛错时均按失败处理；错误状态保留 SDK 的诊断 `data`，经过脱敏和带标记的长度截断，不用空结果代替实际错误。工具错误通过 Runtime 的结构化错误路径进入模型与历史，避免通用错误摘要再次静默截断；原异常保留在 `cause` 中。
+
+升级参考：[协议规范](https://modelcontextprotocol.io/specification/2026-07-28)、[SDK v2 迁移指南](https://ts.sdk.modelcontextprotocol.io/v2/migration/upgrade-to-v2.html)、[协议协商](https://ts.sdk.modelcontextprotocol.io/v2/protocol-versions.html)。
 
 ## lxeskill 业务命令
 
 业务能力不注册为独立 model tool。模型通过 native `exec` 执行 `lxeskill ...` 命令：
 
 - lxeskillCLI 内部的 `catalog.json` 决定 command path、owner skill、业务 module 和 artifact 声明。agentcli 不读取该文件。Electron 通过 `lxeskill list` 获取命令列表，模型按需使用 `list`、`describe`、`datasets list`。
-- `exec` 按通用权限与沙箱规则执行命令，不为 lxeskill 添加命令形状限制或 Python 模块拦截；推荐调用方式写在 Skill 中。
+- `exec` 按通用权限与沙箱规则执行命令，按 PATH 解析 `lxeskill`，不改写为指定 Python 启动，也不添加命令形状限制或 Python 模块拦截；推荐调用方式写在 Skill 中。
 - Desktop 下发服务器验证的业务权限决定允许的 skill types；`AgentRuntimeHost` 生成实际 skill scope，Runtime exec adapter 注入 `LXESKILL_SKILL_SCOPE`。CLI 负责命令授权、参数校验和业务 dispatch。
 - Desktop 优先使用 `LXE_MANAGED_PYTHON` 指向的应用私有 Python；源码开发才回退到项目 `.venv`。cwd、yield observation、output limit、Session ownership 和 Windows process tree 由 native process manager 处理。
 - CLI 保留版本化 JSONL/result/artifact 合同，Runtime 将 stdout/stderr 作为受控 process output 返回。

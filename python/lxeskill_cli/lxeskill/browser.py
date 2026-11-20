@@ -4,10 +4,6 @@ from types import SimpleNamespace
 from typing import Any
 
 from lxeskill.business import allowed_output_file
-from shared.logging import get_logger
-
-
-logger = get_logger(__name__)
 
 
 class BrowserCliError(RuntimeError):
@@ -24,6 +20,17 @@ async def execute_browser_command(
     safe_session_id = str(session_id or "").strip()
     if not safe_session_id:
         raise BrowserCliError("session_required", "browser command requires LXE_AGENT_SESSION_ID")
+    if entry["name"] == "ziniao_script_run":
+        from services.browser.scripts.command import ScriptFailure, run_script
+
+        try:
+            data, paths = run_script(arguments, safe_session_id)
+        except ScriptFailure as exc:
+            raise BrowserCliError(exc.code, str(exc)) from exc
+        except (ValueError, OSError, TypeError) as exc:
+            raise BrowserCliError("invalid_arguments", str(exc)) from exc
+        return data, [str(allowed_output_file(path, owner_skills=entry["owner_skills"])) for path in paths]
+
     from services.browser.tools import client as browser_client
 
     session = SimpleNamespace(session_id=safe_session_id)
@@ -46,20 +53,6 @@ async def execute_browser_command(
         str(allowed_output_file(str(path), owner_skills=owners))
         for path in list(result.files or [])
     ]
-    action = str(arguments.get("action") or "").strip().lower()
-    steps = arguments.get("steps") if isinstance(arguments.get("steps"), list) else []
-    last_step_action = str(dict(steps[-1] or {}).get("action") or "").strip().lower() if steps else ""
-    if str(entry.get("name") or "") == "ziniao_page":
-        if action == "browser_vision":
-            if len(validated_files) != 1:
-                raise BrowserCliError("browser_screenshot_missing", "browser_vision did not return one screenshot")
-            return {"content": content, "screenshot_path": validated_files[0]}, []
-        # A batch ending in browser_vision may stop before the screenshot; only
-        # apply the screenshot contract when the step actually produced one.
-        if last_step_action == "browser_vision" and validated_files:
-            if len(validated_files) != 1:
-                raise BrowserCliError("browser_screenshot_missing", "batch browser_vision returned multiple screenshots")
-            return {"content": content, "screenshot_path": validated_files[0]}, []
     return {"content": content}, validated_files
 
 

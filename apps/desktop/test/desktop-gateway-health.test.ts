@@ -12,7 +12,7 @@ type Options = ConstructorParameters<typeof DesktopLxeSkillHealth>[0];
 const serviceFor = (overrides: Partial<Options> = {}) => {
   const root = mkdtempSync(join(tmpdir(), "lxe-desktop-cli-health-")); roots.push(root);
   const service = new DesktopLxeSkillHealth({
-    pythonPath: join(process.cwd(), ".venv", process.platform === "win32" ? "Scripts/python.exe" : "bin/python"),
+    executablePath: join(process.cwd(), ".venv", process.platform === "win32" ? "Scripts/lxeskill.exe" : "bin/lxeskill"),
     dataRoot: root, recovery: "repair CLI",
     environment: { ...process.env, LOCAL_LOGS_ENABLED: "0", LXE_DATA_ROOT: root, LXE_SQLITE_DB_PATH: join(root, "lxeskill.sqlite3") },
     ...overrides,
@@ -25,17 +25,19 @@ afterEach(async () => {
 });
 
 describe("desktop lxeskill health", () => {
-  test("runs the public list command with private Python, without Agent DB or private resource paths", async () => {
+  test("runs the public list command through the executable, without Agent DB or private resource paths", async () => {
     const states: string[] = [];
     let calls = 0;
     const service = serviceFor({
-      environment: { LXE_AGENT_SQLITE_DB_PATH: "/private/agent.sqlite3", LXE_AGENT_SOUL_PATH: "/private/soul", LXE_USER_SKILLS_ROOT: "/private/skills", LXE_SQLITE_DB_PATH: "/business.sqlite3" },
+      environment: { LXE_AGENT_SQLITE_DB_PATH: "/private/agent.sqlite3", LXE_USER_SKILLS_ROOT: "/private/skills", LXE_SQLITE_DB_PATH: "/business.sqlite3" },
       execute: async (file, args, options) => {
         calls++;
-        expect(file).toContain("python");
-        expect(args).toEqual(["-I", "-B", "-X", "utf8", "-m", "lxeskill", "list"]);
+        expect(file).toContain("lxeskill");
+        expect(args).toEqual(["list"]);
         expect(options.timeout).toBe(30_000);
-        expect(options.env).toEqual({ LXE_SQLITE_DB_PATH: "/business.sqlite3" });
+        expect(options.env).toMatchObject({ LXE_SQLITE_DB_PATH: "/business.sqlite3", PYTHONNOUSERSITE: "1" });
+        expect(options.env).not.toHaveProperty("LXE_AGENT_SQLITE_DB_PATH");
+        expect(options.env).not.toHaveProperty("LXE_USER_SKILLS_ROOT");
         return success();
       },
       onChanged: () => states.push(service.snapshot().state),
@@ -118,11 +120,11 @@ describe("desktop lxeskill health", () => {
   });
 
   test("reports the actual spawn failure for an absent Python", async () => {
-    const pythonPath = join(tmpdir(), "absent-lxe-health-python");
-    const service = serviceFor({ pythonPath, environment: {} });
+    const executablePath = join(tmpdir(), "absent-lxe-health-python");
+    const service = serviceFor({ executablePath, environment: {} });
     await service.check();
     expect(service.snapshot().state).toBe("error");
-    expect(service.snapshot().message).toContain(pythonPath);
+    expect(service.snapshot().message).toContain(executablePath);
     expect(service.snapshot().message).toMatch(/ENOENT|Executable not found in \$PATH/u);
   });
 

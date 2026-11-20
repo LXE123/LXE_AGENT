@@ -20,7 +20,7 @@ Reducing terminal noise must not remove useful runtime diagnostics. Conversely, 
 
 Users select the `off`, `standard`, or `diagnostic` logging profile and retention period in Desktop settings. Desktop stores that choice in `<data-root>/config/settings.json` and projects the internal `LOG_LEVEL`, `RUNTIME_LOG_LEVEL`, `LOCAL_LOGS_ENABLED`, retention, and trace variables into child processes. Those environment names are process transport, not user-owned configuration files.
 
-Terminal logs always use the human-readable pretty format; managed files use JSONL. Local files are written below the active `LXE_DATA_ROOT/logs/` tree with product-owned file names. Trace writers use dated session/turn directories so one failing call can be inspected without scanning an entire process log.
+Terminal logs always use the human-readable pretty format; managed files use JSONL. Host logs are written below the active `LXE_DATA_ROOT/logs/` tree with product-owned file names. Standalone MCP command diagnostics use the selected workspace's `.lxeagent/logs/` tree, so workspace-write commands can save diagnostics within their permitted directory. Trace writers use dated session/turn directories so one failing call can be inspected without scanning an entire process log.
 
 Wire traces use the main-compatible per-attempt layout:
 
@@ -36,6 +36,7 @@ File responsibilities are intentionally separate:
 
 - Electron Main and Gateway records (JSONL): `<data-root>/logs/runtime/YYYYMMDD/desktop.log`.
 - Private `agent-cli` and Runtime records (JSONL): `<data-root>/logs/runtime/YYYYMMDD/runtime.log`.
+- Standalone `agent-cli mcp` diagnostics (JSONL): `<workspace>/.lxeagent/logs/runtime/YYYYMMDD/mcp-cli.log`. Use `LXE_WORKSPACE_ROOT`, or the current directory when unset; the same logging profile and retention period apply.
 - Python text logs (standalone `lxeskill` commands): `<data-root>/logs/runtime/YYYYMMDD/runtime-py.log`.
 - Browser-auth text logs: `<data-root>/logs/browser_auth_service/YYYYMMDD/browser_auth_service.log`.
 - Feishu raw events: `<data-root>/logs/feishu_raw_events/YYYYMMDD.jsonl`.
@@ -99,7 +100,6 @@ Successful health polling and repetitive stream updates should not dominate INFO
 | --- | --- |
 | 回合与模型调用 | `turn_started` / `turn_completed`、Provider attempt 和工具执行；[Runtime](../packages/agent/runtime/src/engine/runtime.ts) |
 | 入站路由与调度 | session、route、排队、steering 和取消；[Router](../apps/gateway/src/orchestration/router.ts)、[Scheduler](../apps/gateway/src/orchestration/scheduler.ts) |
-| Heartbeat | 唤醒、合并、延后或丢弃的原因；[Heartbeat bridge](../apps/gateway/src/orchestration/heartbeat-bridge.ts) |
 | 飞书接入与交付 | 连接、消息归一化、资源获取和卡片交付；[飞书适配](../apps/gateway/src/channels/feishu/) |
 | exec 进程 | 创建、等待、退出、终止和后台完成通知；[Process manager](../packages/agent/runtime/src/tooling/coding/process-manager.ts) |
 | 用量同步 | `data_sync_uploaded`、`data_sync_skipped`、`data_sync_failed`；[TurnUsageSyncService](../packages/agent/runtime/src/operations/turn-usage-sync.ts) |
@@ -129,7 +129,11 @@ The official Feishu SDK logger is suppressed to avoid duplicate Axios diagnostic
 
 Logger writers, traces, retention cleanup and local-file sinks must never change a business result. A local sink disables itself after its first write failure, reports `logging_sink_failed` once, and exposes `disabledReason="sink_failed"` plus a safe `lastError` in logging status.
 
-Retention cleanup deletes only managed dated log directories older than the configured period. It must not traverse unrelated user paths. File sinks are flushed during orderly shutdown and fatal-error handling so the final diagnostic record is not lost.
+Retention cleanup deletes only managed dated log directories older than the configured period. The managed `logs/<name>/YYYYMMDD/` trees are `agent_traces`, `sse_wire_traces`, `feishu_msg`, `runtime`, `browser_auth_service` and `ziniao_traces`, plus the dated `feishu_raw_events/YYYYMMDD.jsonl` files. TypeScript (`MANAGED_DATED_LOG_DIRECTORIES` in `logging.ts`) and Python (`shared/log_retention.py`) both run cleanup and keep the same list. Add new dated log trees to both. The configured data root is resolved first. Cleanup skips symbolic links and Windows junctions below it, including the `logs` parent, and checks that each deletion target is still inside its managed directory.
+
+Desktop and `agent-cli` run cleanup at startup and again whenever a long-running process crosses midnight. At that point the process also moves its file to the new day's `runtime/YYYYMMDD/` directory, so the file being written is never in a directory cleanup removes. Python commands are short-lived and clean up once per command. File sinks are flushed during orderly shutdown and fatal-error handling so the final diagnostic record is not lost.
+
+Python CLI help bypasses workspace and logging initialization. Normal Python commands report file creation/write failures to stderr and disable only the failed file sink, preserving console diagnostics and the business outcome. Command usage: [lxeskill command handbook](lxeskill-cli/commands.md).
 
 `agent-cli serve` and business CLI commands reserve stdout for their JSON protocol. Their diagnostics go through logging/stderr; writing log prose to stdout would corrupt agent parsing.
 

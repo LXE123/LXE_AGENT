@@ -16,14 +16,10 @@ describe("edit input", () => {
     { path: "a", edits: [{ oldText: 2, newText: "x" }] },
     { path: "a", edits: [{ oldText: "x", newText: null }] },
     { path: "a", edits: [{ oldText: "x", newText: 0 }] },
-    { path: "a", edits: [{ oldText: "x", newText: "y", replace_all: true }] },
+    { path: "a", edits: [{ oldText: "x", newText: "y", extra: true }] },
     { path: "a", edits: [{ oldText: "x", newText: "y" }], extra: true },
   ].map((input) => [input]))("rejects invalid input %#", (input) => {
     expect(() => validateEditInput(input)).toThrow();
-  });
-  test("explains the new interface for legacy calls", () => {
-    expect(() => validateEditInput({ file_path: "a", old_string: "x", new_string: "y" }))
-      .toThrow('Use {"path":"src/app.ts","edits":');
   });
 });
 
@@ -53,7 +49,7 @@ describe("batch text edits", () => {
   });
   test("rejects empty normalized targets and unchanged batches", () => {
     expect(() => replace("   ", " ", "x")).toThrow("empty after normalization");
-    expect(() => replace("hello", "hello", "hello")).toThrow("未产生修改");
+    expect(() => replace("hello", "hello", "hello")).toThrow("No changes made");
   });
   test("supports deletion, including an entire file", () => {
     expect(replace("a\nb\nc\n", "b\n", "").content).toBe("a\nc\n");

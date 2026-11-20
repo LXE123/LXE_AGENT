@@ -89,10 +89,10 @@ def test_found_with_valid_combo_binding_is_still_a_combo():
     assert skipped == set()
 
 
-def test_found_unknown_quantity_does_not_affect_verified_shared_sku():
-    found = inv.StoreMskuRow('Amazon.Found.A', '', 'A', 'S', '', remark='原备注')
+def test_unknown_local_sku_does_not_exclude_verified_duplicate_msku():
+    found = inv.StoreMskuRow('normal', '', 'A', 'U', '', remark='原备注')
     normal = inv.StoreMskuRow('normal', '', 'A', 'S', '')
-    rows, missing = inv.calculate_inventory_rows([found, normal], combo_map={}, stock_quantities={'S': Decimal(100)}, unverified_rows={inv.product_key(found): "SKU类型未核验"})
+    rows, missing = inv.calculate_inventory_rows([found, normal], combo_map={}, stock_quantities={'S': Decimal(100)}, unverified_local_skus={found.local_sku: "SKU类型未核验"})
     assert rows[0].actual_inventory is None
     assert rows[1].actual_inventory == 100
     assert '原备注' in rows[0].remark and 'SKU类型未核验' in rows[0].remark
@@ -354,9 +354,9 @@ def transport(monkeypatch):
     return setup
 
 def test_transport_auth_and_retries(transport):
-    session, sleeps = transport([Response(429, {'detail': 'limited'}, headers={'Retry-After': '3'}), Response(503, raw='gateway unavailable'), Response(payload={'code': 200, 'data': {}})])
+    session, sleeps = transport([Response(502, raw='gateway unavailable'), Response(503, raw='gateway unavailable'), Response(payload={'code': 200, 'data': {}})])
     assert asyncio.run(http.post_json('shops/list', {}, context='shop'))['code'] == 200
-    assert sleeps == [3, 2] and len(session.calls) == 3
+    assert sleeps == [1, 2] and len(session.calls) == 3
     url, kw = session.calls[0]
     assert url == 'http://data.test/api/v1/data-sources/mabang/shops/list'
     assert kw == {'json': {}}
@@ -397,6 +397,7 @@ def test_snapshot_failure_blocks_warehouse_and_cookie_retry_is_local(monkeypatch
         calls.append('warehouse')
         if len(calls) == 1:
             raise inv.StoreMskuActualInventoryAuthError('expired cookie')
+        return '', 'synthetic-search-token'
     async def refresh(**kw):
         calls.append('refresh')
     async def download(**kw):
@@ -464,11 +465,6 @@ def test_empty_listing_page(monkeypatch):
 
     monkeypatch.setattr(combo, 'post_json', post)
     assert asyncio.run(combo.fetch_listing_bindings('shop')) == []
-
-
-@pytest.mark.parametrize('value,expected', [('NaN', 2), ('Infinity', 2), ('-1', 2), ('invalid', 2), ('0', 0), ('4', 4)])
-def test_retry_after_validation(value, expected):
-    assert http.retry_delay(value, 2) == expected
 
 
 def test_missing_server_does_not_call_network(monkeypatch, transport):

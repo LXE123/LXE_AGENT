@@ -1,3 +1,5 @@
+@import "./shared/workspace-subnav.css";
+
 @font-face {
   font-family: "HarmonyOS Sans SC";
   src: url("./assets/fonts/HarmonyOS_Sans_SC.ttf") format("truetype");
@@ -220,7 +222,6 @@ button {
    the "chrome recedes, content is the stage" relationship survives the switch. */
 :root[data-theme="dark"] .app-shell,
 :root[data-theme="dark"] .desktop-platform-win32 {
-  --navigation-bg: #242322;
   --sidebar-bg: #1c1b1a;
   --sidebar-border: rgba(255, 255, 255, 0.065);
   --sidebar-ink: #eee8df;
@@ -322,38 +323,32 @@ button {
   top: 0;
   left: env(titlebar-area-x, 0px);
   width: env(titlebar-area-width, 100%);
-  height: env(titlebar-area-height, 40px);
+  height: env(titlebar-area-height, var(--app-titlebar-height, 40px));
   app-region: drag;
   -webkit-app-region: drag;
   user-select: none;
 }
 
-.desktop-window-frame button,
-.desktop-window-frame input,
-.desktop-window-frame select,
-.desktop-window-frame summary,
-.desktop-window-frame a {
+/* Scrolled-out controls can subtract from the native title bar even when
+   clipped. The sidebar toggle is mounted in the frame but fixed in the caption. */
+.desktop-window-frame :is(button, input, select, summary, a):not(:where(.app-content-frame *)),
+.desktop-window-frame .sidebar-window-controls button {
   app-region: no-drag;
   -webkit-app-region: no-drag;
 }
 
 .desktop-window-frame .main-panel {
-  padding-top: 40px;
+  padding-top: var(--app-titlebar-height);
 }
 
 .desktop-platform-darwin:has(.app-shell.sessions-focus) > .desktop-window-drag-region {
+  /* Native window dragging uses the shared strip. DOM input goes to the
+     caption controls and their popovers above it. */
   pointer-events: none;
-  app-region: no-drag;
-  -webkit-app-region: no-drag;
-}
-
-.desktop-platform-darwin .app-shell.sessions-focus > .main-panel {
-  padding-top: 0;
 }
 
 .desktop-loading,
-.desktop-onboarding,
-.desktop-fatal {
+.desktop-onboarding {
   display: grid;
   width: 100%;
   min-height: 100vh;
@@ -376,48 +371,46 @@ button {
   font-size: 0.875rem;
 }
 
+.desktop-fatal {
+  display: grid;
+  min-height: 100vh;
+  place-items: center;
+  padding: 20px;
+  background: var(--cds-surface-nav);
+  color: var(--cds-ink);
+}
+
 .desktop-fatal-card {
   display: grid;
-  width: min(460px, 100%);
+  width: min(400px, 100%);
   justify-items: start;
-  gap: 14px;
-  padding: 34px;
-  border: 1px solid var(--danger-border);
-  border-radius: 20px;
-  background: var(--surface);
-  box-shadow: 0 24px 80px rgba(54, 39, 26, 0.14);
+  gap: 12px;
+  padding: 24px;
+  border: 1px solid var(--cds-alpha-2);
+  border-radius: 14px;
+  background: var(--cds-surface-popover);
+  box-shadow: 0 8px 24px var(--cds-alpha-1), 0 1px 3px var(--cds-alpha-2);
 }
 
-.desktop-fatal-card h1,
-.desktop-fatal-card p {
-  margin: 0;
-}
+.desktop-fatal-card h1, .desktop-fatal-card p { margin: 0; }
+.desktop-fatal-card h1 { font-size: 1.125rem; font-weight: 600; line-height: 1.4; }
+.desktop-fatal-card p { color: var(--cds-secondary); font-size: .875rem; line-height: 1.6; }
+.desktop-fatal-mark img { display: block; width: 32px; height: 32px; }
 
-.desktop-fatal-card h1 {
-  color: var(--text-strong);
-  font-size: 1.625rem;
+.desktop-fatal-reload {
+  justify-self: end;
+  margin-top: 4px;
+  padding: 7px 14px;
+  border: 0;
+  border-radius: 8px;
+  background: var(--cds-primary);
+  color: var(--cds-primary-ink);
+  font: inherit;
+  font-size: .8125rem;
+  font-weight: 600;
 }
-
-.desktop-fatal-card > p:not(.desktop-eyebrow) {
-  color: var(--text-soft);
-  font-size: 0.875rem;
-  line-height: 1.7;
-}
-
-.desktop-fatal-mark {
-  display: grid;
-  width: 54px;
-  height: 54px;
-  place-items: center;
-  border-radius: 16px;
-  background: transparent;
-}
-
-.desktop-fatal-mark img {
-  display: block;
-  width: 54px;
-  height: 54px;
-}
+.desktop-fatal-reload:hover { background: var(--cds-primary-hover); }
+.desktop-fatal-reload:focus-visible { outline: 2px solid var(--cds-accent); outline-offset: 2px; }
 
 .desktop-onboarding-card,
 .desktop-settings-modal {
@@ -438,7 +431,7 @@ button {
   overflow: hidden;
 }
 
-:where(:root:not([data-theme="dark"])) :is(.desktop-fatal-card, .desktop-onboarding-card, .desktop-settings-modal) {
+:where(:root:not([data-theme="dark"])) :is(.desktop-onboarding-card, .desktop-settings-modal) {
   box-shadow: 0 24px 80px rgb(0 0 0 / 14%);
 }
 
@@ -1955,7 +1948,7 @@ button {
 .connection-row {
   display: grid;
   min-width: 0;
-  grid-template-columns: minmax(220px, 1fr) auto auto auto;
+  grid-template-columns: minmax(220px, 1fr) auto auto;
   align-items: center;
   gap: 16px;
   padding: 12px 14px;
@@ -2052,14 +2045,13 @@ button {
   line-height: 1.45;
 }
 
-.desktop-platform-win32,
+.desktop-window-frame,
 .app-shell {
   --app-navigation-width: 53.2px;
-  --app-titlebar-height: 41.8px;
+  --app-titlebar-height: 42px;
   --app-sidebar-width: 256px;
   --app-panel-radius: 14px;
   --sidebar-control-left: calc(var(--app-navigation-width) + 8px);
-  --navigation-bg: var(--bg);
   --sidebar-bg: var(--bg);
   --sidebar-border: var(--border);
   --sidebar-ink: var(--text);
@@ -2076,22 +2068,10 @@ button {
   display: grid;
   width: 100%;
   height: 100vh;
-  grid-template-columns: var(--app-navigation-width) var(--app-sidebar-width) minmax(0, 1fr);
   background: var(--navigation-bg);
   margin: 0;
   overflow: hidden;
   padding: 0;
-  transition: grid-template-columns 180ms cubic-bezier(0.2, 0.75, 0.25, 1);
-}
-
-.app-shell.sidebar-collapsed,
-.app-shell.sidebar-unavailable {
-  grid-template-columns: var(--app-navigation-width) 0 minmax(0, 1fr);
-}
-
-/* When the session list is absent, the page owns the same leading corner. */
-.app-shell.sidebar-unavailable > .main-panel > .content-panel {
-  border-top-left-radius: var(--app-panel-radius);
 }
 
 /* Keep the list mounted for scroll/search state, but remove all off-page chrome. */
@@ -2103,7 +2083,7 @@ button {
 .sidebar-resizer {
   position: absolute;
   z-index: 25;
-  inset-block: 0;
+  inset-block: var(--app-titlebar-height) 0;
   left: calc(var(--app-navigation-width) + var(--app-sidebar-width) - 3px);
   width: 6px;
   outline: none;
@@ -2122,8 +2102,7 @@ button {
   pointer-events: none;
 }
 
-.sidebar-resizer:hover::after,
-.app-shell[data-sidebar-resizing] > .sidebar-resizer::after {
+.sidebar-resizer:hover::after {
   background: color-mix(in srgb, var(--text) 35%, var(--bg));
 }
 
@@ -2139,12 +2118,6 @@ button {
 .app-shell[data-sidebar-resizing] * {
   cursor: col-resize !important;
   user-select: none;
-}
-
-.app-shell > .main-panel {
-  grid-column: 3;
-  grid-row: 1;
-  min-width: 0;
 }
 
 .desktop-platform-darwin .app-shell {
@@ -2239,7 +2212,7 @@ button {
 
 .sidebar-window-controls.sidebar-visible .sidebar-icon-button.is-open,
 .sidebar-window-controls.sidebar-visible .sidebar-icon-button.is-selected {
-  color: var(--sidebar-ink);
+  color: var(--sidebar-ink-soft);
 }
 
 .sidebar-window-controls.sidebar-visible .sidebar-icon-button:hover {
@@ -2269,7 +2242,6 @@ button {
   margin-top: var(--app-titlebar-height);
   padding-top: 8px;
   border-top: 1px solid var(--sidebar-border);
-  border-radius: var(--app-panel-radius) 0 0 0;
   opacity: 1;
   transform: translateX(0);
   visibility: visible;
@@ -2692,6 +2664,8 @@ h1 {
 /* The conversation owns its own scrolling, so this panel must not scroll too. */
 .content-panel-fill {
   overflow: hidden;
+  /* Its embedded conversation header is part of the caption, not the canvas. */
+  border-top-left-radius: 0;
 }
 
 .workspace-view {
@@ -2716,45 +2690,6 @@ h1 {
   font-size: 1.25rem;
   font-weight: 700;
   letter-spacing: -0.02em;
-}
-
-.workspace-subnav {
-  display: inline-flex;
-  align-items: center;
-  min-width: 0;
-  gap: 2px;
-  padding: 3px;
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  background: var(--surface-muted);
-}
-
-.workspace-subnav-item {
-  min-height: 30px;
-  padding: 5px 12px;
-  border: 0;
-  border-radius: 7px;
-  background: transparent;
-  color: var(--text-soft);
-  font-size: 0.75rem;
-  font-weight: 600;
-  cursor: pointer;
-}
-
-.workspace-subnav-item:hover,
-.workspace-subnav-item:focus-visible {
-  color: var(--text-strong);
-}
-
-.workspace-subnav-item:focus-visible {
-  outline: 2px solid var(--focus-ring);
-  outline-offset: 1px;
-}
-
-.workspace-subnav-item.active {
-  background: var(--surface);
-  color: var(--accent-strong);
-  box-shadow: 0 1px 4px var(--shadow-soft);
 }
 
 .workspace-view-content {
@@ -3777,6 +3712,10 @@ h1 {
 
 :root[data-theme="dark"] .provider-brand-mark[data-provider-mark="deepseek"] {
   color: #9db4f5;
+}
+
+.provider-brand-mark[data-provider-mark="openai"] {
+  color: var(--text);
 }
 
 /* The OpenRouter mark is a currentColor SVG. Give it the official brand
@@ -4964,11 +4903,12 @@ h1 {
   background: linear-gradient(to bottom, var(--conversation-bg) 30%, transparent);
 }
 
-/* The composer dock's own gradient sits below the scroll container, so it
-   never reached the edge that does the cutting. This one covers that edge. */
+/* Fade only at the composer edge, reaching full opacity at the boundary
+   rather than hiding an extra band of text above the input. */
 .conversation-scroll-area::after {
   bottom: 0;
-  background: linear-gradient(to top, var(--conversation-bg) 30%, transparent);
+  height: 12px;
+  background: linear-gradient(to top, var(--conversation-bg), transparent);
 }
 
 .conversation-jump-latest {
@@ -5225,72 +5165,6 @@ h1 {
   color: var(--muted-light);
 }
 
-.conversation-compose-actions {
-  display: flex;
-  align-items: center;
-  flex: 0 0 auto;
-  gap: 6px;
-}
-
-.conversation-send-button,
-.conversation-attach-button {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-height: 34px;
-  /* Beside a flex:1 textarea these would otherwise be squeezed out of their
-     own footprint. */
-  flex: 0 0 auto;
-  gap: 6px;
-  border-radius: 9px;
-  cursor: pointer;
-  font: inherit;
-  font-size: 0.75rem;
-  font-weight: 650;
-  white-space: nowrap;
-}
-
-/* One control with two modes. Send is solid ink once the composer has content
-   and muted grey while it is empty; stop inverts against the surface so it
-   reads as "interrupt". The glyph always keeps the surface color. */
-.conversation-send-button {
-  width: 30.6px;
-  /* Overrides the shared min-height, which would otherwise stretch the circle
-     back into an oval. */
-  min-height: 30.6px;
-  height: 30.6px;
-  border: 1px solid var(--text);
-  border-radius: 50%;
-  background: var(--text);
-  color: var(--surface);
-  transition: background 140ms ease, border-color 140ms ease, color 140ms ease;
-}
-
-.conversation-send-button[data-mode="send"]:disabled {
-  /* 10% lighter than --muted-light: the empty state should whisper, not shout. */
-  border-color: color-mix(in srgb, var(--muted-light) 90%, var(--surface));
-  background: color-mix(in srgb, var(--muted-light) 90%, var(--surface));
-  color: var(--surface);
-  opacity: 1;
-}
-
-.conversation-attach-button {
-  width: 34px;
-  border: 1px solid transparent;
-  background: transparent;
-  color: var(--muted);
-}
-
-.conversation-attach-button:hover:not(:disabled) {
-  background: var(--row-hover);
-  color: var(--text);
-}
-
-.conversation-send-button:disabled,
-.conversation-attach-button:disabled {
-  cursor: default;
-  opacity: 0.5;
-}
 
 .conversation-compose-meta {
   display: flex;
@@ -5298,11 +5172,6 @@ h1 {
   gap: 12px;
   color: var(--muted-light);
   font-size: 0.625rem;
-}
-
-.conversation-queue-status {
-  color: var(--warning);
-  font-size: 0.6875rem;
 }
 
 .conversation-compose-error {
@@ -5958,10 +5827,27 @@ h1 {
   line-height: 1.7;
 }
 
-.message-markdown a {
+.message-markdown .markdown-file-link {
+  display: inline;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  font: inherit;
+  text-align: inherit;
+  text-decoration: underline;
+  cursor: pointer;
+  user-select: text;
+}
+
+.message-markdown a,
+.message-markdown .markdown-file-link {
   color: var(--info);
   font-weight: 600;
   overflow-wrap: anywhere;
+}
+
+.conversation-feed .markdown-file-link:is(:hover, :focus-visible) {
+  --file-link-underline: currentColor;
 }
 
 /* A link the shell will not follow reads as the text it wraps, so nothing in
@@ -5984,10 +5870,10 @@ h1 {
   background: var(--border);
 }
 
-:root:not([data-theme="dark"]) .conversation-feed .message-markdown a[href] {
+:root:not([data-theme="dark"]) .conversation-feed .message-markdown :is(a[href], .markdown-file-link) {
   color: #184f95;
   font-weight: 500;
-  text-decoration-color: #a3b7d4;
+  text-decoration-color: var(--file-link-underline, #a3b7d4);
   text-decoration-thickness: 1px;
   text-underline-offset: 3px;
 }
@@ -6441,8 +6327,8 @@ code {
   font-weight: 650;
 }
 
-/* Screenshot-derived light chat palette. Keep these overrides local: the
-   shared highlighter also renders tool output, file previews and skill docs. */
+/* Shared code palette: conversation fences, tool commands, source results and
+   file previews use the same token colors. Prose and skill docs stay separate. */
 :root:not([data-theme="dark"]) .conversation-feed .message-markdown code:not(pre code) {
   border: 1px solid #dadada;
   background: #f0f0ef;
@@ -6455,38 +6341,42 @@ code {
   color: #1a1a1a;
 }
 
-:root:not([data-theme="dark"]) .conversation-feed .message-markdown .code-block :is(.hljs-comment, .hljs-quote) {
+:root:not([data-theme="dark"]) :is(.conversation-feed, .file-document) .code-block {
+  color: #1a1a1a;
+}
+
+:root:not([data-theme="dark"]) :is(.conversation-feed, .file-document) .code-block :is(.hljs-comment, .hljs-quote) {
   color: #999;
   font-style: normal;
 }
 
-:root:not([data-theme="dark"]) .conversation-feed .message-markdown .code-block :is(.hljs-keyword, .hljs-selector-tag, .hljs-literal, .hljs-doctag, .hljs-number, .hljs-function, .hljs-operator) {
+:root:not([data-theme="dark"]) :is(.conversation-feed, .file-document) .code-block :is(.hljs-keyword, .hljs-selector-tag, .hljs-literal, .hljs-doctag, .hljs-number, .hljs-function, .hljs-operator) {
   color: #c6631b;
 }
 
-:root:not([data-theme="dark"]) .conversation-feed .message-markdown .code-block :is(.hljs-string, .hljs-regexp, .hljs-addition) {
+:root:not([data-theme="dark"]) :is(.conversation-feed, .file-document) .code-block :is(.hljs-string, .hljs-regexp, .hljs-addition) {
   color: #1f9e3c;
 }
 
-:root:not([data-theme="dark"]) .conversation-feed .message-markdown .code-block :is(.hljs-title, .hljs-section, .hljs-name, .hljs-selector-id, .hljs-selector-class, .hljs-built_in, .hljs-type) {
+:root:not([data-theme="dark"]) :is(.conversation-feed, .file-document) .code-block :is(.hljs-title, .hljs-section, .hljs-name, .hljs-selector-id, .hljs-selector-class, .hljs-built_in, .hljs-type) {
   color: #0273e7;
 }
 
-:root:not([data-theme="dark"]) .conversation-feed .message-markdown .code-block :is(.hljs-variable, .hljs-template-variable, .hljs-attr, .hljs-selector-attr, .hljs-attribute, .hljs-property, .hljs-params, .hljs-symbol) {
+:root:not([data-theme="dark"]) :is(.conversation-feed, .file-document) .code-block :is(.hljs-variable, .hljs-template-variable, .hljs-attr, .hljs-selector-attr, .hljs-attribute, .hljs-property, .hljs-params, .hljs-symbol) {
   color: #1a1a1a;
 }
 
-:root:not([data-theme="dark"]) .conversation-feed .message-markdown .code-block :is(.hljs-punctuation, .hljs-meta) {
+:root:not([data-theme="dark"]) :is(.conversation-feed, .file-document) .code-block :is(.hljs-punctuation, .hljs-meta) {
   color: #737373;
 }
 
-:root:not([data-theme="dark"]) .conversation-feed .message-markdown .code-block .hljs-deletion {
+:root:not([data-theme="dark"]) :is(.conversation-feed, .file-document) .code-block .hljs-deletion {
   color: #8e2726;
 }
 
-/* Pixel-checked dark chat colours. Keep the palette local: the sidebar,
-   composer, user bubbles, tool output and other Markdown viewers retain theirs. */
-:root[data-theme="dark"] :is(.conversation-view, .conversation-scroll-area, .conversation-feed) {
+/* Pixel-checked dark chat colours. Prose rules stay on assistant messages;
+   syntax rules below also cover tool commands and source results. */
+:root[data-theme="dark"] :is(.conversation-scroll-area, .conversation-feed) {
   background-color: var(--conversation-bg);
 }
 
@@ -6520,10 +6410,9 @@ code {
   color: #c3c2b7;
 }
 
-/* Only the verified default state; hover keeps the existing link styling. */
-:root[data-theme="dark"] .conversation-feed :is(.message-card.role-assistant, .timeline-text.process-message-content) .message-markdown a[href]:not(:hover) {
+:root[data-theme="dark"] .conversation-feed :is(.message-card.role-assistant, .timeline-text.process-message-content) .message-markdown :is(a[href]:not(:hover), .markdown-file-link) {
   color: #6da8ed;
-  text-decoration-color: #39506a;
+  text-decoration-color: var(--file-link-underline, #39506a);
 }
 
 :root[data-theme="dark"] .conversation-feed :is(.message-card.role-assistant, .timeline-text.process-message-content) .message-markdown :is(th, td) {
@@ -6539,35 +6428,64 @@ code {
   background: transparent;
 }
 
-:root[data-theme="dark"] .conversation-feed :is(.message-card.role-assistant, .timeline-text.process-message-content) .message-markdown .code-block .hljs-keyword {
+/* Preserve the Markdown palette independently of enclosing UI theme aliases. */
+:root[data-theme="dark"] :is(.conversation-feed, .file-document) .code-block {
+  color: #d3d7df;
+}
+
+:root[data-theme="dark"] :is(.conversation-feed, .file-document) .code-block :is(.hljs-comment, .hljs-quote) {
+  color: #8e857c;
+}
+
+:root[data-theme="dark"] :is(.conversation-feed, .file-document) .code-block :is(.hljs-selector-tag, .hljs-literal, .hljs-doctag) {
+  color: #efad8a;
+}
+
+:root[data-theme="dark"] :is(.conversation-feed, .file-document) .code-block .hljs-regexp {
+  color: #8dca8d;
+}
+
+:root[data-theme="dark"] :is(.conversation-feed, .file-document) .code-block :is(.hljs-variable, .hljs-template-variable, .hljs-attr, .hljs-selector-attr) {
+  color: #dfb268;
+}
+
+:root[data-theme="dark"] :is(.conversation-feed, .file-document) .code-block :is(.hljs-section, .hljs-name, .hljs-selector-id, .hljs-selector-class) {
+  color: #9bcbe8;
+}
+
+:root[data-theme="dark"] :is(.conversation-feed, .file-document) .code-block :is(.hljs-attribute, .hljs-meta, .hljs-symbol) {
+  color: #cfad7c;
+}
+
+:root[data-theme="dark"] :is(.conversation-feed, .file-document) .code-block .hljs-keyword {
   color: #cc7bf4;
 }
 
-:root[data-theme="dark"] .conversation-feed :is(.message-card.role-assistant, .timeline-text.process-message-content) .message-markdown .code-block :is(.hljs-title, .hljs-built_in) {
+:root[data-theme="dark"] :is(.conversation-feed, .file-document) .code-block :is(.hljs-title, .hljs-built_in) {
   color: #70b8ff;
 }
 
-:root[data-theme="dark"] .conversation-feed :is(.message-card.role-assistant, .timeline-text.process-message-content) .message-markdown .code-block :is(.hljs-type, .hljs-params) {
+:root[data-theme="dark"] :is(.conversation-feed, .file-document) .code-block :is(.hljs-type, .hljs-params) {
   color: #fbae60;
 }
 
-:root[data-theme="dark"] .conversation-feed :is(.message-card.role-assistant, .timeline-text.process-message-content) .message-markdown .code-block.language-typescript :is(.hljs-built_in, .hljs-params .hljs-attr) {
+:root[data-theme="dark"] :is(.conversation-feed, .file-document) .code-block.language-typescript :is(.hljs-built_in, .hljs-params .hljs-attr) {
   color: #fbae60;
 }
 
-:root[data-theme="dark"] .conversation-feed :is(.message-card.role-assistant, .timeline-text.process-message-content) .message-markdown .code-block :is(.hljs-string, .hljs-addition) {
+:root[data-theme="dark"] :is(.conversation-feed, .file-document) .code-block :is(.hljs-string, .hljs-addition) {
   color: #9ce963;
 }
 
-:root[data-theme="dark"] .conversation-feed :is(.message-card.role-assistant, .timeline-text.process-message-content) .message-markdown .code-block .hljs-number {
+:root[data-theme="dark"] :is(.conversation-feed, .file-document) .code-block .hljs-number {
   color: #5eedee;
 }
 
-:root[data-theme="dark"] .conversation-feed :is(.message-card.role-assistant, .timeline-text.process-message-content) .message-markdown .code-block.language-json .hljs-attr {
+:root[data-theme="dark"] :is(.conversation-feed, .file-document) .code-block.language-json .hljs-attr {
   color: #ebecf0;
 }
 
-:root[data-theme="dark"] .conversation-feed :is(.message-card.role-assistant, .timeline-text.process-message-content) .message-markdown .code-block .hljs-deletion {
+:root[data-theme="dark"] :is(.conversation-feed, .file-document) .code-block .hljs-deletion {
   color: #f57b85;
 }
 
@@ -7011,11 +6929,6 @@ pre {
   .desktop-onboarding-card,
   .desktop-settings-modal {
     border-radius: 14px;
-  }
-
-  .app-shell,
-  .app-shell.sidebar-collapsed {
-    grid-template-columns: var(--app-navigation-width) 0 minmax(0, 1fr);
   }
 
   .sidebar-dismiss {
@@ -8384,7 +8297,7 @@ pre {
    whole transcript flattens into one sheet. */
 .sessions-focus .content-panel-fill {
   padding: 0;
-  background: var(--bg);
+  background: var(--conversation-bg);
 }
 
 .runtime-status-host {
@@ -8400,10 +8313,6 @@ pre {
   margin: 0;
   transform: translateX(-50%);
   box-shadow: var(--shadow-card);
-}
-
-.sessions-focus .dashboard-refresh-indicator {
-  top: 68px;
 }
 
 .sessions-conversation-shell {
@@ -8728,10 +8637,20 @@ pre {
   opacity: 0.6;
 }
 
-/* Share the chat canvas with the dock and edge fades to avoid visible seams.
-   Cards, including the input card, keep their own surface colours. */
+/* The caption and exposed corner share the shell background. The body owns
+   the chat canvas, including the dock and scroll fades, below the caption. */
 .conversation-view {
   position: relative;
+  overflow: hidden;
+  background: var(--bg);
+}
+
+.conversation-body {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  flex-direction: column;
   overflow: hidden;
   background: var(--conversation-bg);
 }
@@ -8748,37 +8667,15 @@ pre {
   align-items: center;
   gap: 9px;
   padding: calc((var(--app-titlebar-height) - 30px) / 2) 18px;
-  /* No rule underneath. A line has to be drawn because the content is sliced
-     off at a hard edge; fading it out instead removes the thing the line was
-     there to explain. The fade lives on .conversation-scroll-area::before. */
+  /* The macOS shell draws the shared caption edge; retain the transcript fade. */
   border-bottom: 0;
   background: var(--bg);
   backdrop-filter: none;
 }
 
-/* This row stands in for the window's title bar, but only its title text may
-   drag the window. Once the sidebar is collapsed the row starts at x=0 and runs
-   under the floating sidebar toggle, and a drag region there swallows the
-   button: draggable regions are handed to the window manager as caption area,
-   so the click never reaches the DOM. Stacking cannot rescue it either — the
-   regions are unioned and subtracted in document order, not by z-index, and the
-   header comes after the toggle, so its rectangle would be added back last. */
 .desktop-platform-darwin .sessions-focus .conversation-header {
   z-index: 21;
   background: var(--bg);
-  app-region: no-drag;
-  -webkit-app-region: no-drag;
-}
-
-.desktop-platform-darwin .sessions-focus .conversation-header-copy {
-  app-region: drag;
-  -webkit-app-region: drag;
-}
-
-/* Declared after the title text so the subtraction lands on top of it. */
-.desktop-platform-darwin .sessions-focus .conversation-header button {
-  app-region: no-drag;
-  -webkit-app-region: no-drag;
 }
 
 .desktop-window-frame .app-shell.sidebar-collapsed.sessions-focus .conversation-header {
@@ -8789,7 +8686,6 @@ pre {
   display: flex;
   min-width: 0;
   align-items: center;
-  gap: 9px;
 }
 
 .conversation-header-actions {
@@ -8799,24 +8695,15 @@ pre {
   gap: 5px;
 }
 
-/* A label for where you are, not a headline. Session titles here can be a
-   whole sentence long, and at 650 weight that sentence became the loudest thing
-   on the page. */
+/* Match the regular weight of titles in the session list. */
 .conversation-header-copy h2 {
   overflow: hidden;
   color: var(--text-strong);
   font-size: 0.8125rem;
-  font-weight: 600;
+  font-weight: 400;
   letter-spacing: -0.005em;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-
-/* The anchor the row starts from, so the title is not the first thing the eye
-   has to parse. */
-.conversation-header-icon {
-  flex: 0 0 auto;
-  color: var(--muted-light);
 }
 
 .conversation-transcript {
@@ -9219,7 +9106,7 @@ pre {
   white-space: nowrap;
 }
 
-.message-meta-copy {
+.message-meta-action {
   display: inline-flex;
   width: 28px;
   height: 28px;
@@ -9233,12 +9120,12 @@ pre {
   cursor: pointer;
 }
 
-.message-meta-copy:hover {
+.message-meta-action:hover:not(:disabled) {
   background: var(--surface-muted);
   color: var(--text-soft);
 }
 
-.message-meta-copy:focus-visible {
+.message-meta-action:focus-visible {
   outline: 2px solid var(--focus-ring);
   outline-offset: 1px;
 }
@@ -9372,8 +9259,8 @@ pre {
   align-self: flex-end;
   justify-self: end;
   margin: 22px 0 1px;
-  padding: 9px 13px;
-  border: 1px solid transparent;
+  padding: 10px 14px;
+  border: 0;
   border-radius: 14px;
   background: var(--conversation-muted-fill);
 }
@@ -9493,37 +9380,6 @@ pre {
   padding: 5px 9px;
 }
 
-/* Both themes use text contrast for interaction, leaving the row background,
-   status colours and keyboard focus outline independent. */
-.conversation-feed {
-  --tool-op-hover-name: #52514f;
-  --tool-op-hover-argument: #0b0b0b;
-}
-
-:root[data-theme="dark"] .conversation-feed {
-  --tool-op-hover-name: #bfbdb5;
-  --tool-op-hover-argument: #f5f4ed;
-}
-
-.conversation-feed .tool-op-summary:is(:hover, :focus-visible) {
-  background: transparent;
-}
-
-:root:not([data-theme="dark"]) .conversation-feed .tool-op:not(.state-error) .tool-op-name {
-  color: #8a8984;
-}
-
-:root:not([data-theme="dark"]) .conversation-feed .tool-op-argument {
-  color: #52514f;
-}
-
-.conversation-feed .tool-op:not(.state-error) .tool-op-summary:not(:disabled):is(:hover, :focus-visible) .tool-op-name {
-  color: var(--tool-op-hover-name);
-}
-
-.conversation-feed .tool-op-summary:not(:disabled):is(:hover, :focus-visible) .tool-op-argument {
-  color: var(--tool-op-hover-argument);
-}
 
 .optimistic-message-state {
   display: flex;
@@ -9798,13 +9654,36 @@ pre {
 }
 
 .conversation-compose-actions {
-  justify-content: space-between;
-  gap: 12px;
+  --composer-control-size: 30px;
+  flex-wrap: wrap;
+  gap: 4px 8px;
 }
 
 .conversation-compose-leading,
 .conversation-compose-trailing {
-  gap: 7px;
+  max-width: 100%;
+}
+
+.conversation-compose-leading {
+  gap: 4px;
+}
+
+.conversation-compose-trailing {
+  --picker-outer-gap: 16px;
+  margin-inline-start: auto;
+}
+
+.conversation-compose-trailing > * + :not(.conversation-thinking-picker) {
+  margin-inline-start: 4px;
+}
+
+.conversation-compose-trailing > .conversation-context-meter + .conversation-model-picker {
+  /* The visible ring already sits about 8px inside its button. */
+  margin-inline-start: calc(var(--picker-outer-gap) - 8px);
+}
+
+.conversation-compose-trailing > :is(.conversation-model-picker, .conversation-thinking-picker) + .conversation-send-button {
+  margin-inline-start: var(--picker-outer-gap);
 }
 
 .conversation-model-picker,
@@ -9813,35 +9692,55 @@ pre {
   min-width: 0;
 }
 
-/* Tighten the model ↔ thinking pair: pull the pair closer while keeping each
-   trigger's padding symmetric, so the hovered pill stays centered. */
-.conversation-model-picker + .conversation-thinking-picker {
-  margin-left: -4.5px;
+.composer-toolbar-control,
+.conversation-send-button {
+  display: inline-flex;
+  height: var(--composer-control-size);
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 0;
+  cursor: pointer;
 }
 
-.conversation-model-trigger,
-.conversation-thinking-trigger {
-  display: inline-flex;
-  min-height: 30px;
-  align-items: center;
-  gap: 6px;
-  padding: 4px 6px;
-  border: 1px solid transparent;
+.composer-toolbar-control {
+  gap: 5px;
   border-radius: 8px;
   background: transparent;
-  color: var(--text-soft);
-  cursor: pointer;
+  color: var(--cds-secondary);
   font: inherit;
-  font-size: 0.6875rem;
-  font-weight: 600;
+  font-size: .75rem;
+  font-weight: 400;
+  line-height: 1.5;
+}
+
+.conversation-attach-button,
+.conversation-context-trigger,
+.conversation-send-button {
+  width: var(--composer-control-size);
+  flex: none;
 }
 
 .conversation-model-trigger {
-  max-width: 180px;
+  padding-inline: 8px;
+  max-width: min(100%, 180px);
+}
+
+.permission-picker > .conversation-model-trigger {
+  padding-inline: 7px;
+}
+
+.conversation-model-picker:has(+ .conversation-thinking-picker) > .conversation-model-trigger,
+.conversation-thinking-trigger {
+  padding-inline: 4px;
+}
+
+.conversation-model-trigger:enabled > .conversation-model-name {
+  color: light-dark(var(--cds-ink), #fff);
 }
 
 .conversation-thinking-trigger {
-  max-width: 112px;
+  max-width: min(100%, 112px);
 }
 
 .conversation-model-trigger > span,
@@ -9858,33 +9757,56 @@ pre {
   flex: 0 0 auto;
 }
 
-.conversation-model-trigger:hover:not(:disabled),
-.conversation-model-trigger:focus-visible,
-.conversation-thinking-trigger:hover:not(:disabled),
-.conversation-thinking-trigger:focus-visible {
-  border-color: transparent;
-  background: #ececea;
+.composer-toolbar-control:hover:not(:disabled) {
+  background: var(--cds-alpha-1);
+  color: var(--cds-ink);
 }
 
-:root[data-theme="dark"] .conversation-model-trigger:hover:not(:disabled),
-:root[data-theme="dark"] .conversation-model-trigger:focus-visible,
-:root[data-theme="dark"] .conversation-thinking-trigger:hover:not(:disabled),
-:root[data-theme="dark"] .conversation-thinking-trigger:focus-visible {
-  background: rgba(255, 255, 255, 0.08);
+.composer-toolbar-control:is(:active, [aria-expanded="true"]):not(:disabled) {
+  background: var(--cds-selected);
+  color: var(--cds-ink);
 }
 
-.conversation-model-trigger:focus-visible,
+.composer-toolbar-control:disabled {
+  color: var(--cds-disabled-ink);
+  cursor: default;
+}
+
+.composer-toolbar-control:disabled .provider-brand-mark {
+  opacity: .4;
+}
+
+.conversation-send-button {
+  border-radius: 50%;
+  background: var(--cds-primary);
+  color: var(--cds-primary-ink);
+}
+
+.conversation-send-button:hover:not(:disabled) {
+  background: var(--cds-primary-hover);
+}
+
+.conversation-send-button[data-mode="stop"] {
+  background: var(--cds-ink);
+  color: var(--cds-surface-popover);
+}
+
+.conversation-send-button[data-mode="stop"]:hover:not(:disabled) {
+  background: var(--cds-secondary);
+}
+
+.conversation-send-button:disabled {
+  background: var(--cds-disabled-fill);
+  color: var(--cds-disabled-ink);
+  cursor: default;
+}
+
+.composer-toolbar-control:focus-visible,
+.conversation-send-button:focus-visible,
 .conversation-model-option:focus-visible,
-.conversation-thinking-trigger:focus-visible,
 .conversation-thinking-level:focus-visible {
   outline: 2px solid var(--focus-ring);
   outline-offset: 1px;
-}
-
-.conversation-model-trigger:disabled,
-.conversation-thinking-trigger:disabled {
-  cursor: default;
-  opacity: 0.58;
 }
 
 .conversation-context-meter {
@@ -9894,33 +9816,9 @@ pre {
   align-items: center;
 }
 
-.conversation-context-trigger {
-  display: inline-flex;
-  width: 30px;
-  height: 30px;
-  align-items: center;
-  justify-content: center;
-  padding: 0;
-  border: 1px solid transparent;
-  border-radius: 8px;
-  background: transparent;
-  cursor: pointer;
-}
-
-.conversation-context-trigger:hover,
-.conversation-context-trigger[aria-expanded="true"] {
-  border-color: var(--border);
-  background: var(--surface-muted);
-}
-
-.conversation-context-trigger:focus-visible {
-  outline: 2px solid var(--focus-ring);
-  outline-offset: 1px;
-}
-
 .conversation-context-ring {
-  width: 16.93px;
-  height: 16.93px;
+  width: 16px;
+  height: 16px;
 }
 
 .conversation-context-ring circle {
@@ -10080,11 +9978,23 @@ pre {
   font-weight: 650;
 }
 
+.conversation-model-selector-menu {
+  display: flex;
+  flex-direction: column;
+}
+
+.conversation-model-menu-heading,
+.conversation-model-menu-footer {
+  flex: none;
+}
+
 .conversation-model-options {
   display: grid;
   min-height: 0;
+  flex: 0 1 auto;
   gap: 2px;
   overflow-y: auto;
+  overscroll-behavior-y: contain;
 }
 
 .conversation-model-option {
@@ -10368,7 +10278,6 @@ pre {
   white-space: nowrap;
 }
 
-.conversation-queue-status,
 .conversation-compose-error {
   padding-inline: 5px;
 }
@@ -10422,11 +10331,11 @@ pre {
   }
 
   .conversation-model-trigger {
-    max-width: 120px;
+    max-width: min(100%, 120px);
   }
 
   .conversation-thinking-trigger {
-    max-width: 84px;
+    max-width: min(100%, 84px);
   }
 
   .sessions-focus .runtime-status-floating {
@@ -10910,7 +10819,8 @@ pre {
   line-height: 1.65;
 }
 
-.workbench-page .spin {
+/* Every workbench view shares the spinner, not only the media tagging page. */
+.workbench-theme .spin {
   animation: workbench-spin 0.9s linear infinite;
 }
 
@@ -10954,7 +10864,7 @@ pre {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .workbench-page .spin {
+  .workbench-theme .spin {
     animation: none;
   }
 
@@ -11299,6 +11209,7 @@ pre {
 }
 
 .conversation-process-toggle > .live-progress-status {
+  width: auto;
   padding: 0;
 }
 
@@ -11521,17 +11432,88 @@ pre {
   position: fixed;
   inset: 0;
   z-index: 1000;
+  background: var(--scrim);
+  backdrop-filter: blur(1.25px);
+  -webkit-app-region: no-drag;
+}
+.sent-image-dialog {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+.image-preview-toolbar {
+  position: absolute;
+  inset: 8px 10px auto;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  pointer-events: none;
+}
+:root:has(.desktop-platform-darwin) .image-preview-toolbar {
+  inset-inline-start: 78px; /* Clear the native traffic lights. */
+}
+.image-preview-info,
+.image-preview-toolbar > button {
+  pointer-events: auto;
+  background: color-mix(in srgb, var(--cds-surface-popover) 94%, transparent);
+  border-radius: 999px;
+}
+.image-preview-info {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  min-height: 32px;
+  padding-inline: 12px;
+}
+.image-preview-name {
+  display: flex;
+  min-width: 0;
+  font-size: .875rem;
+  font-weight: 500;
+  white-space: nowrap;
+}
+.image-preview-name > span { overflow: hidden; text-overflow: ellipsis; }
+.image-preview-name > span:nth-child(2) { flex-shrink: 0; max-width: 12ch; }
+.image-preview-source { flex: none; color: var(--muted); font-size: .75rem; }
+.image-preview-toolbar > button {
+  flex: none;
   display: grid;
   place-items: center;
-  padding: 24px;
-  background: rgb(0 0 0 / 78%);
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border: 0;
+  color: var(--muted);
 }
-.sent-image-dialog { max-width: 100%; min-width: 0; color: white; }
-.sent-image-dialog > header { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 10px; }
-.sent-image-dialog > header > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.sent-image-dialog > header > button { flex-shrink: 0; display: grid; place-items: center; padding: 8px; border: 0; border-radius: 8px; color: white; background: rgb(255 255 255 / 12%); cursor: pointer; }
-.sent-image-dialog > img { display: block; max-width: 100%; max-height: calc(100dvh - 140px); object-fit: contain; margin: auto; }
-.sent-image-dialog > p { max-width: 80vw; overflow-wrap: anywhere; }
+.image-preview-toolbar > button:hover { background: var(--cds-surface-popover); color: var(--text); }
+.image-preview-toolbar > button:active { background: color-mix(in srgb, var(--cds-surface-popover) 85%, var(--text)); }
+.image-preview-toolbar > button:focus-visible { outline: 0; box-shadow: var(--cds-focus); }
+.image-preview-stage {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template: minmax(0, 1fr) / minmax(0, 1fr);
+  place-items: center;
+  padding: 52px 24px;
+}
+.image-preview-stage > img { display: block; max-width: 100%; max-height: 100%; object-fit: contain; }
+.image-preview-error {
+  align-self: center;
+  max-width: calc(100% - 32px);
+  margin: 0 0 16px;
+  padding: 8px 16px;
+  max-height: 30%;
+  border-radius: 8px;
+  overflow: auto;
+  overflow-wrap: anywhere;
+  background: var(--danger-soft);
+  color: var(--danger);
+  font-size: .8125rem;
+}
 
 /* Chat's empty hint is plain text, independent of shared panel empty states. */
 .conversation-empty {
@@ -11541,7 +11523,9 @@ pre {
 }
 
 /* Virtual rows share answer identity so text, files and footer reveal one toolbar. */
-[data-answer-active="true"] .answer-footer .message-meta.role-assistant {
+[data-answer-active="true"] .answer-footer .message-meta.role-assistant,
+.answer-footer:focus-within .message-meta.role-assistant,
+.answer-footer:has(:popover-open) .message-meta.role-assistant {
   opacity: 1;
   pointer-events: auto;
   transform: none;
@@ -11639,8 +11623,6 @@ pre {
 
 /* Skill management uses the existing catalog and modal surfaces. */
 .workspace-header-actions { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-width: 0; width: 100%; }
-.workspace-header-actions .workspace-subnav { overflow-x: auto; }
-.workspace-header-actions .workspace-subnav-item { flex-shrink: 0; }
 .skill-add-menu { position: relative; flex-shrink: 0; }
 .skill-add-menu-popup { position: absolute; z-index: 30; top: calc(100% + 8px); right: 0; min-width: 9rem; padding: 6px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface); box-shadow: 0 8px 24px var(--shadow-soft); }
 .skill-add-menu-popup button { display: block; width: 100%; padding: 8px 12px; border: 0; border-radius: 6px; background: transparent; color: var(--text-strong); font: inherit; text-align: left; cursor: pointer; }
@@ -11652,7 +11634,6 @@ pre {
 @media (max-width: 600px) {
   .workspace-view-header { flex-wrap: wrap; gap: 10px; }
   .workspace-header-actions { gap: 8px; }
-  .workspace-header-actions .workspace-subnav-item { padding-inline: 8px; }
 }
 .user-skill-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin: 12px 0; }
 .user-skill-actions button, .user-skill-actions select { font: inherit; border: 1px solid var(--border); border-radius: 8px; padding: 7px 10px; color: inherit; background: var(--surface); cursor: pointer; }
@@ -11688,7 +11669,6 @@ pre {
 .image-view-group { min-width: 0; padding: 6px 0; }
 .image-view-summary { display: flex; align-items: center; gap: 8px; color: var(--muted); background: none; border: 0; cursor: pointer; padding: 6px 0 10px; font: inherit; font-size: .75rem; }
 .conversation-compaction-marker { color: var(--muted); padding: 6px 0 10px; font-size: .75rem; }
-.image-view-note { margin: 0; padding: 8px 16px; opacity: .7; font-size: .75rem; }
 
 
 
@@ -11746,17 +11726,7 @@ pre {
 }
 
 .desktop-erp-tabs {
-  max-width: 100%;
-  overflow-x: auto;
-  margin-bottom: 20px;
-}
-
-.desktop-erp-tabs .workspace-subnav-item {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  flex-shrink: 0;
-  white-space: nowrap;
+  margin-bottom: 28px;
 }
 
 .native-cloud-access .native-cloud-clear { justify-self: start; max-width: 100%; white-space: normal; text-align: left; }

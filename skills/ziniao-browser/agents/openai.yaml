@@ -1,4 +1,4 @@
 interface:
   display_name: "紫鸟浏览器"
-  short_description: "通过 lxeskill 安全控制紫鸟店铺生命周期与网页交互"
-  default_prompt: "使用 $ziniao-browser 打开指定紫鸟店铺并完成网页查看或交互。"
+  short_description: "管理紫鸟浏览器会话，使用 JavaScript 控制脚本运行固定业务流程"
+  default_prompt: "使用 $ziniao-browser 查询紫鸟店铺状态并运行指定的自动化脚本。"

@@ -62,7 +62,25 @@
 }
 
 /* Settings: the field, its label and its help text form a single row. */
-.workbench-theme .vietnam-settings-card {
+.workbench-settings-input {
+  width: 100%;
+  min-width: 0;
+  height: 36px;
+  box-sizing: border-box;
+  padding: 7px 10px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: var(--bg);
+  color: var(--text-strong);
+  font: inherit;
+  font-size: 14px;
+  font-variant-numeric: tabular-nums;
+}
+.workbench-settings-input:focus-visible { outline: 2px solid var(--accent-strong); outline-offset: 2px; }
+.workbench-settings-actions { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; margin-top: 16px; }
+.workbench-settings-actions button { display: inline-flex; align-items: center; gap: 7px; min-height: 36px; padding: 8px 14px; border-radius: 8px; font-size: 13px; }
+
+.workbench-theme .workbench-settings-card {
   padding: 28px 0; border: 0; border-bottom: 1px solid var(--border);
   border-radius: 0; background: transparent; box-shadow: none;
 }
@@ -77,18 +95,18 @@
 .workbench-theme .vietnam-parameters-card { padding-block: 0; }
 .workbench-theme .vietnam-setting-row { padding-block: 28px; gap: 28px; }
 .workbench-theme .vietnam-parameter-grid label { color: var(--text-soft); font-size: .8125rem; }
-.workbench-theme .vietnam-settings-view input {
+.workbench-theme .workbench-settings-input {
   height: 38px; border-radius: 8px; background: var(--cds-field); border-color: var(--border);
 }
-.workbench-theme .vietnam-settings-view input:hover:not(:disabled) { border-color: var(--border-strong); }
-.workbench-theme .vietnam-settings-view input:focus-visible {
+.workbench-theme .workbench-settings-input:hover:not(:disabled) { border-color: var(--border-strong); }
+.workbench-theme .workbench-settings-input:focus-visible {
   outline: 0; border-color: var(--cds-accent); box-shadow: var(--cds-focus);
 }
-.workbench-theme .vietnam-settings-view input:disabled { opacity: .45; }
+.workbench-theme .workbench-settings-input:disabled { opacity: .45; }
 .workbench-theme .vietnam-exchange { justify-content: flex-end; }
 .workbench-theme .vietnam-advanced summary { padding-block: 20px; color: var(--text); }
 .workbench-theme .vietnam-advanced .vietnam-setting-row { padding-top: 0; }
-.workbench-theme .vietnam-save { margin: 0; padding: 24px 0; }
+.workbench-theme .workbench-settings-actions { margin: 0; padding: 24px 0; }
 
 /* Media: restrained steps and status ink keep the files as the main content. */
 .workbench-theme .workbench-keyword {

@@ -19,7 +19,6 @@ import type { JsonObject } from "@lxe/protocol";
 import { createLogger, loadLlmProviderCatalog, normalizeProviderKey, type LlmProviderSpec } from "@lxe/core";
 import {
   InvalidTranscriptCursorError,
-  mcpServerPrefix,
   normalizeThinkingEffort,
   providerPreferencePatch,
   readProviderPreference,
@@ -34,8 +33,11 @@ import {
   type ToolRegistry,
   type UserQuestionService,
   type SessionTitleService,
+  type TaskTitleService,
   type PermissionApprovalService,
 } from "@lxe/runtime";
+
+import { TeamSkillInstaller } from "./team-skill-installer";
 
 type Environment = Record<string, string | undefined>;
 
@@ -43,6 +45,7 @@ type Environment = Record<string, string | undefined>;
 interface DashboardServiceOptions {
   questions?: UserQuestionService;
   sessionTitles?: SessionTitleService;
+  taskTitles?: TaskTitleService;
   approvals?: PermissionApprovalService;
   onPermissionChanged?: (sessionId: string) => Promise<void> | void;
   /** Writable desktop/source state. */
@@ -58,15 +61,11 @@ interface DashboardServiceOptions {
   store: SqliteRuntimeStore;
   tools: ToolRegistry;
   mcpConfig: McpConfig;
+  refreshMcpConfig?: () => void;
+  addMcpServer?: (input: DashboardRpcSpec["mcp.servers.add"]["input"]) => void | Promise<void>;
   execSnapshots?: (sessionId: string) => JsonObject[];
   terminateSession?: (sessionId: string) => Promise<void> | void;
   setMcpEnabled?: (serverName: string, enabled: boolean) => Promise<void> | void;
-  mcpStatus?: (serverName: string) => {
-    connected: boolean;
-    error: string;
-    toolCount?: number;
-    tools?: Array<{ rawName: string; modelName: string }>;
-  };
   providerManager?: RuntimeProviderManager;
   managedLlmState?: () => ManagedLlmState | undefined;
   skillCatalog?: SkillCatalog;
@@ -85,6 +84,11 @@ const integer = (value: number | undefined, fallback: number, minimum: number, m
 };
 const object = (value: unknown): Record<string, unknown> =>
   value !== null && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
+
+function resolveModelAlias(spec: Record<string, unknown> | undefined, requested: string): string {
+  const alias = object(spec?.model_aliases)[requested.toLowerCase()];
+  return typeof alias === "string" ? alias : requested;
+}
 
 export const DASHBOARD_TOOL_RESULT_PREVIEW_BYTES = 32 * 1024;
 export const DASHBOARD_TOOL_RESULT_PAGE_PREVIEW_BYTES = 256 * 1024;
@@ -231,8 +235,10 @@ function rpcError(code: ConstructorParameters<typeof DashboardRpcError>[0], mess
 
 export class DashboardService {
   private readonly skillCatalog: SkillCatalog;
+  private readonly teamSkills: TeamSkillInstaller;
   private readonly userSkillFiles: UserSkillFiles;
   private readonly handlers: AgentDashboardRpcHandlers = {
+    "sessions.turn.lookup": input => this.options.store.lookupTurn(input.session_id, input.turn_id),
     "sessions.create": input => {
       const registration = this.options.store.getWorkspace(input.workspace_id) ?? rpcError("not_found", "workspace not found");
       const workspace = resolveWorkspaceContext(registration.directory);
@@ -271,6 +277,18 @@ export class DashboardService {
       .map(execDisplayUpdate).filter((item): item is NonNullable<typeof item> => Boolean(item)) }),
     "sessions.list": (input) => this.sessions(input) as DashboardRpcResult<"sessions.list">,
     "sessions.detail": (input) => this.session(input) as Promise<DashboardRpcResult<"sessions.detail">>,
+    "titles.generate": async input => {
+      if (!this.options.taskTitles || !this.options.providerManager) return rpcError("unavailable", "Task title generation is unavailable");
+      let selection: RuntimeModelSelection | undefined;
+      if (input.session_id) {
+        const session = await this.options.store.getSession(input.session_id);
+        if (!session) return rpcError("not_found", `session not found: ${input.session_id}`);
+        selection = session.model_selection;
+      } else if (input.model) selection = { ...input.model, effort: "off", thinking_enabled: false };
+      const title = await this.options.taskTitles.generate(input.text, this.options.providerManager.acquire(selection));
+      return { title };
+    },
+    "sessions.fork": input => this.options.store.forkSession(input.session_id, input.turn_id) as Promise<DashboardRpcResult<"sessions.fork">>,
     "sessions.rename": async input => {
       if (!this.options.sessionTitles) return rpcError("unavailable", "Session titles are unavailable");
       await this.options.sessionTitles.rename(input.session_id, input.title);
@@ -286,6 +304,10 @@ export class DashboardService {
     "skills.user.content": input => this.userSkillFiles.content(input.id, this.skillOptions(), input.path),
     "skills.user.setEnabled": input => this.userSkillFiles.setEnabled(input.id, input.version, input.enabled, this.skillOptions()),
     "skills.user.delete": input => this.userSkillFiles.delete(input.id, input.version),
+    "skills.team.versions": input => this.teamSkills.versions(input.ids),
+    "skills.team.uninstallTarget": input => this.teamSkills.uninstallTarget(input.id, input.version),
+    "skills.team.useTarget": input => this.teamSkills.useTarget(input.id, () => this.userSkillFiles.list(this.skillOptions())),
+    "skills.team.install": input => this.teamSkills.install(input.ticket, input.replaceLocalName),
     "skills.list": async input => this.listPayload((await this.sessionSkills(input.session_id)).map(manifest => this.skillPayload(manifest))) as DashboardRpcResult<"skills.list">,
     "skills.content": async input => {
       const skill = (await this.sessionSkills(input.session_id)).find(item => item.name === input.name);
@@ -294,6 +316,11 @@ export class DashboardService {
     },
     "skills.reference": (input) => this.skillReference(input.name, input.path) as DashboardRpcResult<"skills.reference">,
     "toolsets.list": () => this.listPayload(this.toolsets()) as DashboardRpcResult<"toolsets.list">,
+    "mcp.servers.add": async input => {
+      if (!this.options.addMcpServer) throw new DashboardRpcError("invalid_request", "MCP configuration is unavailable");
+      await this.options.addMcpServer(input);
+      return { name: input.name };
+    },
     "mcp.servers.list": () => this.mcpServers() as DashboardRpcResult<"mcp.servers.list">,
     "mcp.servers.update": (input) => this.updateMcp(input) as Promise<DashboardRpcResult<"mcp.servers.update">>,
     "stats.overview": (input) => this.overview(input.days) as DashboardRpcResult<"stats.overview">,
@@ -322,6 +349,7 @@ export class DashboardService {
       statePath: join(options.stateRoot, "config", "skill-states.local.json"),
     excludedRoots: [join(options.stateRoot, "trash", "skills")],
     });
+    this.teamSkills = new TeamSkillInstaller(this.skillCatalog);
     this.userSkillFiles = new UserSkillFiles(this.skillCatalog, options.stateRoot);
   }
 
@@ -404,6 +432,7 @@ export class DashboardService {
         limit: integer(input.message_limit, 10, 1, 200),
         ...(input.message_before === undefined ? {} : { before: input.message_before }),
         ...(input.message_after === undefined ? {} : { after: input.message_after }),
+        ...(input.message_turn_id === undefined ? {} : { turnId: input.message_turn_id }),
       });
     } catch (error) {
       if (error instanceof InvalidTranscriptCursorError) rpcError("invalid_argument", error.message);
@@ -475,46 +504,37 @@ export class DashboardService {
     const groups: JsonObject[] = native.length ? [{
       name: "coding", label: "Native tools", enabled: true, tools: native.map(payload),
     }] : [];
-    for (const server of this.options.mcpConfig.servers) {
-      const tools = this.options.tools.definitionsSnapshot()
-        .filter((tool) => tool.name.startsWith(mcpServerPrefix(server.name))).map(payload);
-      groups.push({ name: `mcp:${server.name}`, label: server.name, enabled: server.enabled, tools, servers: [this.mcpServer(server)] });
-    }
     return groups;
   }
 
   private mcpServer(server: McpConfig["servers"][number]): JsonObject {
-    const live = this.options.mcpStatus?.(server.name);
-    const toolCount = live?.toolCount
-      ?? this.options.tools.definitionsSnapshot().filter((tool) => tool.name.startsWith(mcpServerPrefix(server.name))).length;
     return {
       name: server.name,
       enabled: server.enabled,
       transport: server.transport,
-      status: !server.enabled ? "disabled" : live?.connected ? "ready" : live?.error ? "error" : "configured",
-      tool_count: toolCount,
-      error: live?.error ?? "",
       server_title: server.connectorName,
       connector_id: server.connectorId,
       connector_name: server.connectorName,
       connector_description: server.connectorDescription,
       exposure: server.exposure,
-      tools: live?.tools ?? [],
     };
   }
 
   private mcpServers(): JsonObject {
-    const items = this.options.mcpConfig.servers.map((server) => this.mcpServer(server));
-    return { items, total: items.length, tool_total: items.reduce((sum, item) => sum + Number(item.tool_count ?? 0), 0) };
+    this.options.refreshMcpConfig?.();
+    const active = this.options.mcpConfig.servers;
+    const items = active.map(server => this.mcpServer(server));
+    return { items, total: items.length };
   }
 
   private async updateMcp(input: DashboardRpcSpec["mcp.servers.update"]["input"]): Promise<JsonObject> {
+    this.options.refreshMcpConfig?.();
     const { name, enabled } = input;
     const server = this.options.mcpConfig.servers.find((item) => item.name === name);
     if (!server) rpcError("not_found", "MCP server not found");
-    server.enabled = enabled;
-    await this.options.setMcpEnabled?.(name, enabled);
-    return this.mcpServer(server);
+    if (this.options.setMcpEnabled) await this.options.setMcpEnabled(name, enabled);
+    else server.enabled = enabled;
+    return this.mcpServer(this.options.mcpConfig.servers.find(item => item.name === name) ?? server);
   }
 
   private days(days: number | undefined): number {
@@ -539,6 +559,7 @@ export class DashboardService {
       default_model: provider.defaultModel,
       model_aliases: provider.modelAliases,
       models: Object.fromEntries(Object.values(provider.models).map((model) => [model.id, {
+        display_name: model.displayName,
         context_window_tokens: model.contextWindowTokens,
         max_tokens: model.maxTokens,
         supports_vision: model.supportsVision,
@@ -597,10 +618,11 @@ export class DashboardService {
   private selectionPayload(selection: RuntimeModelSelection): JsonObject {
     const spec = selection.credential_source === "cloud"
       ? this.managedProviderSpec(selection.provider) : this.providerSpec(selection.provider);
-    const available = spec && selection.model in object(spec.models);
+    const model = resolveModelAlias(spec, selection.model);
+    const available = spec && model in object(spec.models);
     const payload = available
-      ? this.modelPayload(spec, selection.model, selection.credential_source, {
-        model: selection.model, thinkingEffort: selection.effort, thinkingEnabled: selection.thinking_enabled ? "1" : "0",
+      ? this.modelPayload(spec, model, selection.credential_source, {
+        model, thinkingEffort: selection.effort, thinkingEnabled: selection.thinking_enabled ? "1" : "0",
       }) : { ...this.unsupportedManagedModelPayload(selection, spec),
         ...(selection.credential_source === "local" ? { disabled_reason: `Unsupported model: ${selection.provider}/${selection.model}` } : {}) };
     return { ...payload, credential_source: selection.credential_source,
@@ -616,7 +638,7 @@ export class DashboardService {
 
   private async selectSessionModel(input: {
     session_id: string; selection_version?: number; provider?: string; model?: string;
-    credential_source?: "local" | "cloud"; level?: string;
+    credential_source?: "local" | "cloud"; level?: string; remember_default?: boolean;
   }): Promise<JsonObject> {
     const current = await this.sessionCurrentModel(input.session_id);
     if (input.selection_version !== undefined && input.selection_version !== current.selection_version) {
@@ -626,7 +648,8 @@ export class DashboardService {
     const source = input.credential_source ?? (current.credential_source === "cloud" ? "cloud" : "local");
     const spec = source === "cloud" ? this.managedProviderSpec(provider) : this.providerSpec(provider);
     if (!spec) rpcError("invalid_argument", `Unsupported model provider: ${provider}`);
-    const model = input.model || (input.provider ? text(spec.default_model) : text(current.model));
+    const requestedModel = input.model || (input.provider ? text(spec.default_model) : text(current.model));
+    const model = resolveModelAlias(spec, requestedModel);
     const modelSpec = object(object(spec.models)[model]);
     if (!(model in object(spec.models))) rpcError("invalid_argument", `Unsupported model: ${provider}/${model}`);
     if (source === "cloud" ? !this.managedConfigured({ provider, model }) : !this.localModelConfigured(provider)) {
@@ -642,20 +665,22 @@ export class DashboardService {
     const effort = normalizeThinkingEffort(requested, levels, fallback);
     const selection: RuntimeModelSelection = { provider, model, credential_source: source, effort,
       thinking_enabled: levels.length > 0 && effort !== "off" };
-    this.options.providerManager?.acquire(selection);
+    const selectedSnapshot = this.options.providerManager?.acquire(selection);
     const version = await this.options.store.setSessionModelSelection(input.session_id, selection,
       input.selection_version ?? Number(current.selection_version));
     const values = { AGENT_LLM_PROVIDER: provider, AGENT_LLM_MODEL: model, AGENT_LLM_CREDENTIAL_SOURCE: source,
       AGENT_LLM_THINKING_ENABLED: selection.thinking_enabled ? "1" : "0", AGENT_LLM_THINKING_EFFORT: effort };
-    // Remember the choice for new conversations only; existing ones resolve their own log.
-    let generation = 0;
-    try {
-      const snapshot = await this.options.providerManager?.reconfigure({ provider, model, credentialSource: source,
-        thinkingEnabled: selection.thinking_enabled, thinkingEffort: effort });
-      generation = snapshot?.generation ?? 0;
-      this.updateEnvironment({ ...values, ...providerPreferencePatch(provider, values) });
-    } catch (error) {
-      createLogger("dashboard.models").warn("default_model_update_failed", { session_id: input.session_id, error: String(error) });
+    // Interactive choices remember defaults; background task setup changes only its session.
+    let generation = selectedSnapshot?.generation ?? 0;
+    if (input.remember_default !== false) {
+      try {
+        const snapshot = await this.options.providerManager?.reconfigure({ provider, model, credentialSource: source,
+          thinkingEnabled: selection.thinking_enabled, thinkingEffort: effort });
+        generation = snapshot?.generation ?? 0;
+        this.updateEnvironment({ ...values, ...providerPreferencePatch(provider, values) });
+      } catch (error) {
+        createLogger("dashboard.models").warn("default_model_update_failed", { session_id: input.session_id, error: String(error) });
+      }
     }
     return { ...this.selectionPayload(selection), session_id: input.session_id, selection_version: version,
       generation, effective_from: "next_turn" };
@@ -677,7 +702,7 @@ export class DashboardService {
   }
 
   private managedProviderSpec(provider: string): Record<string, unknown> | undefined {
-    const catalog = withManagedModels(loadLlmProviderCatalog(this.options.llmConfigRoot), this.options.managedLlmState?.());
+    const catalog = withManagedModels(loadLlmProviderCatalog(this.options.llmConfigRoot), this.options.managedLlmState?.(), this.managedTarget());
     const spec = catalog.provider(provider);
     return spec ? this.providerSpecPayload(spec) : undefined;
   }
@@ -762,11 +787,13 @@ export class DashboardService {
     const requestedModel = credentialSource === "cloud"
       ? text(modelOverride) || this.managedTarget().model
       : text(modelOverride) || runtimePreference.model || text(spec.default_model);
-    const restoredSavedModel = savedPreference.model in models ? savedPreference.model : "";
-    const model = requestedModel in models
-      ? requestedModel
+    const savedModel = resolveModelAlias(spec, savedPreference.model);
+    const restoredSavedModel = savedModel in models ? savedModel : "";
+    const resolvedModel = resolveModelAlias(spec, requestedModel);
+    const model = resolvedModel in models
+      ? resolvedModel
       : restoredSavedModel || text(spec.default_model);
-    const preference = model === restoredSavedModel && requestedModel !== model
+    const preference = model === restoredSavedModel && resolvedModel !== model
       ? savedPreference
       : runtimePreference;
     const selected = object(models[model]);
@@ -796,6 +823,7 @@ export class DashboardService {
       const modelLevels = Array.isArray(modelSpec.thinking_levels) ? modelSpec.thinking_levels.map(text) : [];
       return {
         model: modelName,
+        ...(credentialSource === "local" && modelSpec.display_name ? { display_name: text(modelSpec.display_name) } : {}),
         thinking_request_style: text(modelSpec.thinking_request_style),
         thinking_levels: modelLevels,
         thinking_level_labels: object(modelSpec.thinking_level_labels) as JsonObject,
@@ -868,9 +896,8 @@ export class DashboardService {
     if (credentialSource === "cloud" && (managedState
       ? !managedState.models.some((m) => m.provider === provider && m.model === preferredModel)
       : provider !== managedTarget.provider)) rpcError("invalid_argument", "Unsupported managed model provider/model");
-    const model = preferredModel in models
-      ? preferredModel
-      : requestedModel ? preferredModel : text(spec.default_model);
+    const resolvedModel = resolveModelAlias(spec, preferredModel);
+    const model = resolvedModel in models || requestedModel ? resolvedModel : text(spec.default_model);
     if (!(model in models)) rpcError("invalid_argument", "Unsupported model for provider");
     const cloudConfigured = this.managedConfigured({ provider, model });
     if (credentialSource === "cloud"

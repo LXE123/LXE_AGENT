@@ -17,6 +17,43 @@ const result={session_id:"s",message_id:"m",turn_id:"turn",state:"running" as co
 const users=(c:ConversationDisplayController)=>c.getSnapshot().rows.filter(row=>row.message?.role==="user");
 const setup=()=>{const c=new ConversationDisplayController();c.select("s");c.receiveHistory(history([]),"latest");return c;};
 
+test("stopping before consumption settles an accepted steering bubble and clears the pending send", async () => {
+  const controller = setup();
+  controller.receiveActivity(activity(live("original")));
+  const { ticket } = await sendConversationMessage(controller, "later", [], async () => ({
+    session_id: "s", turn_id: "turn", state: "steered", message_id: "inserted", created: false,
+  }));
+  controller.receiveActivity(activity({ ...live("original", "cancelled"), steering: [{
+    client_message_id: ticket.pendingId, message_id: "inserted", text: "later", created_at: 10,
+  }] }));
+  expect(controller.getSnapshot().pending).toBeEmpty();
+  expect(users(controller).find(row => row.id === "user:" + ticket.pendingId)?.status).toBe("cancelled");
+});
+
+test("a fresh submission during stopping is a normal turn with its attachments", async () => {
+  const controller = setup();
+  controller.receiveActivity({ session_id: "s", active: live("original", "stopping"), latest: null, queued: [] });
+  await sendConversationMessage(controller, "", [image], async input => {
+    expect(input.steer_turn_id).toBeUndefined();
+    expect(input.attachment_ids).toEqual(["image"]);
+    return { session_id: "s", turn_id: "next", message_id: "next-message", state: "queued", created: false };
+  });
+  expect(controller.getSnapshot().activity?.queued[0]?.turn_id).toBe("next");
+});
+
+test("sending during a running desktop turn targets it and reconciles the attachment by message identity", async () => {
+  const controller = setup();
+  controller.receiveActivity(activity(live("original")));
+  const { ticket } = await sendConversationMessage(controller, "", [image], async input => {
+    expect(input).toMatchObject({ session_id: "s", steer_turn_id: "turn", text: "", attachment_ids: ["image"] });
+    return { session_id: "s", turn_id: "turn", state: "steered", message_id: "inserted", created: false };
+  });
+  expect(controller.getSnapshot().activity?.active?.client_message_id).toBe("original");
+  controller.receiveHistory(history([saved("original"), { ...saved(ticket.pendingId, [image]), message_id: "inserted", source_reason: "steering" }]), "latest");
+  expect(controller.getSnapshot().pending).toHaveLength(0);
+  expect(users(controller).map(row => row.id)).toEqual(["user:original", "user:" + ticket.pendingId]);
+});
+
 test("draft directories survive navigation and failure, and a send captures the original directory", async () => {
   const c = new ConversationDisplayController();
   c.select("", true, undefined, "/project/a");
@@ -147,4 +184,32 @@ test("a nonoverlapping latest replacement invalidates pagination from its former
   c.receiveHistory(page(50,60),"latest");
   expect(c.completeHistory(obsolete,page(10,20),"newer")).toBe(false);
   expect(c.getSnapshot().detail!.messages[0]!.display_group_id).toBe("g50");
+});
+
+test("opening a run before latest history arrives stays detached and retains a target", () => {
+  const c = new ConversationDisplayController(); c.select("s");
+  const latest = c.beginHistory();
+  const target = c.beginTargetHistory();
+  const old = history([saved("old")]);
+  old.messages_page.has_next = true; old.messages_page.next_cursor = "g";
+  expect(c.openHistory(old, "turn", target)).toBe(true);
+  expect(c.getSnapshot().following).toBe(false);
+  expect(c.getSnapshot().connection).toBe("detached");
+  expect(c.getSnapshot().historyTarget?.turnId).toBe("turn");
+  expect(c.completeHistory(latest, history([saved("latest")]), "latest")).toBe(false);
+  expect(c.getSnapshot().detail?.messages[0]?.client_message_id).toBe("old");
+  c.jumpToLatest();
+  expect(c.getSnapshot().following).toBe(true); expect(c.getSnapshot().historyTarget).toBeUndefined();
+});
+
+test("a run response cannot replace a newer navigation, jump or run request", () => {
+  const c = setup(), old = history([saved("old")]);
+  let ticket = c.beginTargetHistory();
+  c.select("other"); c.select("s");
+  expect(c.openHistory(old, "turn", ticket)).toBe(false);
+  ticket = c.beginTargetHistory(); c.jumpToLatest();
+  expect(c.openHistory(old, "turn", ticket)).toBe(false);
+  ticket = c.beginTargetHistory(); const next = c.beginTargetHistory();
+  expect(c.openHistory(old, "turn", ticket)).toBe(false);
+  expect(c.openHistory(old, "turn", next)).toBe(true);
 });

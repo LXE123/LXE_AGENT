@@ -29,11 +29,13 @@ const mock = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch(req) {
 const config = new DesktopConfigStore(temporary, join(temporary, "workspace"), {
   isEncryptionAvailable: () => true, encryptString: value => Buffer.from(value), decryptString: value => value.toString(),
 }, { platform: "darwin" }); // Test storage only; production uses Electron safeStorage.
-const cli = new DesktopCloudContextClient({ pythonPath: join(root, ".venv/bin/python"), cwd: temporary });
+const cli = new DesktopCloudContextClient({ executablePath: join(root, ".venv", process.platform === "win32" ? "Scripts/lxeskill.exe" : "bin/lxeskill"), cwd: temporary });
 const cloud = new DesktopCloudService({ dataRoot: temporary, config, supported: true,
   logger: createLogger("device-context-acceptance"), enrollments: new DesktopCloudEnrollmentManager(),
   provisioner: { provision: async () => { throw new Error("Unexpected provisioning"); } },
-  onConfigured: async () => {}, fetch: async () => { throw new Error("Unexpected identity request"); },
+  onConfigured: async () => {}, fetch: Object.assign(async () => { throw new Error("Unexpected identity request"); }, {
+    preconnect: () => { throw new Error("Unexpected identity preconnect"); },
+  }),
   accessClient: { request: async () => ({ response_schema: "lxe.device-access.v1", management_role: "member", management_version: 1,
     device: { id: scenario === "changed" ? "B" : "A", kind: "managed_device", display_name: "Acceptance", wireguard_ip: scenario === "changed" ? "10.88.0.9" : "10.88.0.8" },
     managed_llm_v2: { revision: 1, default_target: null, models: [] },

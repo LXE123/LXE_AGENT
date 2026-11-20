@@ -1,11 +1,11 @@
-import { afterEach, describe, expect, spyOn, test } from "bun:test";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { afterEach, describe, expect, setSystemTime, spyOn, test } from "bun:test";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import * as logging from "../src/logging";
 
 interface LoggingController {
-  readonly filePath?: string;
+  readonly filePath?: string | undefined;
   readonly status: {
     localFileEnabled: boolean;
     filePath?: string;
@@ -20,11 +20,18 @@ const roots: string[] = [];
 const controllers: LoggingController[] = [];
 
 afterEach(async () => {
+  setSystemTime();
   await Promise.all(controllers.splice(0).map((controller) => controller.close()));
   for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });
 });
 
 describe("structured logger", () => {
+  test("redacts Google headers, opaque signatures and inline image bytes", () => {
+    expect(logging.sanitizeLogValue({ "x-goog-api-key": "example", thoughtSignature: "opaque",
+      inlineData: { mimeType: "image/png", data: "aW1n" } })).toEqual({
+      "x-goog-api-key": "***", thoughtSignature: "***", inlineData: { mimeType: "image/png", data: "***" },
+    });
+  });
   test("emits one JSON record with stable context and a serialized error", () => {
     const lines: string[] = [];
     const logger = logging.createLogger("gateway", {
@@ -180,6 +187,24 @@ describe("structured logger", () => {
     }));
   });
 
+  test("command diagnostics can retain actual file errors without writing console output", async () => {
+    const root = mkdtempSync(join(tmpdir(), "lxe-logging-command-"));
+    roots.push(root);
+    const output = spyOn(console, "log").mockImplementation(() => undefined);
+    try {
+      const controller = logging.configureLogging({ projectRoot: root, consoleEnabled: false,
+        environment: { LOCAL_LOGS_ENABLED: "1", LOG_LEVEL: "DEBUG" } });
+      controllers.push(controller);
+      const logger = logging.createLogger("runtime.mcp.connection");
+      logger.info("connected");
+      logger.error("connection_failed", { error: new Error("fixture socket closed") });
+      expect(output).not.toHaveBeenCalled();
+      const content = readFileSync(controller.filePath!, "utf8");
+      expect(content).toContain("connected");
+      expect(content).toContain("fixture socket closed");
+    } finally { output.mockRestore(); }
+  });
+
   test("accepts a canonical state root without adding a second var segment", async () => {
     const projectRoot = mkdtempSync(join(tmpdir(), "lxe-logging-state-root-"));
     roots.push(projectRoot);
@@ -202,11 +227,15 @@ describe("structured logger", () => {
     const root = mkdtempSync(join(tmpdir(), "lxe-logging-policy-"));
     roots.push(root);
     const expired = join(root, "var", "logs", "runtime", "20000101");
+    const expiredBrowserAuth = join(root, "var", "logs", "browser_auth_service", "20000101");
+    const expiredZiniaoTrace = join(root, "var", "logs", "ziniao_traces", "20000101");
     const unrelated = join(root, "var", "logs", "runtime", "manual");
     const legacyAgentTraceRoot = join(root, "var", "logs", "agent_traces");
     const expiredLegacyAgentTrace = join(legacyAgentTraceRoot, "20000101");
     const ignoredOverride = join(root, "custom-agent-traces", "20000101");
     mkdirSync(expired, { recursive: true });
+    mkdirSync(expiredBrowserAuth, { recursive: true });
+    mkdirSync(expiredZiniaoTrace, { recursive: true });
     mkdirSync(unrelated, { recursive: true });
     mkdirSync(expiredLegacyAgentTrace, { recursive: true });
     mkdirSync(ignoredOverride, { recursive: true });
@@ -232,6 +261,8 @@ describe("structured logger", () => {
     expect(content).not.toContain("filtered");
     expect(content).toContain("kept");
     expect(existsSync(expired)).toBe(false);
+    expect(existsSync(expiredBrowserAuth)).toBe(false);
+    expect(existsSync(expiredZiniaoTrace)).toBe(false);
     expect(existsSync(unrelated)).toBe(true);
     expect(existsSync(legacyAgentTraceRoot)).toBe(false);
     expect(existsSync(ignoredOverride)).toBe(true);
@@ -255,6 +286,83 @@ describe("structured logger", () => {
     });
     controllers.push(fixedFile);
     expect(fixedFile.filePath).toMatch(/logs[\\/]runtime[\\/]\d{8}[\\/]runtime\.log$/);
+  });
+
+  test("retention never follows a linked log root or dated entry", async () => {
+    const root = mkdtempSync(join(tmpdir(), "lxe-logging-links-"));
+    roots.push(root);
+    const outside = join(root, "outside");
+    const outsideDated = join(outside, "20000101");
+    mkdirSync(outsideDated, { recursive: true });
+    writeFileSync(join(outsideDated, "user.txt"), "keep", "utf8");
+    const outsideRaw = join(outside, "20000101.jsonl");
+    writeFileSync(outsideRaw, "keep", "utf8");
+    const logs = join(root, "var", "logs");
+    mkdirSync(join(logs, "runtime"), { recursive: true });
+    mkdirSync(join(logs, "feishu_raw_events"), { recursive: true });
+    const linkType = process.platform === "win32" ? "junction" : "dir";
+    symlinkSync(outside, join(logs, "ziniao_traces"), linkType);
+    symlinkSync(outsideDated, join(logs, "runtime", "20000102"), linkType);
+    symlinkSync(outsideRaw, join(logs, "feishu_raw_events", "20000101.jsonl"));
+
+    const controller = logging.configureLogging({
+      projectRoot: root,
+      environment: { LOCAL_LOGS_ENABLED: "1", LOCAL_LOG_RETENTION_DAYS: "7" },
+    });
+    controllers.push(controller);
+
+    expect(existsSync(join(outsideDated, "user.txt"))).toBe(true);
+    expect(existsSync(outsideRaw)).toBe(true);
+  });
+
+  test("retention preserves old logs behind a linked logs parent directory", () => {
+    const root = mkdtempSync(join(tmpdir(), "lxe-logging-parent-"));
+    roots.push(root);
+    const outside = join(root, "outside");
+    const expired = join(outside, "ziniao_traces", "20000101");
+    const marker = join(expired, "user.txt");
+    const stateRoot = join(root, "state");
+    mkdirSync(expired, { recursive: true });
+    writeFileSync(marker, "keep", "utf8");
+    mkdirSync(stateRoot);
+    symlinkSync(outside, join(stateRoot, "logs"), process.platform === "win32" ? "junction" : "dir");
+
+    controllers.push(logging.configureLogging({
+      projectRoot: root,
+      stateRoot,
+      environment: { LOCAL_LOGS_ENABLED: "1" },
+    }));
+
+    expect(readFileSync(marker, "utf8")).toBe("keep");
+  });
+
+  test("a long-running process moves to the new day and reruns retention", async () => {
+    const root = mkdtempSync(join(tmpdir(), "lxe-logging-rollover-"));
+    roots.push(root);
+    setSystemTime(new Date(2026, 0, 1, 12));
+    const changes: string[] = [];
+    const controller = logging.configureLogging({
+      projectRoot: root,
+      environment: { LOCAL_LOGS_ENABLED: "1", LOCAL_LOG_RETENTION_DAYS: "7" },
+      onStatusChange: (status) => changes.push(status.filePath ?? ""),
+    });
+    controllers.push(controller);
+    const logger = logging.createLogger("runtime.rollover");
+    logger.info("first day");
+    const firstDay = controller.filePath!;
+    expect(firstDay).toMatch(/[\\/]20260101[\\/]runtime\.log$/);
+
+    setSystemTime(new Date(2026, 0, 9, 12));
+    logger.info("ninth day");
+    await new Promise((resolve) => setTimeout(resolve, 10));
+
+    const ninthDay = controller.filePath!;
+    expect(ninthDay).toMatch(/[\\/]20260109[\\/]runtime\.log$/);
+    expect(controller.status.filePath).toBe(ninthDay);
+    expect(changes).toContain(ninthDay);
+    expect(readFileSync(ninthDay, "utf8")).toContain("ninth day");
+    expect(readFileSync(ninthDay, "utf8")).toContain("log_retention_completed");
+    expect(existsSync(firstDay)).toBe(false);
   });
 
   test("renders a human-readable console line with compact context and error trailer", () => {

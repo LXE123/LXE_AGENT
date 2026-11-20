@@ -1,17 +1,30 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { Pencil, Trash2 } from "lucide-react";
 import { queryError } from "../../api/queries";
 import { useUiText } from "../../shared/i18n";
 import { useDialogFocus } from "../../shared/ui/use-dialog-focus";
 import type { SessionWorkspace } from "./workspace-state";
+import "./conversation-theme.css";
 
 export function WorkspaceActionsMenu({ anchor, onClose, onRename, onDelete }: {
   anchor: HTMLElement; onClose: (restoreFocus?: boolean) => void; onRename: () => void; onDelete: () => void;
 }) {
   const t = useUiText();
   const ref = useRef<HTMLDivElement>(null);
-  const rect = anchor.getBoundingClientRect();
+  useLayoutEffect(() => {
+    const place = () => {
+      const menu = ref.current;
+      if (!menu) return;
+      const anchorRect = anchor.getBoundingClientRect();
+      const { width, height } = menu.getBoundingClientRect();
+      menu.style.left = `${Math.max(8, Math.min(innerWidth - width - 8, anchorRect.right - width))}px`;
+      menu.style.top = `${Math.max(8, Math.min(innerHeight - height - 8, anchorRect.bottom + 5))}px`;
+    };
+    place();
+    window.addEventListener("resize", place);
+    return () => window.removeEventListener("resize", place);
+  }, [anchor, t]);
   useEffect(() => {
     ref.current?.querySelector("button")?.focus();
     const outside = (event: PointerEvent) => {
@@ -20,8 +33,7 @@ export function WorkspaceActionsMenu({ anchor, onClose, onRename, onDelete }: {
     document.addEventListener("pointerdown", outside);
     return () => document.removeEventListener("pointerdown", outside);
   }, [anchor, onClose]);
-  return createPortal(<div className="session-actions-menu" ref={ref} role="menu" aria-label={t.workspaces.actions}
-    style={{ width: 150, left: Math.max(8, Math.min(innerWidth - 158, rect.right - 150)), top: Math.max(8, Math.min(innerHeight - 88, rect.bottom + 5)) }}
+  return createPortal(<div className="session-actions-menu workspace-actions-menu conversation-chrome-theme" ref={ref} role="menu" aria-label={t.workspaces.actions}
     onKeyDown={event => {
       if (event.key === "Escape") { event.preventDefault(); event.stopPropagation(); onClose(); }
       if (["ArrowUp", "ArrowDown", "Home", "End"].includes(event.key)) {
@@ -32,8 +44,8 @@ export function WorkspaceActionsMenu({ anchor, onClose, onRename, onDelete }: {
       }
       if (event.key === "Tab") onClose(false);
     }}>
-    <button role="menuitem" type="button" onClick={onRename}><Pencil size={13} />{t.workspaces.rename}</button>
-    <button className="danger" role="menuitem" type="button" onClick={onDelete}><Trash2 size={13} />{t.workspaces.delete}</button>
+    <button role="menuitem" type="button" onClick={onRename}><Pencil size={13} /><span>{t.workspaces.rename}</span></button>
+    <button className="danger" role="menuitem" type="button" onClick={onDelete}><Trash2 size={13} /><span>{t.workspaces.delete}</span></button>
   </div>, document.body);
 }
 
@@ -83,9 +95,9 @@ export function WorkspaceDeleteDialog({ workspace, label, committed, onClose, on
   const close = () => { if (!saving.current) onClose(); };
   const ref = useDialogFocus<HTMLFormElement>(true, close);
   useEffect(() => { if (accepted && committed) onClose(true); }, [accepted, committed, onClose]);
-  return createPortal(<div className="session-delete-backdrop">
-    <form className="session-delete-dialog" ref={ref} role="dialog" aria-modal="true"
-      aria-labelledby="workspace-delete-title" tabIndex={-1} onSubmit={event => {
+  return createPortal(<div className="session-delete-backdrop session-delete-confirm-backdrop conversation-chrome-theme">
+    <form className="session-delete-dialog session-delete-confirm-dialog" ref={ref} role="dialog" aria-modal="true"
+      aria-labelledby="workspace-delete-title" aria-describedby="workspace-delete-description workspace-delete-note" aria-busy={pending} tabIndex={-1} onSubmit={event => {
         event.preventDefault();
         if (saving.current) return;
         saving.current = true; setPending(true); setError("");
@@ -94,7 +106,8 @@ export function WorkspaceDeleteDialog({ workspace, label, committed, onClose, on
         });
       }}>
       <h2 id="workspace-delete-title">{t.workspaces.delete}</h2>
-      <p>{t.workspaces.deletePrompt(label)}</p>
+      <p id="workspace-delete-description">{t.workspaces.deletePrompt(label)}</p>
+      <p id="workspace-delete-note" className="session-delete-note">{t.workspaces.deleteNote}</p>
       {error ? <p className="session-delete-error" role="alert">{error}</p> : null}
       <footer>
         <button type="button" disabled={pending} onClick={close}>{t.workspaces.cancel}</button>

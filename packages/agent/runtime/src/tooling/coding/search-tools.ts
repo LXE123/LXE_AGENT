@@ -51,6 +51,7 @@ export function createSearchTools(dependencies: SearchToolDependencies): ToolDef
   return [
     {
       name: "grep",
+      codemodeResult: "text",
       description: "Search UTF-8 files at any path readable by the local LXE Agent process. Relative paths resolve from the session working directory. pattern is a regular expression by default; set literal=true to search copied text without regex escaping. A literal LF requires multiline=true. Defaults to file names; use output_mode=content for matching lines or count for counts. head_limit defaults to 100 output lines, including context. before_context/after_context override context on that side, including zero; context only applies to content mode.",
       input_schema: grepSchema,
       execute: async (input, context) => {
@@ -69,7 +70,7 @@ export function createSearchTools(dependencies: SearchToolDependencies): ToolDef
           ...(args.after_context === undefined ? {} : { afterContext: args.after_context }),
           multiline: args.multiline,
           limit: args.head_limit,
-          signal: context.handle.signal,
+          signal: context.signal ?? context.handle.signal,
         });
         return { content: textBlock(truncateHeadTail(output, toolOutputLimit).value) };
       },
@@ -90,12 +91,13 @@ export function createSearchTools(dependencies: SearchToolDependencies): ToolDef
     },
     {
       name: "ls",
+      codemodeResult: "text",
       description: "List one directory level, including hidden entries, at any path readable by the local LXE Agent process. Relative paths resolve from the session working directory. Names are sorted case-insensitively with original-name tie breaking; directories end in /, symbolic links in @, and control characters are escaped. limit defaults to 500, offset to 0. Output contains complete entries within the character budget; use the returned next offset to continue. Each call reads a fresh directory listing: additions or removals between pages may cause omissions or duplicates.",
       input_schema: directoryListSchema,
       execute: async (input, context) => {
         const args = validateDirectoryListInput(input);
         const target = paths.resolveReadable(context.workspace, args.path);
-        return { content: textBlock(listDirectory(target.path, args, toolOutputLimit, context.handle.signal)) };
+        return { content: textBlock(listDirectory(target.path, args, toolOutputLimit, context.signal ?? context.handle.signal)) };
       },
     },
   ];

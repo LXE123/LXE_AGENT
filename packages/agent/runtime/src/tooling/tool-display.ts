@@ -1,6 +1,7 @@
 import type { JsonObject, ToolDisplayBlock, ToolStep } from "@lxe/protocol";
 
 const DETAIL_LIMIT = 240;
+const INPUT_LIMIT = 16_000;
 const RESULT_LIMIT = 4_000;
 const ERROR_LIMIT = 2_000;
 const SECRET_NAME = /token|secret|password|api[-_]?key|authorization|cookie|credential|bearer|session[-_]?id|client[-_]?secret|access[-_]?key/i;
@@ -50,7 +51,6 @@ const descriptors: Record<string, { title: string; icon: string; keys: string[] 
   feishu_im_bot_get_thread_messages: { title: "Read Feishu thread", icon: "file-link-text_outlined", keys: ["thread_id"] },
   feishu_im_bot_fetch_resource: { title: "Fetch Feishu resource", icon: "language_outlined", keys: ["type", "message_id"] },
   ziniao_browser: { title: "Ziniao browser", icon: "browser-mac_outlined", keys: ["action", "store_id"] },
-  ziniao_page: { title: "Ziniao page", icon: "browser-mac_outlined", keys: ["action", "store_id"] },
 };
 
 const withoutImageData = (value: unknown): unknown => {
@@ -64,6 +64,20 @@ const withoutImageData = (value: unknown): unknown => {
   }
   return typeof value === "string" && /^data:image\//iu.test(value) ? "[Image data omitted from tool details]" : value;
 };
+
+/** Keep the small row summary independent of the desktop's expanded input preview. */
+function desktopInputBlock(name: string, input: JsonObject): ToolDisplayBlock {
+  const script = name === "codemode" && typeof input.code === "string" && Object.keys(input).length === 1;
+  const source = script ? String(input.code) : JSON.stringify(withoutImageData(input), (key, value) => {
+    if (SECRET_NAME.test(key) && !/tokens$/i.test(key)) return "[redacted]";
+    if (key === "base64" && typeof value === "string") return "[data omitted]";
+    return value;
+  }, 2);
+  const text = sanitize(source, Infinity, true);
+  const marker = "\n… [input truncated]";
+  return { language: script ? "text" : "json",
+    content: text.length > INPUT_LIMIT ? text.slice(0, INPUT_LIMIT - marker.length) + marker : text };
+}
 
 const stringifyDisplay = (value: unknown, limit: number): ToolDisplayBlock | undefined => {
   if (value === undefined || value === null) return undefined;
@@ -123,6 +137,7 @@ export function buildToolDisplayStep(
   durationMs: number,
   options: ToolDisplayOutput & {
     showResultDetails?: boolean;
+    showInput?: boolean;
   } = {},
 ): ToolStep {
   const safeName = String(name || "tool").trim() || "tool";
@@ -154,6 +169,7 @@ export function buildToolDisplayStep(
     name: safeName,
     title: descriptor.title,
     detail: safeDetail,
+    ...(options.showInput ? { input_block: desktopInputBlock(safeName, input) } : {}),
     icon_token: descriptor.icon,
     status,
     duration_ms: Math.max(0, Math.trunc(durationMs)),

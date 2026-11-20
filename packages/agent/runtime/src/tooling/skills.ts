@@ -18,6 +18,7 @@ export interface SkillReference extends JsonObject {
 }
 
 export interface SkillManifest {
+  teamRelease?: { id: string; version: string };
   name: string;
   type: string;
   description: string;
@@ -165,7 +166,12 @@ export const parseSkillManifest = (path: string, source: SkillManifest["source"]
   if (new Set(commands).size !== commands.length) {
     throw new SkillCatalogError(`duplicate command within skill ${name}`);
   }
+  const release = object(metadata.metadata);
+  const id = release["team-skills-id"], version = release["team-skills-version"];
   return {
+    ...((id !== undefined || version !== undefined) && { teamRelease: {
+      id: typeof id === "string" ? id : "", version: typeof version === "string" ? version : "",
+    } }),
     name,
     type: String(metadata.type ?? "default").trim() || "default",
     description: String(metadata.description ?? "").trim().replaceAll(/\s+/g, " "),
@@ -237,7 +243,7 @@ export class SkillCatalog {
   ) {
     this.sharedSkillsRoot = options.sharedSkillsRoot ?? join(homedir(), ".agents", "skills");
     this.statePath = options.statePath;
-    this.excludedRoots = options.excludedRoots ?? [];
+    this.excludedRoots = [...(options.excludedRoots ?? []), join(userSkillsRoot, ".lxe-team-install")];
     this.onChanged = options.onChanged;
     this.repositorySkillsRoot = resolve(options.repositorySkillsRoot ?? join(projectRoot, "skills"));
   }
@@ -323,7 +329,7 @@ export class SkillCatalog {
       manifests,
       snapshot: Object.freeze({
         names,
-        prompt: this.promptFor(manifests, resolvedWorkspace),
+        prompt: this.promptFor(manifests),
         modules,
         locations: Object.freeze(Object.fromEntries(manifests.map(manifest => [skillPathKey(manifest.location), manifest.name]))),
       }),
@@ -337,11 +343,9 @@ export class SkillCatalog {
     return cached;
   }
 
-  private promptFor(manifests: readonly SkillManifest[], workspace: SkillWorkspaceContext): string {
+  private promptFor(manifests: readonly SkillManifest[]): string {
     const rows = manifests.map((manifest) => {
-      const instructions = containsPath(workspace.worktree, manifest.location)
-        ? relative(workspace.directory, manifest.location).replaceAll("\\", "/")
-        : manifest.location.replaceAll("\\", "/");
+      const instructions = manifest.location.replaceAll("\\", "/");
       const commands = manifest.commands.length > 0
         ? `\n  Commands: ${manifest.commands.join(", ")}`
         : "";
@@ -350,8 +354,9 @@ export class SkillCatalog {
     if (rows.length === 0) return "";
     return [
       "## Available skills",
-      "When a request matches a skill, use the read tool to load its SKILL.md before executing its workflow. Follow that file exactly.",
-      "Explicit /skill-name references may already supply a <skill_content> block. Follow that block without loading the same skill again.",
+      "The following skills provide specialized instructions for specific tasks.",
+      "Use the read tool to load a skill's file when the task matches its description.",
+      "When a skill file references a relative path, resolve it against the skill directory (parent of SKILL.md / dirname of the path) and use that absolute path in tool commands.",
       "",
       ...rows,
     ].join("\n");

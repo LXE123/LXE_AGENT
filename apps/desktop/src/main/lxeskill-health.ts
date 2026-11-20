@@ -1,5 +1,5 @@
 import { execFile, type ExecFileOptions } from "node:child_process";
-import { createLogger } from "@lxe/core";
+import { createLogger, managedPythonEnvironment } from "@lxe/core";
 import type { DesktopHealth } from "@lxe/desktop-protocol";
 import { redactAndBound } from "./input-assets";
 
@@ -10,7 +10,7 @@ interface ProbeExecution {
 }
 
 interface LxeSkillHealthOptions {
-  pythonPath: string;
+  executablePath: string;
   dataRoot: string;
   environment: Record<string, string | undefined>;
   recovery: string;
@@ -70,11 +70,11 @@ export class DesktopLxeSkillHealth {
     // Queue the subprocess so the caller can start the Agent independently.
     probe.done = Promise.resolve().then(async () => {
       if (controller.signal.aborted) return;
-      const { LXE_AGENT_SQLITE_DB_PATH: _agentDb, LXE_AGENT_SOUL_PATH: _soul,
+      const { LXE_AGENT_SQLITE_DB_PATH: _agentDb,
         LXE_USER_SKILLS_ROOT: _userSkills, ...environment } = this.options.environment;
-      const result = await (this.options.execute ?? executeProbe)(this.options.pythonPath,
-        ["-I", "-B", "-X", "utf8", "-m", "lxeskill", "list"], {
-          cwd: this.options.dataRoot, env: environment, signal: controller.signal,
+      const result = await (this.options.execute ?? executeProbe)(this.options.executablePath,
+        ["list"], {
+          cwd: this.options.dataRoot, env: managedPythonEnvironment(environment), signal: controller.signal,
           timeout: this.options.timeoutMs ?? 30_000, killSignal: "SIGKILL",
           maxBuffer: 10 * 1024 * 1024, windowsHide: true, encoding: "utf8",
         });

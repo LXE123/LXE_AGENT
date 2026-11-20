@@ -13,7 +13,7 @@ module.exports = async ({ win, js, step, load, waitFor, click, key, focus, settl
   const operations = async () => (await state()).calls.map(c => c.operation);
   await step('primary navigation, capability destinations and active-page query gates', async () => {
     await open();
-    assert.equal(await js("document.querySelectorAll('.navigation-rail-button').length"), 5);
+    assert.equal(await js("document.querySelectorAll('.navigation-rail-button').length"), 7);
     assert.equal((await operations()).includes('models.list'), false);
     assert.equal((await operations()).includes('toolsets.list'), false);
     assert.equal(await js("document.querySelectorAll('.home-session-row').length"), 6);
@@ -24,8 +24,13 @@ module.exports = async ({ win, js, step, load, waitFor, click, key, focus, settl
     assert.deepEqual(await js("Array.from(document.querySelectorAll('.workspace-subnav button')).map(e=>e.textContent)"), ['Skills', 'Tools', 'MCP services', 'Models']);
     await textClick('Tools', '.workspace-subnav');
     await waitFor("document.querySelector('.workspace-view-content')?.textContent.includes('fixture_lookup')", 'MCP tool in Tools');
+    assert.equal((await operations()).includes('mcp.servers.list'), false, 'Tools only reads the tool catalog');
+    const catalogReads = (await operations()).filter(op => op === 'toolsets.list').length;
     await textClick('MCP services', '.workspace-subnav');
     await waitFor("document.querySelector('.workspace-view-content')?.textContent.includes('Fixture server')", 'MCP server in MCP services');
+    assert.ok((await operations()).includes('mcp.servers.list'));
+    assert.equal((await operations()).filter(op => op === 'toolsets.list').length, catalogReads);
+    assert.equal(await js("document.querySelectorAll('.connection-row').length"), 2, 'disabled servers without tools remain visible');
     assert.equal(await js("document.querySelector('.workspace-view-content').textContent.includes('fixture_lookup')"), false);
     await textClick('Models', '.workspace-subnav');
     await waitFor("Boolean(document.querySelector('.model-card'))", 'models loaded');
@@ -57,10 +62,12 @@ module.exports = async ({ win, js, step, load, waitFor, click, key, focus, settl
     await open('sessions');
     await waitFor("!document.querySelector('.conversation-compose-trailing .conversation-model-trigger')?.disabled", 'model choices ready');
     await click('.conversation-compose-trailing .conversation-model-trigger');
-    await textClick('kimi-model', '.conversation-model-menu');
-    await waitFor("document.querySelector('.conversation-compose-trailing .conversation-model-trigger').textContent.includes('kimi-model')", 'Kimi selected');
+    await textClick('Kimi K3', '.conversation-model-menu');
+    await waitFor("document.querySelector('.conversation-compose-trailing .conversation-model-trigger').textContent.includes('Kimi K3')", 'Kimi selected');
+    assert.equal((await state()).calls.findLast(call => call.operation === 'models.update')?.input.model, 'k3');
     await click('.tab-capabilities'); await textClick('Models', '.workspace-subnav');
     await waitFor("Boolean(document.querySelector('.model-card'))", 'model gallery');
+    assert.ok(await js("document.querySelector('.model-card option[value=k3]')?.textContent.includes('Kimi K3')"));
     assert.equal(await js("document.querySelectorAll('.model-card button').length"), 0, 'catalog is read-only');
     assert.ok(await js("Array.from(document.querySelectorAll('.model-card [aria-label]')).some(e=>e.getAttribute('aria-label').replaceAll(',','').includes('1000000'))"));
     const images = await js("Promise.all(Array.from(document.querySelectorAll('.model-card img')).map(async img=>{await img.decode();return {local:new URL(img.src).origin===location.origin,width:img.naturalWidth}}))");
@@ -77,19 +84,131 @@ module.exports = async ({ win, js, step, load, waitFor, click, key, focus, settl
     } finally { win.webContents.debugger.detach(); }
   });
   await step('MCP toggle blocks duplicate saves, rolls back errors and persists a retry', async () => {
-    await open('capabilities'); await textClick('MCP services', '.workspace-subnav');
+    await open('capabilities');
+    await textClick('Tools', '.workspace-subnav');
+    await waitFor("document.body.textContent.includes('fixture_lookup')", 'cache tool catalog before toggle');
+    const catalogReads = (await operations()).filter(op => op === 'toolsets.list').length;
+    await textClick('MCP services', '.workspace-subnav');
     await js("behavior.ui.hold('mcp.servers.update');behavior.ui.fail('mcp.servers.update',true)");
     await textClick('Disable', '.workspace-view-content');
-    assert.equal(await js("document.querySelector('.workspace-view-content button').disabled"), true);
+    assert.equal(await js("document.querySelector('.mcp-toggle').disabled"), true);
     await js("behavior.ui.release('mcp.servers.update')");
     await waitFor("document.body.textContent.includes('EACCES: fixture mcp.servers.update denied')", 'MCP error retained');
     await js("behavior.ui.fail('mcp.servers.update',false)");
     await textClick('Disable', '.workspace-view-content');
-    await waitFor("document.querySelector('.workspace-view-content button')?.textContent==='Enable'", 'MCP disabled');
+    await waitFor("document.querySelector('.mcp-toggle')?.textContent==='Enable'", 'MCP disabled');
     assert.deepEqual((await state()).calls.filter(c=>c.operation==='mcp.servers.update').map(c=>c.input),
       [{name:'fixture-server',enabled:false},{name:'fixture-server',enabled:false}]);
+    assert.equal((await operations()).filter(op => op === 'toolsets.list').length, catalogReads, 'inactive tool catalog is not fetched on toggle');
+    await textClick('Tools', '.workspace-subnav');
+    await waitFor("Boolean(document.querySelector('.tools-catalog')) && !document.querySelector('.workspace-view-content').textContent.includes('fixture_lookup')", 'cached tools refreshed after MCP disable');
+    assert.ok((await operations()).filter(op => op === 'toolsets.list').length > catalogReads);
+    assert.equal(await js("document.querySelector('.workspace-view-content').textContent.includes('fixture_lookup')"), false);
+  });
+  await step('add remote and local MCP services, then explicitly sign in without restarting', async () => {
+    await open('capabilities');
+    await textClick('MCP services', '.workspace-subnav');
+    const enter = (name, value) => js(`document.querySelector('.mcp-form [name="${name}"]').value=${JSON.stringify(value)}`);
+    await textClick('Add service');
+    for (const width of [600, 1200]) {
+      win.setSize(width, 900);
+      await settle();
+      const { formWidth, available, left, right } = await js(`(() => {
+        const form = document.querySelector('.mcp-form').getBoundingClientRect();
+        const page = document.querySelector('.workspace-view-content').getBoundingClientRect();
+        return { formWidth: form.width, available: page.width, left: form.left - page.left, right: page.right - form.right };
+      })()`);
+      assert.ok(Math.abs(left - right) <= 1, `form margins at ${width}px: ${left} and ${right}`);
+      assert.equal(formWidth, Math.min(680, available));
+    }
+    await enter('name', 'orders');
+    await enter('url', 'https://example.test/mcp');
+    await click('fieldset:not([hidden]) > details > summary');
+    await enter('token', 'ORDERS_TOKEN');
+    await js("behavior.ui.fail('mcp.servers.add',true)");
+    await textClick('Save', '.mcp-form');
+    await waitFor("document.querySelector('.mcp-form [role=alert]')?.textContent.includes('EACCES')", 'save error visible inline');
+    assert.equal(await js("document.querySelector('[name=token]').value"), 'ORDERS_TOKEN');
+    await js("behavior.ui.fail('mcp.servers.add',false)");
+    await textClick('Save', '.mcp-form');
+    await waitFor("document.querySelectorAll('.connection-row').length === 3 && document.body.textContent.includes('orders')", 'saved remote configuration');
+    assert.equal(await js("Boolean(document.querySelector('.connection-state'))"), false, 'settings do not claim a live connection');
+    await textClick('Add service');
+    await enter('name', 'local');
+    await click('.mcp-transport label:first-child span');
+    await enter('command','node');
+    await click('button[aria-label="Add item · Arguments"]');
+    await enter('args','/with spaces/fixture.js');
+    await textClick('Save', '.mcp-form');
+    await waitFor("document.querySelectorAll('.connection-row').length === 4", 'both kinds in list');
+    const inputs = (await state()).calls.filter(c=>c.operation==='mcp.servers.add').map(c=>c.input);
+    assert.deepEqual(inputs.at(-1), {name:'local',transport:'stdio',command:'node',args:['/with spaces/fixture.js'],env:{}});
+    assert.deepEqual(inputs.at(-2), {name:'orders',transport:'streamable-http',url:'https://example.test/mcp',bearer_token_env_var:'ORDERS_TOKEN',headers:{},env_headers:{}});
+    assert.equal((await operations()).includes('restartAgent'),false);
+    assert.equal((await operations()).includes('mcp.servers.login'),false);
+    assert.equal(await js("Array.from(document.querySelectorAll('.mcp-row-actions')).every(row => row.querySelectorAll('button').length === 1 && Boolean(row.querySelector('button.mcp-toggle')))"), true,
+      'each configuration row only offers its enable/disable action');
+  });
+  await step('MCP list failures are shown independently of tool catalog data', async () => {
+    await open();
+    await js("behavior.ui.fail('mcp.servers.list',true)");
+    await click('.tab-capabilities');
+    await textClick('Tools', '.workspace-subnav');
+    await waitFor("document.body.textContent.includes('fixture_lookup')", 'tool catalog loaded');
+    await textClick('MCP services', '.workspace-subnav');
+    await waitFor("document.querySelector('.connections-page')?.textContent.includes('EACCES: fixture mcp.servers.list denied')", 'MCP list error');
+    assert.equal(await js("document.querySelectorAll('.connection-row').length"), 0);
   });
   const settings = async () => { await open(); await click('.sidebar-settings-button'); await waitFor("Boolean(document.querySelector('.desktop-settings-modal'))", 'settings dialog'); };
+  await step('workbench, capabilities and ERP share the underline tab states', async () => {
+    const checkTabs = async page => {
+      if (page === 'erp') { await settings(); await textClick('ERP accounts', '.desktop-settings-nav'); }
+      else await open(page);
+      await win.webContents.debugger.sendCommand('Emulation.setFocusEmulationEnabled', { enabled: true });
+      const strip = '.workspace-subnav';
+      await waitFor("document.querySelector('.workspace-subnav .active')", page + ' tabs');
+      for (const theme of ['light', 'dark']) {
+        await js(`document.documentElement.dataset.theme='${theme}'`); await settle();
+        const styles = await js(`(() => {
+          const strip = document.querySelector('.workspace-subnav');
+          const active = getComputedStyle(strip.querySelector('.active'));
+          const other = getComputedStyle(strip.querySelector('button:not(.active)'));
+          return {
+            topBorder: getComputedStyle(strip).borderTopWidth, fill: active.backgroundColor, shadow: active.boxShadow,
+            underline: active.borderBottomWidth, usesInk: active.borderBottomColor === getComputedStyle(strip).color,
+            inactiveUnderline: other.borderBottomColor,
+          };
+        })()`);
+        assert.deepEqual(styles, {
+          topBorder: '0px', fill: 'rgba(0, 0, 0, 0)', shadow: 'none',
+          underline: '2px', usesInk: true, inactiveUnderline: 'rgba(0, 0, 0, 0)',
+        }, page + ' ' + theme);
+      }
+      await win.setContentSize(480, 900); await settle();
+      const next = strip + ' button:nth-child(2)';
+      await focus(strip + ' button:first-child'); await key(page === 'erp' ? 'Right' : 'Tab');
+      assert.ok(await js(`document.activeElement.matches('${next}:focus-visible')`), page + ' keyboard navigation');
+      const ring = await js('getComputedStyle(document.activeElement).outlineWidth');
+      assert.equal(ring, '2px', page + ' focus ring');
+      if (page !== 'erp') await key('Enter');
+      await waitFor(`document.querySelector('${next}').classList.contains('active')`, page + ' second tab selected');
+      const point = await js(`(() => {
+        const r = document.querySelector('${strip} button:first-child').getBoundingClientRect();
+        return { x: Math.round(r.x + r.width / 2), y: Math.round(r.y + r.height / 2) };
+      })()`);
+      win.webContents.sendInputEvent({ type: 'mouseMove', ...point });
+      await waitFor(`document.querySelector('${strip} button:first-child:hover')`, page + ' hover');
+      assert.ok(await js(`getComputedStyle(document.querySelector('${strip} button:first-child')).color === getComputedStyle(document.querySelector('${strip}')).color`), page + ' hover ink');
+      assert.ok(await js('document.documentElement.scrollWidth <= innerWidth'), page + ' narrow viewport');
+      await win.setContentSize(1200, 900); await settle();
+    };
+    win.webContents.debugger.attach('1.3');
+    try {
+      for (const page of ['workbench', 'capabilities', 'erp']) await checkTabs(page);
+    } finally {
+      win.webContents.debugger.detach();
+    }
+  });
   await step('sidebar, onboarding and fatal recovery load the same bundled application logo', async () => {
     const decoded = async selector => js(`(async()=>{const image=document.querySelector(${JSON.stringify(selector)});await image.decode();return {src:image.src,width:image.naturalWidth,height:image.naturalHeight,origin:new URL(image.src).origin};})()`);
     await open();
@@ -99,8 +218,23 @@ module.exports = async ({ win, js, step, load, waitFor, click, key, focus, settl
     await load('?app=1&complete=false');
     await waitFor("Boolean(document.querySelector('.desktop-onboarding-mark img'))", 'onboarding');
     assert.equal((await decoded('.desktop-onboarding-mark img')).src, sidebar.src);
-    await load('?contracts=1'); await js('behavior.mountFailure()'); await settle();
+    await load('?contracts=1&language=zh'); await js('behavior.mountFailure()'); await settle();
     assert.equal((await decoded('.desktop-fatal-mark img')).src, sidebar.src);
+    for (const theme of ["light", "dark"]) {
+      await js(`document.documentElement.dataset.theme = '${theme}'`); await settle();
+      const colors = await js(`[...document.querySelectorAll('.desktop-fatal-card, .desktop-fatal-reload')].map(el => getComputedStyle(el).backgroundColor)`);
+      assert.deepEqual(colors, theme === "dark" ? ["rgb(35, 35, 34)", "rgb(109, 167, 236)"] : ["rgb(255, 255, 255)", "rgb(24, 79, 149)"]);
+      if (process.env.LXE_OVERVIEW_SCREENSHOTS) {
+        const dir = process.env.LXE_OVERVIEW_SCREENSHOTS;
+        require("node:fs").mkdirSync(dir, { recursive: true });
+        const bounds = await js("document.querySelector('.desktop-fatal-card').getBoundingClientRect().toJSON()");
+        const image = await win.webContents.capturePage({
+          x: Math.floor(bounds.x - 20), y: Math.floor(bounds.y - 20),
+          width: Math.ceil(bounds.width + 40), height: Math.ceil(bounds.height + 40),
+        });
+        require("node:fs").writeFileSync(require("node:path").join(dir, `recovery-${theme}.png`), image.toPNG());
+      }
+    }
     assert.equal(await js("document.querySelector('.desktop-fatal').getAttribute('role')"),'alert');
   });
   await step('settings navigation shows real status, version and an independently scrolling body', async () => {
@@ -163,6 +297,7 @@ module.exports = async ({ win, js, step, load, waitFor, click, key, focus, settl
   });
   await step('workbench sends opaque handles and releases task subscription on navigation', async () => {
     await open('workbench', '&platform=win32');
+    await textClick('Settings & tools', '.workbench-subnav');
     await textClick('Amazon AI performer tag', '.workbench-tool-grid');
     await waitFor("Boolean(document.querySelector('#synthetic-performer-title'))", 'media workbench');
     assert.equal((await js('behavior.ui.listeners()')).task, 1);

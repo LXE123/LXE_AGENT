@@ -8,6 +8,7 @@
 | --- | --- |
 | 工作区、新对话、目录操作与历史窗口 | [工作区与对话](conversation-window.md) |
 | 输入框文件引用与技能选择 | [输入框引用](composer-references.md) |
+| 定时任务、两种会话方式与桌面 MCP | [定时任务与桌面 MCP](automations.md) |
 | 文件预览、手动终端与浏览器 | [侧边栏与文件预览](file-preview.md) |
 | 会话状态、问题卡片 | [会话状态](session-status.md)、[结构化提问](../harness/runtime/tools/ask-user-question.md) |
 | 进程启停、调度与通信 | [Gateway](gateway/README.md)、[生命周期](gateway/gateway_lifecycle.md)、[JSON-RPC 协议](gateway/agent-protocol.md) |
@@ -15,12 +16,12 @@
 | 文件写入权限与单次提权 | [权限专题](../harness/runtime/permission-policy.md) |
 | 程序资源、打包与安装 | [打包手册](packaging-pipeline.md) |
 | 版本发布与客户端更新 | [Windows 更新与发布](updates.md) |
-| 数据目录、升级迁移与数据库 | [程序与用户数据](data-location.md)、[数据库说明](../database/local_agent.md) |
+| 数据目录、升级迁移与数据库 | [程序与用户数据](data-location.md)、[本地数据与存储](../storage/README.md) |
 | 日志、诊断与实测证据 | [日志与诊断](../logging.md)、[验收记录](../acceptance/README.md) |
 
 ## 本地开发
 
-在仓库根目录安装锁定的 Bun 和 uv 依赖，版本来源为 [package.json](../../package.json)、[pyproject.toml](../../pyproject.toml) 和锁文件。macOS 还需要独立 Node.js >=22.19，Windows 使用准备脚本提供的私有 Node。每个 checkout 和 worktree 使用自己的 `.venv`，具体约定见 [AGENTS.md](../../AGENTS.md#工具链)。
+在仓库根目录安装锁定的 Bun 和 uv 依赖，版本来源为 [package.json](../../package.json)、[pyproject.toml](../../pyproject.toml) 和锁文件。macOS 还需要独立 Node.js >=22.19，Windows 使用准备脚本提供的私有 Node。每个 checkout 和 worktree 使用自己的 `.venv`，具体约定见 [AGENTS.md](../../AGENTS.md#工具链与验证)。
 
 ```sh
 bun install --frozen-lockfile
@@ -37,7 +38,7 @@ uv sync --frozen --all-groups --python 3.12.10
 
 源码资源位于 `build/desktop-runtime/<平台>-<架构>/`，Windows 沙箱启动器位于 `build/exec-sandbox/`。资源准备与 Desktop 共用路径解析；具体输入、缓存和打包布局见 [打包手册](packaging-pipeline.md)。
 
-验证范围按 [AGENTS.md](../../AGENTS.md#工具链)选择。新 checkout 执行真实 `find` 测试前先运行 `bun run desktop:tools:fd`；正式发布的构建和验收要求见 [Windows 更新与发布](updates.md)。
+验证范围按 [AGENTS.md](../../AGENTS.md#工具链与验证)选择。新 checkout 执行真实 `find` 测试前先运行 `bun run desktop:tools:fd`；正式发布的构建和验收要求见 [Windows 更新与发布](updates.md)。
 
 独立 TUI 的安装和运行说明以 [`lxe-agent-TUI` 分支](https://github.com/LXE123/LXE_AGENT/tree/lxe-agent-TUI)为准。`main` 也提供 [一次性 Agent CLI exec](../harness/runtime/agent_cli_exec.md)，可独立从终端调用。
 
@@ -75,6 +76,15 @@ Desktop 启动时在后台运行 `lxeskill list`，独立展示 CLI 入口状态
 
 马帮桌面和独立终端的认证入口见 [浏览器认证手册](../../python/lxeskill_cli/browser_auth_service/README.md)；紫鸟页面操作遵循 [官方配对 Selenium 约束](../harness/skill/reference/ziniao-webdriver-doc-1.0.0/reference/automation-framework-policy.md)。Office 能力分工见 [Office 文件能力](../office-runtime.md)。
 
+### 工作台分区
+
+工作台分两个子页面，默认打开「技能任务」：
+
+- **技能任务**：填好参数后在后台对话里运行技能，进度和结果回到工作台，目前有 FBA 库容报告。以后新增的这类表单都放这里。
+- **设置与工具**：越南备货设置、亚马逊备货旺季加成、亚马逊 AI 人物标签和 FBA 模版与数据源。它们直接读写设置或处理文件，不经过 AI。
+
+从任一卡片点“返回”，回到它所在的子页面。右上角可切换卡片视图（两列）和列表视图，选择保存在本机。
+
 ### 工作台媒体标签
 
 Windows 桌面以及 macOS 源码、预览版的工作台提供“亚马逊 AI 人物标签”。图片支持 JPG、JPEG、PNG，视频支持 MP4 和 MOV。工具向 XMP `dc:subject` 的 `rdf:Bag` 追加 `contains-synthetic-performer`，再重新读取元数据确认写入。它不判断画面是否包含 AI 人物，也不检查其他上传要求。
@@ -82,6 +92,22 @@ Windows 桌面以及 macOS 源码、预览版的工作台提供“亚马逊 AI �
 Electron 管理文件选择和输出目录，Renderer 使用一次性的选择编号和任务编号。Main 调用 `lxeskill media synthetic-performer --stdin-json`，由 CLI 使用私有 ExifTool 处理文件。这条路线不经过 agentcli。原文件保持不变，输出进入独立任务文件夹；同一时间只运行一个媒体任务，关闭应用时清理未完成的处理进程。
 
 macOS 源码启动自动准备并校验项目自己的 ExifTool，缓存于 `build/desktop-runtime/darwin-<arch>/`；也可运行 `bun run desktop:tools:mac` 准备资源，无需另装系统 ExifTool。这项支持覆盖源码开发和预览，不代表已有 macOS 正式发布流水线。
+
+### 工作台 FBA 库容报告
+
+工作台「技能任务」里的“FBA 库容报告”把团队技能 `amazon-fba-capacity-report` 做成表单：在固定的 7 个 Amazon 美国店铺里选店，在默认八站里选站，点“开始”后原地显示进度和结果，不跳到对话页。页面左侧是参数和最近运行，右侧是当前运行的状态和 Excel；窗口较窄时上下排列。技能需先从团队技能目录安装；未安装时页面给出安装入口。
+
+点“开始”等于在默认工作区发一条新对话：页面拼好以 `/amazon-fba-capacity-report` 开头的提示词，写明店铺、站点和产出目录 `FBA库容报告/<开始时间>`，用 `sessions.send` 提交。之后的采集、紫鸟操作、提问与审批都走普通 Agent 回合，对话照常出现在侧栏，不加特殊标记。店铺 ID 由会话按技能说明从紫鸟实时列表匹配，页面不直接调用浏览器命令。
+
+表单里的“以 Full access 运行”默认关闭。打开时弹出与对话页相同的 Full access 确认，确认后本机记住这个选择。开着时，“开始”先在默认工作区新建空白会话并把权限设为 Full access，再发送提示词，所以整轮运行不会逐条请求审批；运行记录标注 Full access。关闭时按普通会话的默认权限运行，`lxeskill` 写自身日志和数据库等沙箱外操作仍需在对话里审批。
+
+页面每 4 秒用 `sessions.turn.lookup` 和待回答、待审批列表刷新状态；需要用户处理时提示打开对话，排队和运行中都可以停止（排队的运行按会话停止，因为 Gateway 只接受正在执行的 turn ID）。最新一次运行没结束前不能再开始，不管右侧正在看哪次运行。运行中显示已用时间和这次覆盖的店铺、站点；页面拿不到逐店进度，不做推测。结束后列出产出目录里的 Excel，可用其他应用打开；超过 90% 的站点和失败原因由 AI 写在对话的回复里，页面不另生成结果页。目录里没有 Excel 时提示打开对话查看原因。
+
+已结束的运行可以“从记录中移除”：只删本页的运行记录，对话和 Excel 都保留；运行中不提供这个按钮。对话在侧栏被删除后，Excel 仍在工作区，但页面要通过对话找到工作区，所以这次运行标为“对话已删除”，不再列文件。为此“开始”发送后会读一次会话，把工作区的绝对路径和其他运行信息一起存进本机的运行记录；对话删除后页面据此显示完整的产出目录，并提供“打开文件夹”。读取失败不影响运行，只是没有这条路径；之前的旧记录也没有，只提示文件仍在原工作区。工作区挪走或改名后路径会失效，打开时如实报错。页面靠 `sessions.detail` 返回的 “session not found” 判断对话已删除：RPC 错误码过不了 IPC，其他错误照原文显示。
+
+“最近运行”每行显示店铺、时间、站点和结束状态；未结束的旧运行会继续查询到结束为止。查看旧运行时右侧顶部提示“正在查看……的运行”，可一键回到最新。配色按 CDS 用途变量：说明用次文字，时间等元数据用弱化文字，状态用成对的浅底与前景色并配图标和文字，整页只有“开始”一个实心主按钮。
+
+最近 10 次运行（会话 ID、turn ID、产出目录和所选店铺站点）与上次的选择保存在本机界面存储，只用于回到页面时找到结果；清掉后对话和文件仍在。店铺清单写在 [`fba-capacity-run.ts`](../../apps/dashboard/src/features/workbench/fba-capacity-run.ts)，调整需改代码。
 
 ## 日志与诊断
 

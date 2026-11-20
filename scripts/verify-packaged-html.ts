@@ -6,6 +6,7 @@ import { tmpdir } from 'node:os';
 if (process.platform !== 'win32' || !process.argv[2]) throw new Error('Usage on Windows: bun scripts/verify-packaged-html.ts <win-unpacked-directory>');
 const source = resolve(process.argv[2]);
 const root = mkdtempSync(join(tmpdir(), 'lxe-packaged-html-'));
+const dataRoot = mkdtempSync(join(tmpdir(), 'lxe-packaged-html-data-'));
 // Keep the original package and its var directory untouched; use its exact resources.
 for (const entry of readdirSync(source, {withFileTypes:true})) {
   if (entry.isFile() || entry.name === 'locales') cpSync(join(source, entry.name), join(root, entry.name), {recursive:true});
@@ -15,7 +16,7 @@ const workspace = join(root, 'workspace 中文'); mkdirSync(workspace);
 writeFileSync(join(workspace, 'report.html'), '<!doctype html><meta charset="utf-8"><link rel="stylesheet" href="style.css"><h1 id="title">打包后的 HTML</h1><button id="count" onclick="this.textContent=String(++window.count)">0</button><script>window.count=0</script><script src="script.js"></script>');
 writeFileSync(join(workspace, 'style.css'), 'h1{color:rgb(12,34,56)}');
 writeFileSync(join(workspace, 'script.js'), "window.packagedScript=true");
-const env = {...process.env}; delete env.ELECTRON_RUN_AS_NODE;
+const env = {...process.env, LXE_DATA_ROOT: dataRoot}; delete env.ELECTRON_RUN_AS_NODE;
 const child = Bun.spawn([join(root, 'LXE Agent.exe'), '--inspect=127.0.0.1:0', '--disable-gpu'], {env, stdout:'pipe', stderr:'pipe'});
 let logs = '', debuggerAddress: string | undefined;
 const collect = async (stream: ReadableStream<Uint8Array>) => {for await(const chunk of stream) { logs += new TextDecoder().decode(chunk); debuggerAddress ??= logs.match(/ws:\/\/127\.0\.0\.1:\d+\/[a-z\d-]+/)?.[0]; }};
@@ -45,7 +46,8 @@ try {
   await evaluate("(globalThis.htmlTestElectron=process.getBuiltinModule('module').createRequire(process.resourcesPath+'/app.asar/package.json')('electron'),true)");
   await wait(()=>evaluate("htmlTestElectron.BrowserWindow.getAllWindows().some(w=>w.webContents.getURL().startsWith('app://lxe/'))"),'production dashboard');
   await wait(()=>renderer('!!window.lxe?.files && !!window.lxe?.dashboard'),'production preload');
-  const created=await renderer(`window.lxe.dashboard.call({operation:'sessions.create',input:{directory:${JSON.stringify(workspace)}}})`);
+  const registration=await renderer(`window.lxe.dashboard.call({operation:'workspaces.register',input:{directory:${JSON.stringify(workspace)}}})`);
+  const created=await renderer(`window.lxe.dashboard.call({operation:'sessions.create',input:{workspace_id:${JSON.stringify(registration.workspace_id)}}})`);
   const sessionId=created.id||created.session_id; assert.ok(sessionId, JSON.stringify(created));
   const ref={session_id:sessionId,kind:'workspace',path:'report.html'};
   const preview=await renderer(`window.lxe.files.call({operation:'prepare',input:{ref:${JSON.stringify(ref)},request_id:'packaged-html-test'}})`);
@@ -62,6 +64,7 @@ try {
   await evaluate(`htmlTestElectron.BrowserWindow.getAllWindows()[0].webContents.capturePage().then(image=>process.getBuiltinModule('fs').writeFileSync(${JSON.stringify(join(root,'preview.png'))},image.toPNG())).then(()=>true)`);
   await renderer("document.body.replaceChildren();window.lxe.files.call({operation:'release',input:{request_id:'packaged-html-test'}})");
   await renderer(`window.lxe.dashboard.call({operation:'sessions.delete',input:{session_id:${JSON.stringify(sessionId)}}})`);
+  await renderer(`window.lxe.dashboard.call({operation:'workspaces.delete',input:{workspace_id:${JSON.stringify(registration.workspace_id)}}})`);
   const report={packaged:await evaluate('htmlTestElectron.app.isPackaged'),platform:process.platform,source,root,passed:['actual packaged executable','production app:// dashboard/preload/CSP','Runtime-owned empty session','HTML and relative CSS/JS from packaged file service','Unicode paths','interactive script','opaque frame without IPC/Node','release and session deletion']};
   assert.equal(report.packaged,true);writeFileSync(join(root,'report.json'),JSON.stringify(report,null,2));console.log('LXE_PACKAGED_HTML_RESULT='+JSON.stringify(report));
   await evaluate('(setTimeout(()=>htmlTestElectron.app.quit(),100),true)'); socket.close();

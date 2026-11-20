@@ -1,0 +1,10 @@
+{
+  "servers": {
+    "team-skills": {
+      "enabled": true,
+      "transport": "streamable-http",
+      "connector_description": "Search, download, and publish agent skills shared by your team. When the user asks to install a skill, place the entire downloaded skill directory under `environment_context.user_skills_root`, including `SKILL.md` and all supporting files.",
+      "url": "https://qcnd7w5806gy.feishu.link/mcp/app_17gftabyhpd"
+    }
+  }
+}

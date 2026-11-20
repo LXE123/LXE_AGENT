@@ -1,18 +1,21 @@
-import { parseManagedModelDefinition, type ManagedLlmState, type ManagedModelDefinition } from "./managed-llm";
+import { managedThinkingLevels, parseManagedModelDefinition, type ManagedLlmState, type ManagedModelDefinition } from "./managed-llm";
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
 export const PROVIDER_API_STYLE_ANTHROPIC_MESSAGES = "anthropic_messages" as const;
 export const PROVIDER_API_STYLE_OPENAI_COMPLETIONS = "openai_completions" as const;
 export const PROVIDER_API_STYLE_OPENAI_RESPONSES = "openai_responses" as const;
+export const PROVIDER_API_STYLE_GOOGLE_GENERATIVE_AI = "google_generative_ai" as const;
 
 export type LlmProviderApiStyle =
+  | typeof PROVIDER_API_STYLE_GOOGLE_GENERATIVE_AI
   | typeof PROVIDER_API_STYLE_ANTHROPIC_MESSAGES
   | typeof PROVIDER_API_STYLE_OPENAI_COMPLETIONS
   | typeof PROVIDER_API_STYLE_OPENAI_RESPONSES;
 
 export interface LlmProviderModelSpec {
   id: string;
+  displayName?: string;
   contextWindowTokens: number;
   maxTokens: number;
   supportsVision: boolean;
@@ -20,6 +23,7 @@ export interface LlmProviderModelSpec {
   supportsTemperature: boolean;
   thinkingRequestStyle: string;
   thinkingBudgetTokens?: number;
+  compat?: Record<string, boolean>;
   toolStream: boolean;
   thinkingLevels: string[];
   thinkingDefault: string;
@@ -112,6 +116,7 @@ export const normalizeProviderKey = (value: unknown): string =>
 const normalizeApiStyle = (value: unknown, path: string): LlmProviderApiStyle => {
   const style = normalizeProviderKey(requiredString(value, path));
   if (style !== PROVIDER_API_STYLE_ANTHROPIC_MESSAGES
+    && style !== PROVIDER_API_STYLE_GOOGLE_GENERATIVE_AI
     && style !== PROVIDER_API_STYLE_OPENAI_COMPLETIONS
     && style !== PROVIDER_API_STYLE_OPENAI_RESPONSES) {
     throw new Error(`${path} is unsupported: ${String(value)}`);
@@ -135,8 +140,18 @@ const parseModel = (id: string, value: unknown, path: string): LlmProviderModelS
   if (!supportsThinking && thinkingLevels.length > 0) {
     throw new Error(`${path}.${id}.thinking_levels must be empty when supports_thinking is false`);
   }
+  const compat = model.compat === undefined ? undefined : Object.fromEntries(
+    Object.entries(object(model.compat, `${path}.${id}.compat`)).map(([key, value]) => {
+      if (!["supportsDeveloperRole", "supportsMidConvoSystemMessages", "supportsAdditionalTools"].includes(key)) {
+        throw new Error(`Unknown compatibility flag ${path}.${id}.compat.${key}`);
+      }
+      return [key, requiredBoolean(value, `${path}.${id}.compat.${key}`)];
+    }),
+  );
   return {
     id,
+    ...(model.display_name === undefined ? {} : { displayName: requiredString(model.display_name, `${path}.${id}.display_name`) }),
+    ...(compat ? { compat } : {}),
     contextWindowTokens: positiveInteger(model.context_window_tokens, `${path}.${id}.context_window_tokens`),
     maxTokens: positiveInteger(model.max_tokens, `${path}.${id}.max_tokens`),
     supportsVision: requiredBoolean(model.supports_vision, `${path}.${id}.supports_vision`),
@@ -302,15 +317,31 @@ export function managedModelSpec(definition: ManagedModelDefinition): LlmProvide
   return { id: m.model, contextWindowTokens: m.contextWindow, maxTokens: m.maxTokens,
     supportsVision: m.input.includes("image"), supportsThinking: m.reasoning, supportsTemperature: m.supportsTemperature,
     thinkingRequestStyle: m.thinkingStyle, ...(m.thinkingBudgetTokens === null ? {} : { thinkingBudgetTokens: m.thinkingBudgetTokens }),
-    toolStream: m.compat.zaiToolStream === true, thinkingLevels: Object.keys(m.thinkingLevelMap).filter(k => m.thinkingLevelMap[k] !== null), thinkingDefault: m.thinkingDefault };
+    toolStream: m.compat.zaiToolStream === true, thinkingLevels: managedThinkingLevels(m.thinkingLevelMap), thinkingDefault: m.thinkingDefault };
 }
-export function withManagedModels(catalog: LlmProviderCatalog, state?: ManagedLlmState): LlmProviderCatalog {
-  if (!state || state.model_schema !== 3) return catalog;
+export function withManagedModels(catalog: LlmProviderCatalog, state?: ManagedLlmState,
+  legacyTarget?: { provider: string; model: string }): LlmProviderCatalog {
+  if (!state && !legacyTarget) return catalog;
   const providers = catalog.providers.map(p => {
+    if (state?.model_schema !== 3) {
+      // Older publications reference local model specs, but credential keys and wire IDs remain exact.
+      const models = { ...p.models };
+      const modelAliases = { ...p.modelAliases };
+      for (const target of state?.models ?? (legacyTarget ? [legacyTarget] : [])) {
+        const canonical = modelAliases[target.model];
+        if (target.provider !== p.name || !canonical) continue;
+        models[target.model] = { ...models[canonical]!, id: target.model };
+        delete modelAliases[target.model];
+      }
+      return { ...p, models, modelAliases };
+    }
     const models = Object.fromEntries(state.models.filter(m => m.provider === p.name && m.definition).map(m => [m.model, managedModelSpec(m.definition!)]));
     return { ...p, models, modelAliases: {} };
   });
-  const provider = (name: unknown) => providers.find(p => p.name === normalizeProviderKey(name));
+  const provider = (name: unknown) => {
+    const canonical = catalog.provider(name)?.name;
+    return providers.find(p => p.name === canonical);
+  };
   const requireProvider = (name: unknown) => { const p = provider(name); if (!p) throw new Error("unsupported managed provider"); return p; };
   return { ...catalog, providers, provider, requireProvider };
 }

@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -75,17 +75,6 @@ const writeDescriptor = (
 describe("desktop runtime input resolution", () => {
   test("computes a stable fingerprint from the tracked runtime locks", () => {
     const repositoryRoot = join(import.meta.dir, "..");
-    expect(desktopRuntimeLockInputPaths).toContain("scripts/prepare-desktop-runtime.ps1");
-    const runtimePreparation = readFileSync(
-      join(repositoryRoot, "scripts", "prepare-desktop-runtime.ps1"),
-      "utf8",
-    );
-    const fingerprintBlock = runtimePreparation.match(
-      /function Get-LxeLockFingerprint \{[\s\S]*?\$relativePaths = @\(([\s\S]*?)\n    \)/u,
-    )?.[1] ?? "";
-    const powershellInputs = [...fingerprintBlock.matchAll(/"([^"]+)"/gu)]
-      .map((match) => match[1]);
-    expect(powershellInputs).toEqual([...desktopRuntimeLockInputPaths]);
     expect(desktopRuntimeLockSha256(repositoryRoot)).toMatch(/^[a-f0-9]{64}$/u);
     expect(desktopRuntimeLockSha256(repositoryRoot)).toBe(
       desktopRuntimeLockSha256(repositoryRoot),

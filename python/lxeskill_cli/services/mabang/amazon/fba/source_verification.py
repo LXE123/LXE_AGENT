@@ -1,6 +1,7 @@
 """Per-export full-source product catalog verification; no shared cache or implicit legacy fallback."""
 from __future__ import annotations
 
+from collections import Counter
 import hashlib
 import json
 import re
@@ -46,16 +47,23 @@ def _digest(value: Any) -> str:
 
 
 
-def product_key(record: Any) -> tuple[str, str, str, str]:
-    """Stable full product identity shared by source and inventory reports."""
-    def value(column: str, attribute: str) -> Any:
-        return record.get(column) if isinstance(record, dict) else getattr(record, attribute)
-    return (normalize_sku_key(value("MSKU", "msku")), clean_text(value("父ASIN", "parent_asin")) or "未填写父ASIN",
-            clean_text(value("ASIN", "asin")), normalize_sku_key(value("本地SKU", "local_sku")))
+def _source_row_details(record: dict[str, Any]) -> list[str]:
+    """Preserve descriptive fields in the source audit record; matching uses MSKU."""
+    return [normalize_sku_key(record.get("MSKU")), clean_text(record.get("父ASIN")) or "未填写父ASIN",
+            clean_text(record.get("ASIN")), normalize_sku_key(record.get("本地SKU"))]
 
 
-def unverified_reasons(metadata: dict[str, Any]) -> dict[tuple[str, str, str, str], str]:
-    return {tuple(item["key"]): item["reason"] for item in metadata["unverified_rows"]}
+def unverified_local_sku_reasons(metadata: dict[str, Any]) -> dict[str, str]:
+    return {item["key"][3]: item["reason"] for item in metadata["unverified_rows"]}
+
+
+def duplicate_msku_warnings(records: list[dict[str, Any]]) -> list[str]:
+    counts = Counter(normalize_sku_key(row.get("MSKU")) for row in records)
+    duplicates = {msku: count for msku, count in counts.items() if msku and count > 1}
+    if not duplicates:
+        return []
+    examples = "、".join(f"{msku}（{count}行）" for msku, count in list(duplicates.items())[:10])
+    return [f"源表含 {len(duplicates)} 个重复 MSKU：{examples}。每行分别计算并保留，数量可能重复累计。"]
 
 
 def read_report_metadata(path: str | Path) -> dict[str, Any]:
@@ -207,7 +215,7 @@ def annotate_source(path: Path, snapshot: SkuCatalogSnapshot, *, requested_store
         tags = classify(records, snapshot.skus)
         metadata = {
             "version": VERSION, "scope": "xlsx_all", "verification_method": VERIFICATION_METHOD, "store_name": snapshot.store_name,
-            "unverified_rows": [dict(key=list(product_key(record)), reason=tag[2]) for record, tag in zip(records, tags, strict=True) if not tag[1]],
+            "unverified_rows": [dict(key=_source_row_details(record), reason=tag[2]) for record, tag in zip(records, tags, strict=True) if not tag[1]],
             "requested_store_name": requested_store_name, "store_id": snapshot.store_id,
             "id_type": snapshot.id_type, "collected_at": datetime.now(timezone.utc).isoformat(),
             "source_fingerprint": _digest([headers, records]),

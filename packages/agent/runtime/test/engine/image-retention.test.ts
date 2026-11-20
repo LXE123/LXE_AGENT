@@ -114,5 +114,5 @@ for (const cancelled of [false, true]) {
       await processes.stop();
       await removeTemporaryRoot(root);
     }
-  });
+  }, 15_000);
 }

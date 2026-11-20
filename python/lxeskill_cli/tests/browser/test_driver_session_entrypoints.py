@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
-from services.agent_cli._shared import browser_session as browser_session_module
+from services.commands._shared import browser_session as browser_session_module
 from services.browser.store import store_driver_session as store_driver_session_module
 from services.browser.tools import dispatcher, driver_session, executor
 from shared.process_lock import InterProcessLockTimeout
@@ -74,20 +74,6 @@ def _patch_store_driver_session(monkeypatch, tmp_path, service, driver, calls) -
         "select_first_normal_tab",
         lambda selected_driver, **kwargs: calls.append(("select_first_normal_tab", selected_driver, kwargs)),
     )
-
-
-def test_ziniao_page_session_selects_first_normal_tab(monkeypatch, tmp_path) -> None:
-    calls: list[tuple] = []
-    driver = object()
-    service = _FakeStoreSessionService(_store_session(), calls)
-    runtime = SimpleNamespace(session_id="session-1")
-
-    _patch_store_driver_session(monkeypatch, tmp_path, service, driver, calls)
-
-    with executor._page_workflow_session(runtime, store_id="store-1", output_dir=tmp_path) as session:
-        assert session.driver is driver
-
-    assert ("select_first_normal_tab", driver, {}) in calls
 
 
 def test_fba_cli_browser_session_selects_first_normal_tab(monkeypatch, tmp_path) -> None:
@@ -166,8 +152,8 @@ def test_executor_reports_store_busy_when_store_lock_times_out(monkeypatch, tmp_
 
     result = executor.execute_browser_tool(
         SimpleNamespace(session_id="session-1"),
-        tool_name="ziniao_page",
-        arguments={"action": "browser_snapshot", "store_id": "store-1"},
+        tool_name="ziniao_browser",
+        arguments={"action": "open_store", "store_id": "store-1"},
     )
 
     assert result.success is False
@@ -203,7 +189,7 @@ def test_open_store_selects_blank_capable_tab_before_ip_check(monkeypatch, tmp_p
         lambda selected_driver, url: calls.append(("open_launcher_page", selected_driver, url)) or url,
     )
 
-    dispatcher.dispatch_ziniao_browser(None, {"action": "open_store", "store_id": "store-1"}, output_dir=tmp_path)
+    dispatcher.dispatch_ziniao_browser({"action": "open_store", "store_id": "store-1"})
 
     assert calls.index(("select_first_normal_tab", driver, {"allow_blank": True})) < calls.index(
         ("check_ip", driver, "https://ip-check.test")

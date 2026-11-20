@@ -1,8 +1,9 @@
-import type { ReactNode } from "react";
+import { Fragment, type ReactNode } from "react";
 import type { DashboardSection } from "./navigation";
+import { NavigationIcon } from "./navigation-icons";
 
 export function NavigationRail({ items, activeSection, label, onNavigate, footer }: {
-  items: Array<{ id: DashboardSection; label: string; icon: ReactNode }>;
+  items: Array<{ id: DashboardSection; label: string }>;
   activeSection: DashboardSection;
   label: string;
   onNavigate: (section: DashboardSection) => void;
@@ -10,17 +11,19 @@ export function NavigationRail({ items, activeSection, label, onNavigate, footer
 }) {
   return <div className="app-navigation">
     <nav className="navigation-rail-list" aria-label={label}>
-      {items.map(item => <button
-        key={item.id}
-        type="button"
-        className={`navigation-rail-button tab-${item.id}${activeSection === item.id ? " active" : ""}`}
-        aria-label={item.label}
-        aria-current={activeSection === item.id ? "page" : undefined}
-        onClick={() => onNavigate(item.id)}
-      >
-        {item.icon}
-        <span className="navigation-rail-tooltip" aria-hidden="true">{item.label}</span>
-      </button>)}
+      {items.map(item => <Fragment key={item.id}>
+        {item.id === "team-skills" && <hr className="navigation-rail-divider" />}
+        <button
+          type="button"
+          className={`navigation-rail-button tab-${item.id}${activeSection === item.id ? " active" : ""}`}
+          aria-label={item.label}
+          aria-current={activeSection === item.id ? "page" : undefined}
+          onClick={() => onNavigate(item.id)}
+        >
+          <NavigationIcon section={item.id} />
+          <span className="navigation-rail-tooltip" aria-hidden="true">{item.label}</span>
+        </button>
+      </Fragment>)}
     </nav>
     {footer}
   </div>;

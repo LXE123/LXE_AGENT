@@ -159,8 +159,12 @@ required runtime is absent or older; Office operations do not download it.
 Source: https://learn.microsoft.com/en-us/cpp/windows/latest-supported-vc-redist
 
 Python Office dependencies include python-docx 1.2.0 (MIT), python-pptx 1.0.2
-(MIT), lxml (BSD-3-Clause) and XlsxWriter (BSD-2-Clause). Their distribution
-metadata and license files remain in the packaged Python site-packages.
+(MIT), lxml (BSD-3-Clause) and XlsxWriter (BSD-2-Clause). PDF handling adds
+pypdf 7.1.0 (BSD-3-Clause), pdfplumber 0.11.10 (MIT), pdfminer.six (MIT),
+pypdfium2 5.15.2 (BSD-3-Clause / Apache-2.0, bundling PDFium and its listed
+dependency licenses) and cryptography (Apache-2.0 OR BSD-3-Clause). Their
+distribution metadata and license files remain in the packaged Python
+site-packages.
 
 ## Desktop file previews
 

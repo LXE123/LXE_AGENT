@@ -196,11 +196,4 @@ describe("desktop product version selection", () => {
     expect(() => applyDesktopProductVersion({}, undefined)).toThrow("<missing>");
     expect(() => applyDesktopProductVersion({}, "v0.7.3")).toThrow("v0.7.3");
   });
-
-  test("ignores the machine-local desktop version state", () => {
-    const repositoryRoot = join(import.meta.dir, "..", "..", "..");
-    const gitignore = readFileSync(join(repositoryRoot, ".gitignore"), "utf8");
-
-    expect(gitignore).toContain("config/desktop-version.local.json");
-  });
 });

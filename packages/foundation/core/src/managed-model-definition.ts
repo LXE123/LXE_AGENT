@@ -31,6 +31,8 @@ export const MANAGED_ROUTES: Record<string, { api: string; baseUrl: string }> = 
 export const MANAGED_COMPAT_DEFAULTS: Record<string, Record<string, boolean | string>> = {
   "openai-responses": {
     "supportsDeveloperRole": false,
+    "supportsMidConvoSystemMessages": false,
+    "supportsAdditionalTools": false,
     "supportsMaxOutputTokens": true
   },
   "anthropic-messages": {
@@ -51,6 +53,10 @@ export const MANAGED_COMPAT_DEFAULTS: Record<string, Record<string, boolean | st
 };
 const styles: Record<string, string[]> = {"openai-completions": ["zai"], "openai-responses": ["anthropic-effort", "openai-effort", "provider-managed"], "anthropic-messages": ["anthropic-budget", "anthropic-output-effort", "anthropic-adaptive"]};
 const levels = ["off", "minimal", "low", "medium", "high", "xhigh", "max"];
+/** Published mappings carry parameter values, not an ordering for effort controls. */
+export function managedThinkingLevels(map: ManagedModelDefinition["thinkingLevelMap"]): string[] {
+  return levels.filter(level => map[level] != null);
+}
 const fields = ["provider", "model", "name", "api", "baseUrl", "contextWindow", "maxTokens", "input", "reasoning", "thinkingLevelMap", "thinkingDefault", "thinkingStyle", "thinkingBudgetTokens", "supportsTemperature", "requestIdleTimeoutMs", "compat"];
 const object = (v: unknown): v is Record<string, unknown> => v !== null && typeof v === "object" && !Array.isArray(v);
 export function parseManagedModelDefinition(value: unknown): ManagedModelDefinition {
@@ -66,10 +72,13 @@ export function parseManagedModelDefinition(value: unknown): ManagedModelDefinit
   if (m.maxTokens > m.contextWindow || ![JSON.stringify(["text"]), JSON.stringify(["text", "image"])].includes(JSON.stringify(m.input))
     || typeof m.reasoning !== "boolean" || typeof m.supportsTemperature !== "boolean" || !object(m.thinkingLevelMap)) return invalid();
   if (Object.entries(m.thinkingLevelMap).some(([k,v]) => !levels.includes(k) || (v !== null && ![...levels, "none"].includes(v)))) return invalid();
-  const enabled = Object.keys(m.thinkingLevelMap).filter(k => m.thinkingLevelMap[k] !== null);
+  const enabled = managedThinkingLevels(m.thinkingLevelMap);
   if (m.reasoning ? !enabled.length || !enabled.includes(m.thinkingDefault) : enabled.length > 0 || m.thinkingDefault !== "off") return invalid();
   if (!styles[m.api]?.includes(m.thinkingStyle) || (m.thinkingBudgetTokens !== null && (!Number.isSafeInteger(m.thinkingBudgetTokens) || m.thinkingBudgetTokens < 1024 || m.thinkingBudgetTokens >= m.maxTokens))) return invalid();
   const defaults = MANAGED_COMPAT_DEFAULTS[m.api]!;
   if (!object(m.compat) || Object.entries(m.compat).some(([k,v]) => !(k in defaults) || (k === "maxTokensField" ? !["max_tokens", "max_completion_tokens"].includes(String(v)) : k === "thinkingFormat" ? v !== "zai" : typeof v !== "boolean"))) return invalid();
+  if (m.compat.supportsAdditionalTools === true ||
+      (m.compat.supportsMidConvoSystemMessages === true &&
+       (m.provider !== "deepseek" || !["deepseek-flash", "deepseek-v4-flash", "deepseek-v4-pro"].includes(m.model) || m.compat.supportsDeveloperRole === true))) return invalid();
   return structuredClone({ ...m, compat: { ...defaults, ...m.compat } });
 }

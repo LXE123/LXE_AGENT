@@ -25,8 +25,8 @@ import { createLogger, resolveWorkspaceContext } from "@lxe/core";
 import { accessSync, constants } from "node:fs";
 import type { ChannelAdapter } from "../channels/registry";
 import type { OutboundRequest, ResponseRouteRecord } from "../state/models";
-import type { SessionRuntimeState } from "../state/session-state";
-import type { SchedulerJobStateEvent, SessionScheduler } from "./scheduler";
+import { SchedulerBusyError, type SchedulerJobStateEvent, type SessionScheduler } from "./scheduler";
+import { AutomationBlockedError } from "./automations";
 
 const DESKTOP_PLATFORM = "desktop";
 const DESKTOP_USER_ID = "desktop-local";
@@ -47,7 +47,6 @@ export interface LocalConversationStorage {
     source: JsonObject;
     workspace: WorkspaceContext;
   } | undefined>;
-  appendPendingEvent(sessionId: string, event: JsonObject): Promise<void>;
   getResponseRoute(responseRouteId: string): Promise<ResponseRouteRecord | undefined>;
 }
 
@@ -62,7 +61,23 @@ export type LocalConversationAttachment = DesktopInputAttachmentPayload & {
   image_block?: JsonObject;
 };
 
+interface LocalSendInput {
+  session_id?: string;
+  directory?: string;
+  text: string;
+  /** Evaluate staged desktop attachments only for the submission that owns the receipt. */
+  attachments?: LocalConversationAttachment[] | (() => LocalConversationAttachment[]);
+  client_message_id?: string;
+  steer_turn_id?: string;
+}
+
+interface AutomationTarget {
+  id: string; session_id: string; turn_id: string; fresh: boolean;
+  assertCurrent(): void; prepareSession?(): Promise<void>;
+}
+
 interface InternalTurn {
+  steeringReceipts?: Map<string, Promise<DesktopConversationSendPayload>>;
   payload: DesktopConversationTurnPayload;
   attachmentPaths: Map<string, string>;
   attachmentImages: Map<string, JsonObject>;
@@ -82,7 +97,6 @@ type BackgroundTaskChangedEvent = Extract<AgentEvent, { type: "background_task.c
 export interface LocalConversationControllerOptions {
   storage: LocalConversationStorage;
   scheduler: SessionScheduler;
-  runtimeState: SessionRuntimeState;
   defaultWorkspace(): WorkspaceContext;
   onActivity?: (activity: DesktopConversationActivityPayload) => void;
   onStreamBatch?: (batch: DesktopConversationStreamBatch) => void;
@@ -133,17 +147,27 @@ export class LocalConversationController {
     return undefined;
   }
 
-  async send(input: {
-    session_id?: string;
-    directory?: string;
-    text: string;
-    attachments?: LocalConversationAttachment[];
-    client_message_id?: string;
-  }): Promise<DesktopConversationSendPayload> {
+  send(input: LocalSendInput, automation?: AutomationTarget): Promise<DesktopConversationSendPayload> {
+    const target = !automation && input.steer_turn_id ? this.turns.get(input.steer_turn_id) : undefined;
+    const clientId = input.client_message_id;
+    if (!target || target.sessionId !== input.session_id || !clientId) return this.submit(input, automation);
+    const receipts = target.steeringReceipts ??= new Map();
+    const existing = receipts.get(clientId);
+    if (existing) return existing;
+    const receipt = this.submit(input, undefined, target).catch(error => {
+      receipts.delete(clientId);
+      throw error;
+    });
+    receipts.set(clientId, receipt);
+    return receipt;
+  }
+
+  private async submit(input: LocalSendInput, automation?: AutomationTarget, expected?: InternalTurn): Promise<DesktopConversationSendPayload> {
     const text = clean(input.text);
-    const attachments = input.attachments ?? [];
+    const attachments = typeof input.attachments === "function" ? input.attachments() : input.attachments ?? [];
     if (!text && attachments.length === 0) throw new Error("message text or attachment required");
     let sessionId = clean(input.session_id);
+    if (automation && (automation.fresh ? Boolean(sessionId) : sessionId !== automation.session_id)) throw new AutomationBlockedError("任务目标与会话模式不一致");
     if (sessionId && input.directory !== undefined) throw new Error("Existing sessions cannot change workspace");
     if (sessionId && this.options.scheduler.isSessionDeletionFenced(sessionId)) {
       throw new Error(`session is being deleted: ${sessionId}`);
@@ -152,7 +176,7 @@ export class LocalConversationController {
     let session = sessionId ? await this.options.storage.getSession(sessionId) : undefined;
     if (sessionId && !session) throw new LocalConversationSessionNotFoundError(sessionId);
     if (!session) {
-      sessionId = this.id();
+      sessionId = automation?.session_id ?? this.id();
       const source = this.desktopSource(sessionId);
       const workspace = input.directory === undefined
         ? this.options.defaultWorkspace()
@@ -168,7 +192,11 @@ export class LocalConversationController {
       created = true;
     }
 
-    const turnId = this.id();
+    if (automation) {
+      automation.assertCurrent();
+      await automation.prepareSession?.();
+    }
+    const turnId = automation?.turn_id ?? this.id();
     const messageId = this.id();
     const responseRouteId = this.id();
     const source = this.desktopSource(sessionId);
@@ -215,22 +243,64 @@ export class LocalConversationController {
       sender_nick: "Desktop",
       workspace: session.workspace,
       source,
-      raw_data: { origin: DESKTOP_PLATFORM, ...(input.client_message_id ? { client_message_id: input.client_message_id } : {}) },
+      raw_data: { origin: DESKTOP_PLATFORM, ...(automation ? { automation_id: automation.id } : {}), ...(input.client_message_id ? { client_message_id: input.client_message_id } : {}) },
       user_content_blocks: userContentBlocks,
       diagnostics: [],
     };
     const activity = this.sessionActivity(sessionId);
+    const targetId = automation ? undefined : input.steer_turn_id;
+    const target = expected ?? (targetId ? this.turns.get(targetId) : undefined);
+    if (target?.sessionId === sessionId && targetId && target.payload.state === "running") {
+      const clientId = input.client_message_id || messageId;
+      if (activity.activeTurnId === targetId && await this.options.scheduler.steerActive(sessionId, {
+        text, response_route_id: responseRouteId, message_id: messageId, client_message_id: clientId,
+        user_content_blocks: userContentBlocks.map(block => block.type === "local_file"
+          ? { ...block, turn_id: targetId } : block),
+      }, targetId)) {
+        target.payload.steering = [...(target.payload.steering ?? []), {
+          client_message_id: clientId, message_id: messageId, text, created_at: createdAtMs,
+          ...(attachments.length ? { attachments: attachments.map(publicAttachment) } : {}),
+        }];
+        for (const attachment of attachments) {
+          target.attachmentPaths.set(attachment.attachment_id, attachment.path);
+          if (attachment.image_block && !target.payload.settled_at) target.attachmentImages.set(attachment.attachment_id, attachment.image_block);
+        }
+        this.publish(sessionId);
+        return { session_id: sessionId, turn_id: targetId, message_id: messageId,
+          client_message_id: clientId, created: false, state: "steered" };
+      }
+    }
     this.clearLatest(activity);
+    this.registerTurn(job, attachments, createdAtMs);
+    try {
+      await this.options.scheduler.enqueue(job, {
+        ...(session.blank ? { beforeAccept: () => this.options.storage.ensureSession({
+          session_id: sessionId, source: session.source, workspace: session.workspace,
+          entry_text: text || attachments[0]!.name,
+        }) } : {}),
+        ...(automation ? { onlyIfIdle: true, assertCurrent: automation.assertCurrent } : {}),
+      });
+    } catch (error) {
+      this.removeTurn(sessionId, turnId);
+      if (automation && error instanceof SchedulerBusyError) throw new AutomationBlockedError(error.message, { cause: error });
+      throw error;
+    }
+    return { session_id: sessionId, turn_id: turnId, message_id: messageId,
+      ...(input.client_message_id ? { client_message_id: input.client_message_id } : {}),
+      created, state: this.turns.get(turnId)?.payload.state === "running" ? "running" : "queued" };
+  }
+
+  private registerTurn(job: AgentJob, attachments: LocalConversationAttachment[], createdAtMs: number): void {
     const turn: InternalTurn = {
-      sessionId,
-      responseRouteId,
+      sessionId: job.session_id,
+      responseRouteId: job.response_route_id,
       attachmentPaths: new Map(attachments.map((attachment) => [attachment.attachment_id, attachment.path])),
       attachmentImages: new Map(attachments.flatMap(attachment => attachment.image_block ? [[attachment.attachment_id, attachment.image_block] as const] : [])),
       payload: {
-        turn_id: turnId,
-        message_id: messageId,
-      ...(input.client_message_id ? { client_message_id: input.client_message_id } : {}),
-        text,
+        turn_id: job.job_id,
+        message_id: job.message_id,
+        ...(typeof job.raw_data.client_message_id === "string" ? { client_message_id: job.raw_data.client_message_id } : {}),
+        text: job.user_input,
         ...(attachments.length > 0 ? { attachments: attachments.map(publicAttachment) } : {}),
         state: "queued",
         created_at: createdAtMs,
@@ -239,28 +309,8 @@ export class LocalConversationController {
         settled_at: 0,
       },
     };
-    this.turns.set(turnId, turn);
-    activity.queuedTurnIds.push(turnId);
-    this.options.runtimeState.resumeAutonomy(sessionId);
-    try {
-      await this.options.scheduler.enqueue(job, session.blank ? {
-        beforeAccept: () => this.options.storage.ensureSession({
-          session_id: sessionId, source: session.source, workspace: session.workspace,
-          entry_text: text || attachments[0]!.name,
-        }),
-      } : {});
-    } catch (error) {
-      this.removeTurn(sessionId, turnId);
-      throw error;
-    }
-    return {
-      session_id: sessionId,
-      turn_id: turnId,
-      message_id: messageId,
-      ...(input.client_message_id ? { client_message_id: input.client_message_id } : {}),
-      created,
-      state: turn.payload.state === "running" ? "running" : "queued",
-    };
+    this.turns.set(job.job_id, turn);
+    this.sessionActivity(job.session_id).queuedTurnIds.push(job.job_id);
   }
 
   async stop(sessionIdInput: string, expectedTurnId?: string): Promise<DesktopConversationStopPayload> {
@@ -287,7 +337,6 @@ export class LocalConversationController {
       try {
         if (await this.options.scheduler.requestStop(sessionId, activeTurnId)) {
           stoppedTurnId = activeTurnId;
-          this.options.runtimeState.suspendAutonomy(sessionId);
         } else if (turn && this.sessions.get(sessionId)?.activeTurnId === activeTurnId) {
           turn.payload.state = "running";
           this.publish(sessionId);
@@ -322,6 +371,22 @@ export class LocalConversationController {
 
   handleSchedulerEvent(event: SchedulerJobStateEvent): void {
     const turnId = clean(event.job.job_id);
+    if (event.state === "queued" && event.job.raw_data.steering_fallback && !this.turns.has(turnId)) {
+      const blocks = event.job.user_content_blocks;
+      const attachments: LocalConversationAttachment[] = [];
+      for (const [index, block] of blocks.entries()) {
+        if (block.type !== "local_file") continue;
+        const image = blocks[index + 1];
+        attachments.push({ attachment_id: clean(block.attachment_id), name: clean(block.name),
+          path: clean(block.path), media_type: clean(block.media_type), size_bytes: integer(block.size_bytes),
+          ...(image?.type === "image" ? { image_block: image } : {}) });
+      }
+      this.registerTurn(event.job, attachments, this.now());
+      // The scheduler places unread steering before previously queued turns.
+      this.sessionActivity(event.job.session_id).queuedTurnIds = this.options.scheduler.runStatuses()
+        .filter(job => job.session_id === event.job.session_id && job.state === "queued" && this.turns.has(job.turn_id))
+        .map(job => job.turn_id);
+    }
     const turn = this.turns.get(turnId);
     if (!turn) return;
     const sessionId = clean(event.job.session_id);
@@ -728,6 +793,7 @@ function sanitizeToolStep(value: unknown): ToolStep | undefined {
   const imageView = status === "success" && image && clean(image.view_id) && clean(image.name) && clean(image.media_type)
     ? { view_id: clean(image.view_id), name: clean(image.name), media_type: clean(image.media_type) } : undefined;
   const resultBlock = sanitizeToolDisplayBlock(step.result_block);
+  const inputBlock = sanitizeToolDisplayBlock(step.input_block);
   const errorBlock = sanitizeToolDisplayBlock(step.error_block);
   return {
     id: clean(step.id),
@@ -741,6 +807,7 @@ function sanitizeToolStep(value: unknown): ToolStep | undefined {
     status,
     duration_ms: integer(step.duration_ms),
     ...(imageView ? { image_view: imageView } : {}),
+    ...(inputBlock ? { input_block: inputBlock } : {}),
     ...(resultBlock ? { result_block: resultBlock } : {}),
     ...(errorBlock ? { error_block: errorBlock } : {}),
   };
@@ -757,6 +824,7 @@ function sanitizeToolDisplayBlock(value: unknown): ToolDisplayBlock | undefined 
 function cloneToolStep(step: ToolStep): ToolStep {
   return {
     ...step,
+    ...(step.input_block ? { input_block: { ...step.input_block } } : {}),
     ...(step.image_view ? { image_view: { ...step.image_view } } : {}),
     ...(step.result_block ? { result_block: { ...step.result_block } } : {}),
     ...(step.error_block ? { error_block: { ...step.error_block } } : {}),

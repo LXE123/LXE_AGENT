@@ -1,4 +1,6 @@
 export * from "./manual-tools";
+export * from "./team-skills";
+import type { TeamSkillsBrowserCommand, TeamSkillsBrowserState, TeamUseRequest } from "./team-skills";
 export type * from "./file-preview";
 import { parseManagedState, type ManagedLlmState } from "@lxe/core/managed-llm";
 import { parseJsonRpcEnvelope, parseJsonRpcJson, JsonRpcError,
@@ -13,6 +15,7 @@ import {
   validateToolStep,
   type ToolStep,
   type AgentJob,
+  type AgentSteeringMessage,
   type DesktopStreamBatchRequest,
   type EmitRequest,
   type JsonObject,
@@ -22,6 +25,8 @@ import {
 } from "@lxe/protocol";
 import {
   parseAgentDashboardRpcCall,
+  parseMcpServerPresets,
+  type McpServerPreset,
   type AgentDashboardRpcCall,
   type DashboardTransport,
 } from "./dashboard-rpc";
@@ -42,7 +47,7 @@ export type DesktopDraftAttachmentPayload = DesktopInputAttachmentPayload & {
   reference_key?: string;
 };
 
-export const AGENT_PROTOCOL_VERSION = 25 as const;
+export const AGENT_PROTOCOL_VERSION = 32 as const;
 
 /** Bounded process preview, independent of model stream sequence and wait cursors. */
 export type ExecTaskSnapshotPayload = {
@@ -98,7 +103,6 @@ export class AgentProtocolError extends Error {
 
 export type AgentInitializePayload = {
   protocol_version: number;
-  agent_soul_path: string;
   skills_root: string;
   user_skills_root: string;
   llm_config_root: string;
@@ -110,6 +114,7 @@ export type AgentInitializePayload = {
 
 export type AgentCommandPayloads = {
   initialize: AgentInitializePayload;
+  sync_mcp_server_presets: { servers: McpServerPreset[] };
   update_skill_permissions: { allowed_skill_types: string[] };
   update_managed_llm_credential: {
     credential: ManagedLlmCredential | null;
@@ -118,15 +123,8 @@ export type AgentCommandPayloads = {
   };
   run_turn: { job: AgentJob };
   cancel_turn: { run_id: string; reason?: "user_stop" };
-  steer_turn: {
-    run_id: string;
-    text: string;
-    response_route_id: string;
-    message_id: string;
-  };
+  steer_turn: AgentSteeringMessage & { run_id: string; response_route_id: string; message_id: string };
   ensure_session: { request: SessionWorkspaceRequest };
-  append_pending_event: { session_id: string; event: JsonObject };
-  has_pending_events: { session_id: string };
   resolve_workspace_directory: { session_id: string };
   resolve_artifact: { session_id: string; artifact_id: string };
   resolve_image_view: { session_id: string; view_id: string };
@@ -143,11 +141,7 @@ export type ConversationImagePreviewSource =
 
 export type AgentCommand = keyof AgentCommandPayloads;
 
-export type AgentSteeringMessage = {
-  text: string;
-  response_route_id?: string;
-  message_id?: string;
-};
+export type { AgentSteeringMessage } from "@lxe/protocol";
 
 export type AgentRunTurnResult = {
   status: "completed" | "cancelled" | "error";
@@ -158,6 +152,23 @@ export type AgentRunTurnResult = {
   /** Steering messages the agent never consumed before the turn ended. */
   remaining_steering: AgentSteeringMessage[];
 };
+
+function steeringContentBlocks(value: unknown): JsonObject[] | undefined {
+  if (value === undefined) return undefined;
+  if (!Array.isArray(value) || !value.every(block => {
+    const part = objectValue(block);
+    if (part?.type === "text") return typeof part.text === "string" && part.text.trim().length > 0;
+    if (part?.type === "local_file") return [part.attachment_id, part.turn_id, part.path, part.media_type].every(
+      field => typeof field === "string" && field.trim().length > 0);
+    if (part?.type !== "image") return false;
+    const source = objectValue(part.source);
+    return source?.type === "base64" && typeof source.media_type === "string" && source.media_type.startsWith("image/")
+      && typeof source.data === "string" && source.data.length > 0;
+  })) {
+    throw new AgentProtocolError("agent protocol steering.user_content_blocks is invalid");
+  }
+  return value;
+}
 
 export function parseAgentRunTurnResult(value: unknown): AgentRunTurnResult {
   const object = objectValue(value);
@@ -189,7 +200,8 @@ export function parseAgentRunTurnResult(value: unknown): AgentRunTurnResult {
         `agent protocol run_turn result.remaining_steering[${index}] must be an object`,
       );
     }
-    if (typeof item.text !== "string" || !item.text.trim()) {
+    const blocks = steeringContentBlocks(item.user_content_blocks);
+    if (typeof item.text !== "string" || (!item.text.trim() && !blocks?.length)) {
       throw new AgentProtocolError(
         `agent protocol run_turn result.remaining_steering[${index}].text must be a non-empty string`,
       );
@@ -199,6 +211,7 @@ export function parseAgentRunTurnResult(value: unknown): AgentRunTurnResult {
     for (const [field, fieldValue] of [
       ["response_route_id", responseRouteId],
       ["message_id", messageId],
+      ["client_message_id", item.client_message_id],
     ] as const) {
       if (fieldValue !== undefined && typeof fieldValue !== "string") {
         throw new AgentProtocolError(
@@ -208,6 +221,8 @@ export function parseAgentRunTurnResult(value: unknown): AgentRunTurnResult {
     }
     return {
       text: item.text.trim(),
+      ...(blocks?.length ? { user_content_blocks: blocks } : {}),
+      ...(typeof item.client_message_id === "string" ? { client_message_id: item.client_message_id } : {}),
       ...(typeof responseRouteId === "string" ? { response_route_id: responseRouteId.trim() } : {}),
       ...(typeof messageId === "string" ? { message_id: messageId.trim() } : {}),
     };
@@ -269,10 +284,6 @@ export type AgentEvent =
         operation: "start" | "stop";
         emit_id: string;
       };
-    }
-  | {
-      type: "agent.wake";
-      payload: JsonObject;
     }
   | {
       type: "background_task.changed";
@@ -444,6 +455,7 @@ export interface DesktopCloudActivationInput {
 }
 
 export type DesktopDashboardDataDomain =
+  | "automations"
   | "sessions"
   | "stats"
   | "channels"
@@ -676,6 +688,11 @@ export interface DesktopVietnamSettingsState {
   template_error: string | null;
 }
 
+export interface DesktopAmazonV2Settings {
+  peak_boost_enabled: boolean;
+  peak_boost_days: number | null;
+}
+
 export interface DesktopUsageBalance {
   status: "ready" | "error" | "unconfigured";
   source: CredentialSource | null;
@@ -714,8 +731,8 @@ export interface LxeDesktopBridge {
     confirmCloudDevice(): Promise<DesktopCloudState>;
     openCloudDestination(destination: DesktopCloudDestination): Promise<void>;
     openLogsDirectory(): Promise<void>;
-    /** Hand the resolved theme to the window chrome the renderer cannot paint. */
-    applyAppearance(appearance: "light" | "dark"): Promise<void>;
+    /** Apply the selected theme to native chrome and embedded web content. */
+    applyAppearance(appearance: "system" | "light" | "dark"): Promise<void>;
     getHealth(): Promise<DesktopHealth>;
     restartAgent(): Promise<DesktopHealth>;
     getSetupState(): Promise<DesktopSetupState>;
@@ -744,6 +761,12 @@ export interface LxeDesktopBridge {
     saveVietnamParameters(input: DesktopVietnamParameters): Promise<DesktopVietnamSettingsState>;
     uploadVietnamTemplate(): Promise<DesktopVietnamSettingsState | null>;
     exportVietnamTemplate(): Promise<DesktopVietnamTemplateExportResult | null>;
+    teamSkillsBrowser(mountSrc: string, command: TeamSkillsBrowserCommand): Promise<TeamSkillsBrowserState | null>;
+    teamSkillsView(action: "show" | "hide" | "retry"): Promise<string | null>;
+    /** Answer a team catalog use request: no error once the draft is written, otherwise the actual error. */
+    teamSkillUseResult(requestId: string, error?: string): Promise<void>;
+    getAmazonV2Settings(): Promise<DesktopAmazonV2Settings>;
+    saveAmazonV2Settings(input: DesktopAmazonV2Settings): Promise<DesktopAmazonV2Settings>;
     onSyntheticPerformerTaskChanged(
       listener: (task: DesktopSyntheticPerformerTask) => void,
     ): () => void;
@@ -753,6 +776,8 @@ export interface LxeDesktopBridge {
     onConversationStreamEvent(listener: (event: DesktopConversationStreamEvent) => void): () => void;
     onExecUpdate(listener: (update: BackgroundTaskChangedPayload) => void): () => void;
     onDashboardInvalidated(listener: (invalidation: DesktopDashboardInvalidation) => void): () => void;
+    /** A team catalog card asked to start a conversation with this installed skill. */
+    onTeamSkillUse(listener: (request: TeamUseRequest) => void): () => void;
     onStatusChanged(listener: (health: DesktopHealth) => void): () => void;
   };
 }
@@ -764,14 +789,13 @@ const objectValue = (value: unknown): Record<string, unknown> | undefined =>
 
 const agentCommands = new Set<AgentCommand>([
   "initialize",
+  "sync_mcp_server_presets",
   "update_skill_permissions",
   "update_managed_llm_credential",
   "run_turn",
   "cancel_turn",
   "steer_turn",
   "ensure_session",
-  "append_pending_event",
-  "has_pending_events",
   "resolve_workspace_directory",
   "resolve_artifact",
   "resolve_image_view",
@@ -786,7 +810,6 @@ const agentEventTypes = new Set<AgentEvent["type"]>([
   "item.completed",
   "conversation.stream.delta",
   "typing.changed",
-  "agent.wake",
   "background_task.changed",
   "managed_llm.authentication_failed",
   "session.changed",
@@ -824,11 +847,16 @@ const validateRequestPayload = (command: AgentCommand, payload: Record<string, u
     }
   };
   switch (command) {
+    case "sync_mcp_server_presets":
+      if (Object.keys(payload).some(key => key !== "servers")) {
+        throw new Error("agent protocol sync_mcp_server_presets has unsupported fields");
+      }
+      payload.servers = parseMcpServerPresets(payload.servers);
+      break;
     case "initialize":
       if (!Number.isSafeInteger(payload.protocol_version)) {
         throw new Error("agent protocol initialize.protocol_version must be an integer");
       }
-      requireText("agent_soul_path");
       requireText("skills_root");
       requireText("user_skills_root");
       requireText("llm_config_root");
@@ -891,15 +919,16 @@ const validateRequestPayload = (command: AgentCommand, payload: Record<string, u
       requireText("run_id");
       if (payload.reason !== undefined && payload.reason !== "user_stop") throw new Error("agent protocol cancel_turn.reason is invalid");
       break;
-    case "steer_turn":
-      for (const name of ["run_id", "text", "response_route_id", "message_id"]) requireText(name);
+    case "steer_turn": {
+      for (const name of ["run_id", "response_route_id", "message_id"]) requireText(name);
+      const blocks = steeringContentBlocks(payload.user_content_blocks);
+      if (typeof payload.text !== "string" || (!payload.text.trim() && !blocks?.length)) requireText("text");
+      if (payload.client_message_id !== undefined) requireText("client_message_id");
       break;
+    }
     case "ensure_session":
       requireObject("request");
       requireWorkspace(objectValue(payload.request)?.workspace, `${command}.request.workspace`);
-      break;
-    case "has_pending_events":
-      requireText("session_id");
       break;
     case "resolve_workspace_directory":
       requireText("session_id");
@@ -920,10 +949,6 @@ const validateRequestPayload = (command: AgentCommand, payload: Record<string, u
     case "resolve_attachment":
       requireText("session_id");
       requireText("attachment_id");
-      break;
-    case "append_pending_event":
-      requireText("session_id");
-      requireObject("event");
       break;
     case "dashboard_call":
       parseAgentDashboardRpcCall(payload);
@@ -1100,3 +1125,6 @@ export function isAgentEvent(message: AgentWireMessage): message is AgentNotific
 }
 
 export * from "./composer-references";
+
+export * from "./automations";
+export * from "./desktop-mcp";

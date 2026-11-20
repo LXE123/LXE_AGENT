@@ -1,9 +1,15 @@
+import { ForkMenu } from "./ForkMenu";
+import { AppCaption } from "../../shared/app-frame";
+import { useAutomationEditing } from "./use-automation-editing";
 import { projectSessionTitle } from "../../api/session-titles";
 import "./conversation-theme.css";
+import "./session-tree.css";
+import { sessionBranchPath, sessionTree, type SessionBranch } from "./session-tree";
 import { Pencil } from "lucide-react";
 import { ApprovalGate, PermissionPicker } from "./permissions";
 import { ReferenceComposer } from "./ReferenceComposer";
 import { UserReferenceText } from "./UserReferenceText";
+import { UserMessagePreview } from "./UserMessagePreview";
 import { FileAvailabilityBadge } from "../file-preview/FileFailure";
 import { PreviewHeaderActions, usePreviewSidebar } from "../file-preview/Sidebar";
 import { OpenFileButton } from "../file-preview/OpenFileButton";
@@ -18,7 +24,9 @@ import { FILE_TYPE_ICONS, FileAttachmentIcon, FileAttachmentInfo } from "./file-
 import { selectContextDisplay } from "./context-display";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import ReactMarkdown from "react-markdown";
+import { StreamingMarkdown as MessageMarkdown } from "../../shared/ui/streaming-markdown";
+import { OpenMarkdownFileContext } from "../../shared/ui/markdown";
+import type { WorkspaceFileLink } from "../../shared/markdown";
 import {
   ArrowUp,
   Brain,
@@ -33,9 +41,9 @@ import {
   Copy,
   FileText,
   FolderOpen,
+  GitFork,
   Info,
   LoaderCircle,
-  MessageSquareText,
   MoreVertical,
   PackageCheck,
   Paperclip,
@@ -76,15 +84,11 @@ import type {
   SessionPayload
 } from "../../api/payloads";
 import { CodeBlock, languageForPath } from "../../shared/ui/code-block";
-import {
-  markdownComponents,
-  markdownRehypePlugins,
-  markdownRemarkPlugins,
-} from "../../shared/ui/markdown";
 import { useDialogFocus } from "../../shared/ui/use-dialog-focus";
 import { ProviderBrandMark } from "../../shared/ui/provider-brand-mark";
 import {
   conversationModelChoices,
+  currentModelDisplayName,
   modelDisabledReasonLabel,
   modelThinkingLevelLabel,
 } from "../models/model";
@@ -132,10 +136,12 @@ function MessageMeta({
   createdAt,
   role,
   text,
+  children,
 }: {
   createdAt: number;
   role: "assistant" | "user";
   text: string;
+  children?: React.ReactNode;
 }) {
   const t = useUiText();
   const [copied, setCopied] = useState(false);
@@ -153,7 +159,7 @@ function MessageMeta({
   const copyButton = text ? (
     <button
       aria-label={copyLabel}
-      className="message-meta-copy"
+      className="message-meta-action message-meta-copy"
       onClick={handleCopy}
       title={copyLabel}
       type="button"
@@ -164,10 +170,11 @@ function MessageMeta({
   const time = timestamp ? (
     <time dateTime={new Date(createdAt * 1000).toISOString()}>{timestamp}</time>
   ) : null;
-  if (!copyButton && !time) return null;
+  if (!copyButton && !time && !children) return null;
   return (
     <div className={`message-meta role-${role}`}>
       {role === "user" ? time : copyButton}
+      {children}
       {role === "user" ? copyButton : time}
     </div>
   );
@@ -195,26 +202,7 @@ function StatTile({
   );
 }
 
-const MessageMarkdown = React.memo(function MessageMarkdown({
-  text,
-}: {
-  text: string;
-}) {
-  const visibleText = text;
-  return (
-    <div className="message-markdown">
-      <ReactMarkdown
-        components={markdownComponents}
-        rehypePlugins={markdownRehypePlugins}
-        remarkPlugins={markdownRemarkPlugins}
-      >
-        {visibleText}
-      </ReactMarkdown>
-    </div>
-  );
-});
-
-function MessageBlock({ block }: { block: unknown }) {
+function MessageBlock({ block, isStreaming = false }: { block: unknown; isStreaming?: boolean }) {
   const t = useUiText();
   if (!isRecord(block)) {
     return (
@@ -223,7 +211,7 @@ function MessageBlock({ block }: { block: unknown }) {
   }
   const type = String(block.type || "unknown");
   if (type === "text") {
-    return <MessageMarkdown text={String(block.text || "")} />;
+    return <MessageMarkdown text={String(block.text || "")} isStreaming={isStreaming} />;
   }
   if (type === "thinking") {
     return <ThinkingBlock block={block} />;
@@ -428,37 +416,47 @@ function ToolCallRest({ rest }: { rest: Record<string, unknown> }) {
  * it is — a shell command as shell, a path as a path — with the remaining
  * arguments kept below rather than dropped.
  */
-function ToolCallArguments({ operation }: { operation: ToolOperation }) {
+function ToolCallArguments({ operation, preview }: { operation: ToolOperation; preview?: LiveToolStep["input_block"] }) {
   const t = useUiText();
   const { primary, rest } = toolOperationArguments(operation);
   const restKeys = Object.keys(rest);
-  if (!primary && !restKeys.length) return null;
+  const call = isRecord(operation.call) ? operation.call : undefined;
+  const input = call?.input ?? call?.arguments;
+  if (!preview && !primary && !restKeys.length && !isRecord(input)) return null;
+  const script = operation.name === "codemode";
+  // A cut-off JSON preview stays readable as text even when it cannot be parsed.
+  const block = preview ?? (operation.action === "tool" && !script && isRecord(input)
+    ? { language: "json", content: shortText(sanitizeForDisplay(input, { truncateStrings: false }), 16_000) }
+    : undefined);
   const primaryLanguage = operation.action === "run"
     ? "bash"
-    : languageForPath(primary);
+    : script ? "javascript" : languageForPath(primary);
   const isPath = ["read", "edit", "write", "list", "send"].includes(operation.action);
   return (
     <div className="tool-call-args">
-      {primary
+      <div className="block-title"><Wrench size={14} /><span>{t.message.toolInput}</span></div>
+      {block ? <CodeBlock code={block.content} language={block.language === "json" ? "json" : script ? "javascript" : ""} />
+        : primary
         ? (isPath
           ? <div className="tool-call-path" title={primary}>{primary}</div>
           : <CodeBlock code={primary} language={primaryLanguage} />)
         : null}
-      {restKeys.length ? <ToolCallRest rest={rest} /> : null}
+      {!block && restKeys.length ? <ToolCallRest rest={rest} /> : null}
+      {!block && !primary && !restKeys.length ? <code>{"{}"}</code> : null}
     </div>
   );
 }
 
-function MessageContent({ content, message }: { content: unknown; message: SessionMessage }) {
+function MessageContent({ content, message, isStreaming = false }: { content: unknown; message: SessionMessage; isStreaming?: boolean }) {
   const t = useUiText();
   const toolCalls = message.tool_calls;
   return (
     <div className="message-content">
-      {typeof content === "string" ? message.role === "user" ? <UserReferenceText text={content} skills={Array.isArray(message.invoked_skills) ? message.invoked_skills : []} /> : <MessageMarkdown text={content} /> : null}
+      {typeof content === "string" ? message.role === "user" ? <UserReferenceText text={content} skills={Array.isArray(message.invoked_skills) ? message.invoked_skills : []} /> : <MessageMarkdown text={content} isStreaming={isStreaming} /> : null}
       {Array.isArray(content) ? (
         <div className="message-block-list">
           {content.map((block, index) => (
-            message.role === "user" && isRecord(block) && block.type === "text" ? <UserReferenceText key={index} text={String(block.text ?? "")} skills={Array.isArray(message.invoked_skills) ? message.invoked_skills : []} /> : <MessageBlock block={block} key={index} />
+            message.role === "user" && isRecord(block) && block.type === "text" ? <UserReferenceText key={index} text={String(block.text ?? "")} skills={Array.isArray(message.invoked_skills) ? message.invoked_skills : []} /> : <MessageBlock block={block} key={index} isStreaming={isStreaming} />
           ))}
         </div>
       ) : null}
@@ -498,7 +496,7 @@ function defaultToolOperationBody(operation: ToolOperation): React.ReactNode {
 
 type LiveToolStep = DesktopConversationStreamPayload["tool_steps"][number];
 
-function liveToolOperations(steps: LiveToolStep[]): ToolOperation[] {
+function liveToolOperations(steps: LiveToolStep[], call?: unknown): ToolOperation[] {
   return steps.map((step, index) => {
     const name = String(step.name || "tool");
     const argument = String(step.detail || "");
@@ -509,7 +507,7 @@ function liveToolOperations(steps: LiveToolStep[]): ToolOperation[] {
       ...toolOperationPresentation(name, argument),
       status: step.status,
       expandable: hasLiveToolOperationDetails(step),
-      call: undefined,
+      call,
       result: step,
     };
   });
@@ -520,7 +518,7 @@ function LiveToolOperationBody({ operation }: { operation: ToolOperation }) {
   const language = resultLanguage(operation);
   return (
     <>
-      <ToolCallArguments operation={operation} />
+      <ToolCallArguments operation={operation} preview={step.input_block} />
       {step.result_block ? (
         <ToolResultBlock block={{ type: "tool_result", content: step.result_block.content }} language={language} />
       ) : null}
@@ -711,7 +709,7 @@ export function ConversationModelPicker({
   const choices = useMemo(() => conversationModelChoices(models), [models]);
   const triggerLabel = loading
     ? t.common.loading
-    : current?.credential_source === "cloud" ? "云端" : current?.model || t.models.modelOptionUnavailable;
+    : current?.credential_source === "cloud" ? "云端" : currentModelDisplayName(current) || t.models.modelOptionUnavailable;
 
   useEffect(() => {
     if (!open) return;
@@ -751,19 +749,19 @@ export function ConversationModelPicker({
         aria-expanded={open}
         aria-haspopup="menu"
         aria-label={`${t.models.currentModel}: ${triggerLabel}`}
-        className="conversation-model-trigger"
+        className="composer-toolbar-control conversation-model-trigger"
         disabled={disabled || loading || !current}
         onClick={() => setOpen((value) => !value)}
         ref={triggerRef}
         title={t.models.effectiveNextTurn}
         type="button"
       >
-        <ProviderBrandMark provider={current?.provider} size={15} />
-        <span>{triggerLabel}</span>
+        <ProviderBrandMark provider={current?.provider} size={13} />
+        <span className="conversation-model-name">{triggerLabel}</span>
         {saving ? <LoaderCircle aria-hidden className="conversation-spinner" size={13} /> : null}
       </button>
       {open ? (
-        <div aria-label={t.models.model} className="conversation-model-menu" role="menu">
+        <div aria-label={t.models.model} className="conversation-model-menu conversation-model-selector-menu" role="menu">
           <div className="conversation-model-menu-heading">{t.models.model}</div>
           <div className="conversation-model-options">
             {choices.length ? choices.map((choice) => {
@@ -924,7 +922,7 @@ function ConversationThinkingPicker({
         aria-expanded={editable ? open : undefined}
         aria-haspopup={editable ? "menu" : undefined}
         aria-label={`${t.models.thinkingEffort}: ${selectedLabel}`}
-        className="conversation-thinking-trigger"
+        className="composer-toolbar-control conversation-thinking-trigger"
         disabled={disabled || saving || !editable}
         onClick={() => setOpen((value) => !value)}
         ref={triggerRef}
@@ -1069,7 +1067,7 @@ function ConversationContextMeter({
         aria-expanded={open}
         aria-haspopup="dialog"
         aria-label={label}
-        className="conversation-context-trigger"
+        className="composer-toolbar-control conversation-context-trigger"
         data-level={ratio >= 0.9 ? "critical" : ratio >= 0.7 ? "warn" : "normal"}
         onClick={() => setOpen((value) => !value)}
         ref={triggerRef}
@@ -1183,14 +1181,18 @@ export function ConversationComposer({
     tooMany: () => callbacksRef.current.t.conversation.tooManyScreenshots,
   });
   const attachments = attachmentDraft.items;
+  const hasDraft = Boolean(text.trim() || attachments.length);
+  useAutomationEditing(permissionSessionId, runtimeReady && hasDraft);
   const [dragActive, setDragActive] = useState(false);
   const textareaRef = useRef<HTMLDivElement>(null);
   const previousConversationKey = useRef(conversationKey);
   const currentConversationKey = useRef(conversationKey);
   currentConversationKey.current = conversationKey;
   const hasWork = Boolean(activity?.active || activity?.queued.length);
-  const actionLabel = hasWork
-    ? stopping ? t.conversation.stopping : t.conversation.stop
+  const showStop = hasWork && (Boolean(question) || (!hasDraft && !attachmentDraft.pending));
+  const stopPending = stopping || activity?.active?.state === "stopping";
+  const actionLabel = showStop
+    ? stopPending ? t.conversation.stopping : t.conversation.stop
     : sending ? t.conversation.sending : t.conversation.send;
   const showCharacterCount = text.length >= Math.floor(8192 * 0.75);
   const selectFiles = () => {
@@ -1266,7 +1268,7 @@ export function ConversationComposer({
     }
   };
   const stop = async () => {
-    if (!hasWork || stopping) return;
+    if (!hasWork || stopPending) return;
     setStopping(true);
     setError("");
     try {
@@ -1288,7 +1290,7 @@ export function ConversationComposer({
         ) : null}
         {attachmentDraft.pending > 0 ? <span className="conversation-input-hint" role="status">{t.conversation.preparingAttachments}</span> : null}
         <ReferenceComposer ref={textareaRef} session={conversationKey} value={text} onChange={setText}
-          disabled={!runtimeReady} placeholder={runtimeReady ? t.conversation.placeholder : runtimeUnavailableMessage}
+          disabled={!runtimeReady} placeholder={runtimeReady ? (activity?.active?.state === "running" ? t.conversation.steerPlaceholder : t.conversation.placeholder) : runtimeUnavailableMessage}
           onSubmit={() => void submit()} onFiles={files => {
             if (!runtimeReady || sending) return;
             setError("");
@@ -1302,13 +1304,13 @@ export function ConversationComposer({
           <div className="conversation-compose-leading">
             <button
               aria-label={t.conversation.addFiles}
-              className="conversation-attach-button"
+              className="composer-toolbar-control conversation-attach-button"
               disabled={!runtimeReady || sending}
               onClick={() => void selectFiles()}
               title={t.conversation.addFiles}
               type="button"
             >
-              <Paperclip size={17} />
+              <Paperclip size={16} strokeWidth={1.75} />
             </button>
             <PermissionPicker key={conversationKey} sessionId={permissionSessionId ?? conversationKey} initialMode={permissionMode} ready={runtimeReady} />
             {!runtimeReady ? <span className="conversation-input-hint">{runtimeUnavailableMessage}</span> : null}
@@ -1334,33 +1336,26 @@ export function ConversationComposer({
                 {t.conversation.characterCount(formatNumber(text.length), formatNumber(8192))}
               </span>
             ) : null}
-            {/* One button, two modes: it stops the running turn while there is
-                work, and sends otherwise. Enter still queues a message mid-turn. */}
             <button
               aria-label={actionLabel}
               className="conversation-send-button"
-              data-mode={hasWork ? "stop" : "send"}
-              disabled={hasWork
-                ? stopping
-                : !runtimeReady || modelSaving || thinkingSaving || sending || attachmentDraft.pending > 0 || (!text.trim() && attachments.length === 0)}
-              onClick={() => void (hasWork ? stop() : submit())}
+              data-mode={showStop ? "stop" : "send"}
+              disabled={showStop
+                ? stopPending
+                : !runtimeReady || Boolean(question) || modelSaving || thinkingSaving || sending || attachmentDraft.pending > 0 || !hasDraft}
+              onClick={() => void (showStop ? stop() : submit())}
               title={actionLabel}
               type="button"
             >
-              {(hasWork ? stopping : sending)
+              {(showStop ? stopPending : sending)
                 ? <LoaderCircle className="conversation-spinner" size={17} />
-                : hasWork
+                : showStop
                   ? <Square aria-hidden fill="currentColor" size={13} strokeWidth={0} />
-                  : <ArrowUp aria-hidden size={18} strokeWidth={2.4} />}
+                  : <ArrowUp aria-hidden size={16} strokeWidth={2} />}
             </button>
           </div>
         </div>
       </div>
-      {activity?.queued.length ? (
-        <div className="conversation-queue-status" role="status">
-          {t.conversation.queuedCount(formatNumber(activity.queued.length))}
-        </div>
-      ) : null}
       {error ? <div className="conversation-compose-error" role="alert">{error}</div> : null}
       </ApprovalGate>
     </div>
@@ -1373,7 +1368,7 @@ function ConversationStatus({ row }: { row: ConversationRow }) {
   const [clock, setClock] = useState(Date.now);
   useEffect(() => {
     if (!active) return;
-    const timer = window.setInterval(() => setClock(Date.now()), 250);
+    const timer = window.setInterval(() => setClock(Date.now()), 1000);
     return () => window.clearInterval(timer);
   }, [active]);
   const elapsedMs = active && row.startedAt && row.startedAt > 0 ? clock - row.startedAt : row.elapsedMs ?? 0;
@@ -1388,23 +1383,24 @@ function ConversationStatus({ row }: { row: ConversationRow }) {
     }
   };
   const label = row.status === "error" ? t.conversation.error : row.status === "cancelled" ? t.conversation.cancelled
-    : row.status === "completed" ? t.conversation.completed : row.status === "queued" ? t.conversation.queued
+    : row.status === "completed" ? t.conversation.completed
     : row.status === "stopping" ? t.conversation.stopping : phaseLabel();
-  return <div aria-live={row.status === "error" ? "assertive" : "polite"} className={`live-progress-status state-${row.status}`}>
+  return <div aria-live={row.status === "error" ? "assertive" : "polite"} className={`live-progress-status conversation-chrome-theme state-${row.status}`}>
     {active ? <LoaderCircle className="conversation-spinner" size={13} /> : null}
     <span className="live-progress-label">{row.kind === "process" && row.status === "completed" ? t.conversation.processCompleted(elapsedMs >= 1_000 ? formatConversationDuration(elapsedMs) : "") : label}</span>
     {elapsedMs >= 1_000 && !(row.kind === "process" && row.status === "completed") ? <span className="live-progress-elapsed">{formatConversationDuration(elapsedMs)}</span> : null}
   </div>;
 }
 
-export const UnifiedConversationRow = React.memo(function UnifiedConversationRow({ row, expanded, onToggle, onOpenFile, onRevealFile, onOpenAttachment, attachmentSessionId }: {
+export const UnifiedConversationRow = React.memo(function UnifiedConversationRow({ row, expanded, onToggle, onOpenFile, onRevealFile, onOpenAttachment, attachmentSessionId, onFork, forkDisabled }: {
+  onFork?: (turnId?: string) => void; forkDisabled?: boolean;
   row: ConversationRow; expanded: boolean; onToggle: (id: string) => void;
   onOpenFile: (id: string) => Promise<void>; onRevealFile: (id: string) => Promise<void>; onOpenAttachment: (id: string) => Promise<void>;
   attachmentSessionId?: string;
 }) {
   const t = useUiText();
   const stateLabel = row.status === "error" ? t.conversation.error : row.status === "cancelled" ? t.conversation.cancelled
-    : row.status === "completed" ? t.conversation.completed : row.status === "queued" ? t.conversation.queued : t.conversation.running;
+    : row.status === "completed" ? t.conversation.completed : row.status === "queued" ? t.conversation.queued : row.status === "steering" ? t.conversation.steering : t.conversation.running;
   if (row.kind === "status") return <ConversationStatus row={row} />;
   if (row.kind === "compaction") {
     const count = row.message?.context_marker?.compacted_count;
@@ -1413,22 +1409,24 @@ export const UnifiedConversationRow = React.memo(function UnifiedConversationRow
     </div>;
   }
   if (row.kind === "answer_meta") return <div className="answer-footer">
-    <MessageMeta role="assistant" text={row.answerMeta!.text} createdAt={row.answerMeta!.createdAt} />
+    <MessageMeta role="assistant" text={row.answerMeta!.text} createdAt={row.answerMeta!.createdAt}>
+      {onFork && row.answerMeta?.forkable && <ForkMenu placement="reply" disabled={!!forkDisabled} onFork={() => onFork(row.turnId)} />}
+    </MessageMeta>
   </div>;
-  if (row.kind === "process") return <button type="button" className="conversation-process-toggle"
+  if (row.kind === "process") return <button type="button" className="conversation-process-toggle conversation-chrome-theme"
     aria-expanded={expanded} onClick={() => onToggle(row.id)}>
     <ConversationStatus row={row} /><ChevronRight size={14} style={{transform: expanded ? "rotate(90deg)" : undefined}} />
   </button>;
   if (row.kind === "artifacts") return <TurnFileList sessionId={attachmentSessionId} files={row.artifacts ?? []} onOpenFile={onOpenFile} onRevealFile={onRevealFile} />;
   if (row.kind === "image_views") return <ImageViewGroup rows={row.imageRows ?? []} sessionId={attachmentSessionId} />;
   if (row.kind === "tool") {
-    const operation = row.operation ?? (row.liveTool ? liveToolOperations([row.liveTool])[0] : undefined);
+    const operation = row.operation ?? (row.liveTool ? liveToolOperations([row.liveTool], row.liveCall)[0] : undefined);
     if (!operation) return null;
     const answers = questionAnswerSummary(operation);
     if (answers) return <UserQuestionSummary items={answers} />;
     const StatusIcon = { pending: Clock, running: LoaderCircle, success: Check, error: CircleAlert, unconfirmed: CircleHelp }[operation.status];
     const statusLabel = t.message.toolStatuses[operation.status];
-    return <section className="tool-turn-group embedded single"><ul className="tool-op-list"><li className={`tool-op state-${operation.status}`}>
+    return <section className="tool-turn-group embedded single conversation-chrome-theme"><ul className="tool-op-list"><li className={`tool-op state-${operation.status}`}>
       <button className="tool-op-summary" type="button" aria-expanded={expanded} onClick={() => onToggle(row.id)}>
         <span className="tool-op-name">{t.message.toolActions[operation.action]}</span><span className="tool-op-argument">{operation.target}</span>
         <span className="tool-status-icon" role="img" aria-label={statusLabel} title={statusLabel} data-tool-status={operation.status}>
@@ -1438,6 +1436,7 @@ export const UnifiedConversationRow = React.memo(function UnifiedConversationRow
       {expanded ? <div className="tool-op-body">{row.operation ? defaultToolOperationBody(operation) : <LiveToolOperationBody operation={operation} />}</div> : null}
     </li></ul></section>;
   }
+  const isStreaming = row.status === "streaming";
   const message = row.message!;
   const blocks = Array.isArray(message.content) ? message.content : [];
   const thinking = blocks.length === 1 && isRecord(blocks[0]) && ["thinking", "redacted_thinking"].includes(String(blocks[0].type)) ? blocks[0] : undefined;
@@ -1447,37 +1446,45 @@ export const UnifiedConversationRow = React.memo(function UnifiedConversationRow
     {thinking.redacted || thinking.type === "redacted_thinking" ? <div className="process-thinking-text redacted">{t.message.redactedThinking}</div> : null}
   </div>;
   if (row.presentation === "process" && message.role === "assistant") return <div className="timeline-text process-message-content">
-    <MessageContent content={message.content} message={message} />
+    <MessageContent content={message.content} message={message} isStreaming={isStreaming} />
     {row.status === "error" ? <div role="status">{stateLabel}</div> : null}
     {message.attachments?.length ? <InputAttachmentList attachments={message.attachments} onOpen={onOpenAttachment} /> : null}
   </div>;
-  if (message.role !== "user" && message.role !== "assistant") return <article className="message-card role-system"><RoleBadge role={message.role} /><MessageContent content={message.content} message={message} /></article>;
+  if (message.role !== "user" && message.role !== "assistant") return <article className="message-card role-system"><RoleBadge role={message.role} /><MessageContent content={message.content} message={message} isStreaming={isStreaming} /></article>;
   const role = message.role;
+  const deliveryStatus = role === "user" && ["sending", "queued", "steering", "cancelled"].includes(row.status ?? "")
+    ? <div className="optimistic-message-state" role="status">{stateLabel}</div> : null;
   if (role === "user" && message.attachments?.length) {
     const text = readerFacingMessageText(message);
     return <div className="message-with-meta role-user has-sent-attachments conversation-chrome-theme">
       <SentAttachmentList attachments={message.attachments} sessionId={attachmentSessionId}
         ready={row.status !== "sending" && !row.error} onOpen={onOpenAttachment} />
-      {text.trim() ? <article className="message-card role-user"><UserReferenceText text={text} skills={Array.isArray(message.invoked_skills) ? message.invoked_skills : []} /></article> : null}
+      {text.trim() ? <article className="message-card role-user">
+        <UserMessagePreview expanded={expanded} onToggle={() => onToggle(row.id)}>
+          <UserReferenceText text={text} skills={Array.isArray(message.invoked_skills) ? message.invoked_skills : []} />
+        </UserMessagePreview>
+        {deliveryStatus}
+      </article> : deliveryStatus}
       {row.error ? <div role="alert">{row.error}</div> : row.status === "error" ? <div role="status">{stateLabel}</div> : null}
-      {["sending", "queued"].includes(row.status ?? "") ? <div className="optimistic-message-state">{stateLabel}</div> : null}
       <MessageMeta createdAt={Number(message.created_at ?? row.createdAt / 1000)} role={role} text={text} />
     </div>;
   }
+  const content = <MessageContent content={message.content} message={message} isStreaming={isStreaming} />;
   return <div className={`message-with-meta role-${role}${role === "user" ? " conversation-chrome-theme" : ""}`}>
     <article className={`message-card role-${role}${row.presentation === "final" ? " response-final-answer" : ""}${message.attachments?.length ? " has-attachments" : ""}`}>
-      <MessageContent content={message.content} message={message} />
+      {role === "user" ? <UserMessagePreview expanded={expanded} onToggle={() => onToggle(row.id)}>{content}</UserMessagePreview> : content}
       {message.attachments?.length ? <InputAttachmentList attachments={message.attachments} onOpen={onOpenAttachment} /> : null}
       {row.error ? <div role="alert">{row.error}</div> : row.status === "error" ? <div role="status">{stateLabel}</div> : null}
-      {role === "user" && ["sending", "queued"].includes(row.status ?? "") ? <div className="optimistic-message-state">{stateLabel}</div> : null}
+      {deliveryStatus}
     </article>
     {row.presentation !== "final" ? <MessageMeta createdAt={Number(message.created_at ?? row.createdAt / 1000)} role={role} text={readerFacingMessageText(message)} /> : null}
   </div>;
 }, (a, b) => a.expanded === b.expanded && a.onToggle === b.onToggle && a.onOpenFile === b.onOpenFile
   && a.onRevealFile === b.onRevealFile && a.onOpenAttachment === b.onOpenAttachment
-  && a.attachmentSessionId === b.attachmentSessionId && JSON.stringify(a.row) === JSON.stringify(b.row));
+  && a.onFork === b.onFork && a.forkDisabled === b.forkDisabled && a.attachmentSessionId === b.attachmentSessionId && JSON.stringify(a.row) === JSON.stringify(b.row));
 
 export function SessionDetailView({
+  onFork, forking,
   workspaceControl,
   question, onQuestionAnswered, approvals = [], onApprovalChanged,
   fallbackSession,
@@ -1507,6 +1514,8 @@ export function SessionDetailView({
   onOpenAttachment,
   pendingMessages, display, onFollowingChange,
 }: {
+  onFork?: (turnId?: string) => void;
+  forking?: boolean;
   workspaceControl?: React.ReactNode;
   approvals?: PendingApproval[];
   onApprovalChanged?: () => void;
@@ -1549,6 +1558,16 @@ export function SessionDetailView({
   const session = rawSession ? projectSessionTitle(rawSession) : rawSession;
   const messages = detail?.messages || [];
   const sessionKey = display?.viewKey ?? session?.session_id ?? "new";
+  const messageSessionId = display?.sessionId || session?.session_id;
+  const panel = usePreviewSidebar();
+  const openPreview = panel?.session === messageSessionId ? panel?.open : undefined;
+  const directory = session?.session_id === messageSessionId ? session?.workspace.directory : undefined;
+  const openMarkdownFile = useMemo(() => {
+    if (!messageSessionId || !openPreview) return null;
+    return { directory, sessionId: messageSessionId, open({ kind, path, line, endLine }: WorkspaceFileLink) {
+      void openPreview({ session_id: messageSessionId, kind, path }, undefined, "sidebar", line, endLine);
+    } };
+  }, [messageSessionId, openPreview, directory]);
   const rows = display?.rows ?? conversationRows(messages,
     [activity?.latest, activity?.active, ...(activity?.queued ?? [])].filter((turn): turn is DesktopConversationTurnPayload => Boolean(turn)), pendingMessages);
   const process = useProcessRows(groupImageViewRows(rows), sessionKey);
@@ -1558,53 +1577,57 @@ export function SessionDetailView({
   const title = newConversation ? t.conversation.newTitle : session?.title || t.sessions.title;
   return (
     <div className="session-detail conversation-view">
-      <header className="conversation-header">
+      <AppCaption kind="title"><header className="conversation-header">
         {/* Keep title and actions in the two grid columns; a third sibling
             would create another row in the native title bar. */}
         <div className="conversation-header-copy">
-          {newConversation ? workspaceControl : (
-            <>
-              <MessageSquareText aria-hidden="true" className="conversation-header-icon" size={15} />
-              <h2 title={title}>{title}</h2>
-            </>
-          )}
+          {newConversation ? workspaceControl : <h2 title={title}>{title}</h2>}
         </div>
         <div className="conversation-header-actions">
           {newConversation ? null : workspaceControl}
+          {!newConversation && onFork && <ForkMenu disabled={!runtimeReady || !!forking || !detail?.has_forkable_turn
+            || !!activity?.active || !!activity?.queued.length || pendingMessages.some(item => !item.error)}
+            onFork={() => onFork()} />}
           <PreviewHeaderActions />
         </div>
-      </header>
-      <ConversationWindow key={sessionKey} rows={process.rows} hasOlder={hasOlder} hasNewer={hasNewer}
-        connection={display?.connection} jumpVersion={display?.jump} onFollowingChange={onFollowingChange}
-        loadOlder={onLoadOlder} loadNewer={onLoadNewer} jumpToLatest={onJumpToLatest} onVisibleGroups={onVisibleGroups}
-        pageError={loadOlderError || display?.error || error} retryLatest={!loadOlderError}
-        empty={loading || display?.loadState === "loading" ? <EmptyState label={t.sessionDetail.loading} />
-          : error || display?.error ? <EmptyState label={t.common.errorPrefix(t.sessionDetail.errorLabel, display?.error || error)} />
-          : newConversation ? <ConversationWelcome enabled={runtimeReady} /> : <div className="conversation-empty" role="status">{t.sessionDetail.empty}</div>}
-        renderRow={(row) => <UnifiedConversationRow row={row} expanded={row.kind === "process" ? process.states.get(row.id)?.expanded ?? false : expandedRows.get(row.id) ?? false} onToggle={row.kind === "process" ? process.toggle : toggleRow}
-          onOpenFile={onOpenFile} onRevealFile={onRevealFile} onOpenAttachment={onOpenAttachment} attachmentSessionId={display?.sessionId || session?.session_id} />} />
-      <div className="conversation-composer-dock">
-        <ConversationComposer
-          permissionSessionId={session?.session_id ?? ""}
-          permissionMode={session?.permission_mode ?? "workspace-write"}
-          approvals={approvals} onApprovalChanged={onApprovalChanged}
-          question={question}
-          onQuestionAnswered={onQuestionAnswered}
-          contextDetail={detail}
-          activity={activity}
-          conversationKey={sessionKey}
-          currentModel={currentModel}
-          modelLoading={modelLoading}
-          models={models}
-          modelSaving={modelSaving}
-          thinkingSaving={thinkingSaving}
-          onModelChange={onModelChange}
-          onThinkingLevelChange={onThinkingLevelChange}
-          runtimeReady={runtimeReady}
-          runtimeUnavailableMessage={runtimeUnavailableMessage}
-          onSend={onSend}
-          onStop={onStop}
-        />
+      </header></AppCaption>
+      <div className="conversation-body">
+        <OpenMarkdownFileContext.Provider value={openMarkdownFile}>
+          <ConversationWindow key={sessionKey} rows={process.rows} hasOlder={hasOlder} hasNewer={hasNewer}
+            connection={display?.connection} jumpVersion={display?.jump} onFollowingChange={onFollowingChange}
+            followingIntent={display?.following} historyTarget={display?.historyTarget}
+            loadOlder={onLoadOlder} loadNewer={onLoadNewer} jumpToLatest={onJumpToLatest} onVisibleGroups={onVisibleGroups}
+            pageError={loadOlderError || display?.error || error} retryLatest={!loadOlderError}
+            empty={loading || display?.loadState === "loading" ? <EmptyState label={t.sessionDetail.loading} />
+              : error || display?.error ? <EmptyState label={t.common.errorPrefix(t.sessionDetail.errorLabel, display?.error || error)} />
+              : newConversation ? <ConversationWelcome enabled={runtimeReady} /> : <div className="conversation-empty" role="status">{t.sessionDetail.empty}</div>}
+            renderRow={(row) => <UnifiedConversationRow row={row} expanded={row.kind === "process" ? process.states.get(row.id)?.expanded ?? false : expandedRows.get(row.id) ?? false} onToggle={row.kind === "process" ? process.toggle : toggleRow}
+              onFork={onFork} forkDisabled={!!forking || !runtimeReady || row.turnId === activity?.active?.turn_id}
+              onOpenFile={onOpenFile} onRevealFile={onRevealFile} onOpenAttachment={onOpenAttachment} attachmentSessionId={messageSessionId} />} />
+        </OpenMarkdownFileContext.Provider>
+        <div className="conversation-composer-dock">
+          <ConversationComposer
+            permissionSessionId={session?.session_id ?? ""}
+            permissionMode={session?.permission_mode ?? "workspace-write"}
+            approvals={approvals} onApprovalChanged={onApprovalChanged}
+            question={question}
+            onQuestionAnswered={onQuestionAnswered}
+            contextDetail={detail}
+            activity={activity}
+            conversationKey={sessionKey}
+            currentModel={currentModel}
+            modelLoading={modelLoading}
+            models={models}
+            modelSaving={modelSaving}
+            thinkingSaving={thinkingSaving}
+            onModelChange={onModelChange}
+            onThinkingLevelChange={onThinkingLevelChange}
+            runtimeReady={runtimeReady}
+            runtimeUnavailableMessage={runtimeUnavailableMessage}
+            onSend={onSend}
+            onStop={onStop}
+          />
+        </div>
       </div>
     </div>
   );
@@ -1620,6 +1643,8 @@ function SessionActionsMenu({
   onDelete,
   onPin,
   onRename,
+  onFork,
+  forkDisabled = false,
 }: {
   anchor: HTMLElement;
   deletingBlocked: boolean;
@@ -1630,12 +1655,14 @@ function SessionActionsMenu({
   onDelete: () => void;
   onPin: () => void;
   onRename?: () => void;
+  onFork?: () => void;
+  forkDisabled?: boolean;
 }) {
   const t = useUiText();
   const menuRef = useRef<HTMLDivElement>(null);
   const rect = anchor.getBoundingClientRect();
   const width = 150;
-  const estimatedHeight = error ? 147 : 116;
+  const estimatedHeight = (error ? 147 : 116) + (onFork ? 32 : 0);
   const left = Math.max(8, Math.min(window.innerWidth - width - 8, rect.right - width));
   const top = rect.bottom + 5 + estimatedHeight <= window.innerHeight
     ? rect.bottom + 5
@@ -1679,13 +1706,14 @@ function SessionActionsMenu({
   return createPortal(
     <div
       aria-label={t.sessions.actionsFor(session.title || t.common.unnamedSession)}
-      className="session-actions-menu"
+      className="session-actions-menu conversation-chrome-theme"
       onKeyDown={handleKeyDown}
       ref={menuRef}
       role="menu"
       style={{ left, top, width }}
     >
       {onRename && !session.blank ? <button disabled={pending} onClick={onRename} role="menuitem" type="button"><Pencil size={12} /><span>{t.sessions.rename}</span></button> : null}
+      {onFork && <button disabled={pending || forkDisabled} onClick={onFork} role="menuitem" type="button"><GitFork size={12} /><span>{t.sessions.createBranch}</span></button>}
       <button disabled={pending} onClick={onPin} role="menuitem" type="button">
         {session.pinned_at > 0 ? <PinOff size={12} /> : <Pin size={12} />}
         <span>{session.pinned_at > 0 ? t.sessions.unpin : t.sessions.pin}</span>
@@ -1723,18 +1751,20 @@ function SessionDeleteDialog({
   const dialogRef = useDialogFocus<HTMLElement>(true, onCancel);
   const title = session.title || t.common.unnamedSession;
   return createPortal(
-    <div className="session-delete-backdrop">
+    <div className="session-delete-backdrop session-delete-confirm-backdrop conversation-chrome-theme">
       <section
         aria-labelledby="session-delete-title"
+        aria-describedby="session-delete-description session-delete-note"
         aria-modal="true"
-        className="session-delete-dialog"
+        aria-busy={pending}
+        className="session-delete-dialog session-delete-confirm-dialog"
         ref={dialogRef}
         role="dialog"
         tabIndex={-1}
       >
         <h2 id="session-delete-title">{t.sessions.deleteTitle}</h2>
-        <p>{t.sessions.deletePrompt(title)}</p>
-        <p className="session-delete-note">{t.sessions.deleteNote}</p>
+        <p id="session-delete-description">{t.sessions.deletePrompt(title)}</p>
+        <p id="session-delete-note" className="session-delete-note">{t.sessions.deleteNote}</p>
         {error ? <p className="session-delete-error" role="alert">{error}</p> : null}
         <footer>
           <button disabled={pending} onClick={onCancel} type="button">{t.sessions.cancelDelete}</button>
@@ -1768,6 +1798,8 @@ export const SessionsIndex = React.memo(function SessionsIndex({
   onOpen,
   onPin,
   onRenameSession,
+  onForkSession,
+  forking = false,
   onDelete,
   onTransientInteractionChange,
   visible = true,
@@ -1794,6 +1826,8 @@ export const SessionsIndex = React.memo(function SessionsIndex({
   onNew: () => void;
   onOpen: (session: SessionPayload) => void;
   onRenameSession?: (session: SessionPayload) => void;
+  onForkSession?: (session: SessionPayload) => Promise<void>;
+  forking?: boolean;
   onPin: (session: SessionPayload, pinned: boolean) => Promise<void>;
   onDelete: (session: SessionPayload) => Promise<void>;
   onTransientInteractionChange?: (active: boolean) => void;
@@ -1815,7 +1849,20 @@ export const SessionsIndex = React.memo(function SessionsIndex({
   const [actionPending, setActionPending] = useState(false);
   const [actionError, setActionError] = useState("");
   const blockedIds = useMemo(() => new Set(deleteBlockedSessionIds), [deleteBlockedSessionIds]);
-  const { pinned: pinnedSessions, recent: recentSessions } = groupSidebarSessions(sessions, Boolean(trimmedQuery));
+  const searching = Boolean(trimmedQuery);
+  const { pinned: pinnedSessions, recent: recentSessions } = useMemo(() => groupSidebarSessions(sessions, searching), [sessions, searching]);
+  const trees = useMemo(() => ({ pinned: sessionTree(pinnedSessions, sessions), recent: sessionTree(recentSessions, sessions) }), [pinnedSessions, recentSessions, sessions]);
+  const [collapsedBranches, setCollapsedBranches] = useState<ReadonlySet<string>>(() => new Set());
+  const selectedPath = JSON.stringify(sessionBranchPath([...trees.pinned, ...trees.recent], selectedSessionId).slice(0, -1));
+  useEffect(() => {
+    const ancestors = JSON.parse(selectedPath) as string[];
+    setCollapsedBranches(previous => {
+      if (!ancestors.some(id => previous.has(id))) return previous;
+      const next = new Set(previous);
+      for (const id of ancestors) next.delete(id);
+      return next;
+    });
+  }, [selectedSessionId, selectedPath]);
   const transientInteractionActive = Boolean(menu);
 
   useEffect(() => {
@@ -1887,7 +1934,7 @@ export const SessionsIndex = React.memo(function SessionsIndex({
     }
   }
 
-  const renderSession = (session: SessionPayload) => {
+  const renderSession = (session: SessionPayload, guides: readonly boolean[] = [], branch?: SessionBranch) => {
     const selected = selectedSessionId === session.session_id;
     const sessionTitle = session.title || t.common.unnamedSession;
     const menuOpen = menu?.session.session_id === session.session_id;
@@ -1895,8 +1942,18 @@ export const SessionsIndex = React.memo(function SessionsIndex({
     const failure=statusError||summary?.error;
     const state=statusUnavailable||failure||statuses&&!summary?"unavailable":summary?.state === "stopping" ? "stopping" : waitingSessionIds?.has(session.session_id) ? "waiting_input" : summary?.state??"idle";
     const statusLabel=failure?`${t.sessionStatus.syncError}: ${failure}`:t.sessionStatus[state];
+    const hasBranches = Boolean(branch?.children.length);
+    const expanded = !collapsedBranches.has(session.session_id);
+    const branchesId = `session-branches-${session.session_id}`;
     return (
-      <div className={`${selected ? "session-index-item active" : "session-index-item"}${menuOpen ? " menu-open" : ""}`} key={session.session_id}>
+      <div className={`session-index-item${selected ? " active" : ""}${menuOpen ? " menu-open" : ""}${hasBranches ? " has-branches" : ""}`}
+        key={session.session_id} data-session-id={session.session_id}
+        style={{ "--session-branch-depth": guides.length } as React.CSSProperties}
+        onClick={event => { if (event.target === event.currentTarget) onOpen(session); }}>
+        {guides.length > 0 && <span className="session-branch-guides" aria-hidden="true">
+          {guides.map((continues, index) => <span key={index}
+            className={`session-branch-guide${continues ? " through" : index === guides.length - 1 ? " elbow" : ""}`} />)}
+        </span>}
         <button
           aria-current={selected ? "page" : undefined}
           aria-label={`${sessionTitle} · ${statusLabel}`}
@@ -1908,6 +1965,16 @@ export const SessionsIndex = React.memo(function SessionsIndex({
           <span className="session-index-icon" data-session-state={state} role="img" aria-label={statusLabel} title={statusLabel} />
           <span className="primary-cell" onDoubleClick={event => { if (session.blank) return; event.preventDefault(); onRenameSession?.(session); }}>{sessionTitle}{trimmedQuery ? <small className="session-workspace-result" title={session.workspace.directory}>{session.workspace.directory}</small> : null}</span>
         </button>
+        {hasBranches && <button type="button" className="session-branch-toggle" aria-expanded={expanded}
+          aria-controls={branchesId} aria-label={expanded ? t.sessions.collapseBranches(sessionTitle) : t.sessions.expandBranches(sessionTitle)}
+          title={expanded ? t.sessions.collapseBranches(sessionTitle) : t.sessions.expandBranches(sessionTitle)}
+          onClick={() => setCollapsedBranches(previous => {
+            const next = new Set(previous);
+            if (expanded) next.add(session.session_id); else next.delete(session.session_id);
+            return next;
+          })}>
+          {expanded ? <ChevronDown size={13} aria-hidden="true" /> : <ChevronRight size={13} aria-hidden="true" />}
+        </button>}
         <button
           aria-expanded={menuOpen}
           aria-haspopup="menu"
@@ -1926,6 +1993,16 @@ export const SessionsIndex = React.memo(function SessionsIndex({
       </div>
     );
   };
+
+  const renderBranch = (branch: SessionBranch, guides: readonly boolean[] = []): React.ReactNode => (
+    <React.Fragment key={branch.session.session_id}>
+      {renderSession(branch.session, guides, branch)}
+      {branch.children.length > 0 && <div className="session-branch-children" id={`session-branches-${branch.session.session_id}`}
+        hidden={collapsedBranches.has(branch.session.session_id)}>
+        {branch.children.map((child, index) => renderBranch(child, [...guides, index < branch.children.length - 1]))}
+      </div>}
+    </React.Fragment>
+  );
 
   return (
     <div className="session-index-panel">
@@ -1960,7 +2037,7 @@ export const SessionsIndex = React.memo(function SessionsIndex({
       ) : null}
       {showTable ? (
         <div
-          className="session-index-list"
+          className={embedded && searchOpen ? "session-index-list sidebar-scroll-area" : "session-index-list"}
           onScroll={() => {
             closeMenu(false);
             maybeLoadMore();
@@ -1971,11 +2048,11 @@ export const SessionsIndex = React.memo(function SessionsIndex({
           {pinnedSessions.length > 0 ? (
             <div className="session-index-heading">{t.sessions.pinned}</div>
           ) : null}
-          {pinnedSessions.map(renderSession)}
+          {trees.pinned.map(branch => renderBranch(branch))}
           {!embedded && !trimmedQuery && recentSessions.length > 0 ? (
             <div className="session-index-heading">{t.sessions.recent}</div>
           ) : null}
-          {recentSessions.map(renderSession)}
+          {trimmedQuery ? recentSessions.map(session => renderSession(session)) : trees.recent.map(branch => renderBranch(branch))}
           {loadingMore ? (
             <span aria-label={t.common.loading} className="sessions-load-more-indicator" role="status">
               <LoaderCircle aria-hidden="true" className="conversation-spinner" size={14} />
@@ -2002,6 +2079,10 @@ export const SessionsIndex = React.memo(function SessionsIndex({
           }}
           onPin={() => void pinSelected()}
           onRename={onRenameSession ? () => { const session = menu.session; closeMenu(); onRenameSession(session); } : undefined}
+          onFork={onForkSession ? () => { const session = menu.session; closeMenu(); void onForkSession(session); } : undefined}
+          forkDisabled={forking || !!menu.session.blank || blockedIds.has(menu.session.session_id)
+            || ["running", "stopping", "queued"].includes(statuses?.get(menu.session.session_id)?.state ?? "")
+            || waitingSessionIds?.has(menu.session.session_id)}
         />
       ) : null}
       {confirmation ? (

@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import io
+import math
 import os
 from collections import Counter
+from datetime import date, datetime, time, timezone
 from itertools import chain
 from pathlib import Path
 from zipfile import ZipFile, is_zipfile
@@ -63,8 +65,10 @@ def read_workbook(content):
     if not REQUIRED_HEADERS.issubset(headers):
         raise TmsError("missing_headers", f"实际表头 {headers}; 缺少 {sorted(REQUIRED_HEADERS - set(headers))}")
     values = [tuple(row) for row in rows[1:] if any(v not in (None, "") for v in row)]
-    if any(len(row) != len(headers) for row in values):
+    if any(len(row) > len(headers) for row in values):
         raise TmsError("invalid_row", "导出行宽与表头不一致")
+    # Streaming XLSX writers omit trailing empty cells and sheet dimensions.
+    values = [row + (None,) * (len(headers) - len(row)) for row in values]
     return tuple(headers), values, extension
 
 
@@ -78,16 +82,93 @@ def coverage(records, headers, rows):
     for record in records:
         sku = record.get("stockSku")
         warehouse = record.get("warehouseName") or record.get("warehouse")
-        if not isinstance(sku, str) or not sku or not isinstance(warehouse, str) or not warehouse:
+        if not isinstance(sku, str) or not sku.strip() or not isinstance(warehouse, str) or not warehouse:
             raise TmsError("coverage_schema_unknown", f"无法核对列表 SKU/仓库字段，实际字段: {sorted(record)}")
-        expected[(sku, warehouse)] += 1
+        expected[(sku.strip(), warehouse)] += 1
     sku_index, warehouse_index = headers.index("库存SKU"), headers.index("仓库")
-    actual = Counter((row[sku_index], row[warehouse_index]) for row in rows)
+    actual = Counter((row[sku_index].strip() if isinstance(row[sku_index], str) else row[sku_index],
+                      row[warehouse_index]) for row in rows)
     if actual.keys() != expected.keys():
         raise TmsError("coverage_mismatch", f"批次商品/仓库覆盖不一致: 缺少 {len(expected.keys() - actual.keys())}，多出 {len(actual.keys() - expected.keys())}")
     missing = expected - actual
     if missing:
         raise TmsError("coverage_count_mismatch", f"批次商品/仓库记录行数不足: 缺少至少 {sum(missing.values())} 行，涉及 {len(missing)} 组 SKU/仓库")
+
+
+def _is_blank(value):
+    return value is None or isinstance(value, str) and not value.strip()
+
+
+def _robot_number(value, field):
+    if _is_blank(value):
+        return 0
+    if isinstance(value, bool):
+        raise TmsError("invalid_number", f"TMS {field} 数值不能是布尔值: {value!r}")
+    try:
+        numeric = float(value)
+    except (TypeError, ValueError, OverflowError) as exc:
+        raise TmsError("invalid_number", f"TMS {field} 数值无效: {value!r}; {type(exc).__name__}: {exc}") from exc
+    if not math.isfinite(numeric):
+        raise TmsError("invalid_number", f"TMS {field} 必须是有限数值: {value!r}")
+    return int(numeric) if numeric.is_integer() else numeric
+
+
+def _inbound_time(value):
+    if value in (None, ""):
+        return datetime.min
+    if isinstance(value, datetime):
+        parsed = value
+    elif isinstance(value, date):
+        parsed = datetime.combine(value, time.min)
+    elif isinstance(value, str):
+        try:
+            parsed = datetime.fromisoformat(value.strip())
+        except ValueError as exc:
+            raise TmsError("invalid_inbound_time", f"无法判断最新入库记录，入库时间无效: {value!r}") from exc
+    else:
+        raise TmsError("invalid_inbound_time", f"无法判断最新入库记录，入库时间类型无效: {value!r}")
+    return parsed.astimezone(timezone.utc).replace(tzinfo=None) if parsed.tzinfo else parsed
+
+
+def merge_inventory_export(headers, rows, records):
+    """Keep original columns and latest details, replacing robot inventory/sales."""
+    required = {"库存SKU", "仓库", "可用库存", "7天销量", "15天销量", "30天销量", "入库时间"}
+    indexes = {name: headers.index(name) for name in required}
+    originals = {}
+    for row in rows:
+        sku = row[indexes["库存SKU"]].strip()
+        originals.setdefault((row[indexes["仓库"]], sku), []).append(row)
+
+    summaries, warehouse_ids = {}, {}
+    for record in records:
+        sku = record["stockSku"].strip()
+        warehouse = record.get("warehouseName") or record.get("warehouse")
+        warehouse_id = record.get("warehouseId")
+        if isinstance(warehouse_id, (str, int)) and not isinstance(warehouse_id, bool):
+            warehouse_ids.setdefault(warehouse, set()).add(str(warehouse_id))
+            if len(warehouse_ids[warehouse]) > 1:
+                raise TmsError("ambiguous_warehouse_name", f"多个仓库 ID 使用相同名称，无法安全合表: {warehouse!r}")
+        item = summaries.setdefault((warehouse, sku), {"stock": 0, "sale1": None, "sale2": None, "sale3": None})
+        item["stock"] += _robot_number(record.get("stockQuantity"), "stockQuantity")
+        for field in ("sale1", "sale2", "sale3"):
+            value = record.get(field)
+            if _is_blank(value):
+                continue
+            parsed = _robot_number(value, field)
+            if item[field] is None:
+                item[field] = parsed
+
+    merged = []
+    for (warehouse, sku), summary in summaries.items():
+        candidates = originals[(warehouse, sku)]
+        latest = max(candidates, key=lambda row: _inbound_time(row[indexes["入库时间"]])) if len(candidates) > 1 else candidates[0]
+        row = list(latest)
+        row[indexes["库存SKU"]] = sku
+        row[indexes["可用库存"]] = summary["stock"]
+        for header, field in (("7天销量", "sale1"), ("15天销量", "sale2"), ("30天销量", "sale3")):
+            row[indexes[header]] = 0 if summary[field] is None else summary[field]
+        merged.append(row)
+    return merged
 
 
 def atomic_bytes(path: Path, content: bytes):

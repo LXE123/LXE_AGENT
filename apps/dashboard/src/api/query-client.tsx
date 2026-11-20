@@ -32,6 +32,7 @@ export function createDashboardQueryClient(): QueryClient {
 }
 
 const domainKeys: Record<Exclude<DesktopDashboardDataDomain, "sessions">, readonly unknown[]> = {
+  automations: ["automations"],
   stats: dashboardQueryKeys.stats.all,
   channels: dashboardQueryKeys.channelHealth.all,
   models: dashboardQueryKeys.models.all,
@@ -40,6 +41,7 @@ const domainKeys: Record<Exclude<DesktopDashboardDataDomain, "sessions">, readon
 };
 
 const allDomains = new Set<DesktopDashboardDataDomain>([
+  "automations",
   "sessions",
   "stats",
   "channels",

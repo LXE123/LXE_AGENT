@@ -1,30 +1,70 @@
 import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
-import { useVirtualizer } from "@tanstack/react-virtual";
+import { elementScroll, useVirtualizer } from "@tanstack/react-virtual";
 import { ChevronDown } from "lucide-react";
 import { useScrollFollowInput } from "./use-scroll-follow-input";
 import { processId } from "./process";
 import type { ConversationRow } from "./presentation";
+import { isRecord } from "../../shared/content";
 import { useUiText } from "../../shared/i18n";
 import "./conversation-theme.css";
 
-export function ConversationWindow({ rows, renderRow, hasOlder, hasNewer, loadOlder, loadNewer, jumpToLatest, onVisibleGroups, pageError, empty, connection = "attached", onFollowingChange, jumpVersion = 0, retryLatest = false }: {
+function toolCardGroup(row: ConversationRow | undefined) {
+  if (row?.kind !== "tool") return;
+  const tool = row.operation ?? row.liveTool;
+  // Questions can turn into a standalone answer summary when the user replies.
+  if (tool && tool.name !== "ask_user_question") return processId(row);
+}
+
+function isBlankToolSeparator(row: ConversationRow) {
+  const message = row.message;
+  if (row.kind !== "message" || message?.role !== "assistant" || row.status === "error"
+    || message.attachments?.length || message.tool_calls) return false;
+  const content = message.content;
+  if (typeof content === "string") return !content.trim();
+  if (!Array.isArray(content) || content.length !== 1) return false;
+  const block = content[0];
+  if (!isRecord(block)) return false;
+  if (block.type === "thinking" && !block.redacted) return !String(block.thinking ?? "").trim();
+  return block.type === "text" && !String(block.text ?? "").trim();
+}
+
+function omitBlankRowsBetweenTools(source: ConversationRow[]) {
+  const rows: ConversationRow[] = [];
+  for (let i = 0; i < source.length; i++) {
+    const row = source[i]!;
+    rows.push(row);
+    const group = toolCardGroup(row);
+    if (!group) continue;
+    let next = i + 1;
+    while (next < source.length && isBlankToolSeparator(source[next]!) && processId(source[next]!) === group) next++;
+    if (toolCardGroup(source[next]) === group) i = next - 1;
+  }
+  return rows;
+}
+
+export function ConversationWindow({ rows: sourceRows, renderRow, hasOlder, hasNewer, loadOlder, loadNewer, jumpToLatest, onVisibleGroups, pageError, empty, connection = "attached", onFollowingChange, followingIntent = true, historyTarget, jumpVersion = 0, retryLatest = false }: {
   connection?: "attached" | "detached"; onFollowingChange?: (following: boolean) => void; jumpVersion?: number; retryLatest?: boolean;
+  followingIntent?: boolean; historyTarget?: { turnId: string; version: number };
   rows: ConversationRow[]; renderRow: (row: ConversationRow) => React.ReactNode;
   hasOlder: boolean; hasNewer: boolean; loadOlder: () => Promise<unknown>; loadNewer: () => Promise<unknown>;
   jumpToLatest: () => void; onVisibleGroups: (groups: string[]) => void; pageError: string; empty?: React.ReactNode;
 }) {
   const t = useUiText();
+  const rows = React.useMemo(() => omitBlankRowsBetweenTools(sourceRows), [sourceRows]);
   const root = useRef<HTMLDivElement>(null);
   const initial = useRef(false);
   const feed = useRef<HTMLDivElement>(null);
-  const followIntent = useRef(true);
+  const followIntent = useRef(followingIntent);
   const alignmentFrame = useRef<number | undefined>(undefined);
   const readingVersion = useRef(0);
   const manualAnchor = useRef<{id: string; offset: number; bottom: boolean} | undefined>(undefined);
   const busy = useRef(false);
   const retryDirection = useRef<"older" | "newer">("older");
-  const [following, setFollowing] = useState(true);
+  const [following, setFollowing] = useState(followingIntent);
+  const [allowPagination, setAllowPagination] = useState(true);
+  const paginationAllowed = useRef(true);
   const [loading, setLoading] = useState(false);
+  const [pagingBoundary, setPagingBoundary] = useState<"start" | "end" | null>(null);
   const [hoveredAnswer, setHoveredAnswer] = useState<string>();
   const [focusedAnswer, setFocusedAnswer] = useState<string>();
   const answerAt = (target: EventTarget | null) => target instanceof Element
@@ -39,8 +79,18 @@ export function ConversationWindow({ rows, renderRow, hasOlder, hasNewer, loadOl
     ? answerByTurn.get(row.turnId) ?? answerByGroup.get(row.groupId) : undefined;
   const getItemKey = useCallback((index: number) => rows[index]!.id, [rows]);
   const virtual = useVirtualizer({ count: rows.length, getScrollElement: () => root.current,
-    // First-send rows can be measured during React's commit; schedule the update normally.
+    // Measurements can arrive during React's commit, so don't flush React there.
+    // Let the virtualizer update positions and feed height in the same callback
+    // as scroll compensation; an async React render leaves a one-frame jump.
     useFlushSync: false,
+    directDomUpdates: true, directDomUpdatesMode: "position",
+    scrollToFn: (offset, options, instance) => {
+      // A growing last row can extend past the old feed height. Publish the
+      // new extent before scrolling, or the browser clamps bottom following
+      // short of the footer/padding and needs another frame to catch up.
+      if (feed.current) feed.current.style.height = `${instance.getTotalSize()}px`;
+      elementScroll(offset, options, instance);
+    },
     getItemKey, estimateSize: () => 100, overscan: 5, anchorTo: "end", followOnAppend: false,
     // Keep prepend anchoring, but don't let proximity resume following on resize.
     scrollEndThreshold: following ? 80 : -1, useAnimationFrameWithResizeObserver: true,
@@ -48,6 +98,14 @@ export function ConversationWindow({ rows, renderRow, hasOlder, hasNewer, loadOl
     // The bottom fade covers 26px; keep the last row above it.
     paddingStart: 24, paddingEnd: 40,
   });
+  const setFeed = useCallback((element: HTMLDivElement | null) => {
+    feed.current = element;
+    virtual.containerRef(element);
+  }, [virtual]);
+  const releasePagination = () => {
+    virtual.shouldAdjustScrollPositionOnItemSizeChange = undefined;
+    paginationAllowed.current = true; setAllowPagination(true);
+  };
   const cancelAlignment = useCallback(() => {
     if (alignmentFrame.current !== undefined) cancelAnimationFrame(alignmentFrame.current);
     alignmentFrame.current = undefined;
@@ -59,6 +117,7 @@ export function ConversationWindow({ rows, renderRow, hasOlder, hasNewer, loadOl
     onFollowingChange?.(value);
   }, [onFollowingChange]);
   const stopFollowing = () => {
+    virtual.shouldAdjustScrollPositionOnItemSizeChange = undefined;
     readingVersion.current++;
     cancelAlignment();
     if (!followIntent.current) return;
@@ -80,10 +139,14 @@ export function ConversationWindow({ rows, renderRow, hasOlder, hasNewer, loadOl
     manualAnchor.current = undefined;
     cancelAlignment();
     updateFollowing(true);
+    releasePagination();
     virtual.setOptions({ ...virtual.options, scrollEndThreshold: 80 });
     scheduleAlignment();
   };
-  const scrollInput = useScrollFollowInput(root, connection === "attached" && !hasNewer, stopFollowing, resumeFollowing);
+  const scrollInput = useScrollFollowInput(root, connection === "attached" && !hasNewer, stopFollowing, resumeFollowing, releasePagination);
+  useLayoutEffect(() => {
+    if (!followingIntent) stopFollowing();
+  }, [followingIntent]);
   useLayoutEffect(() => {
     if (jumpVersion) { scrollInput.clear(); resumeFollowing(); }
   }, [jumpVersion, updateFollowing]);
@@ -108,6 +171,8 @@ export function ConversationWindow({ rows, renderRow, hasOlder, hasNewer, loadOl
   const folding = previousRows.current.some(row => row.presentation === "process" && !currentIds.has(row.id) && currentIds.has(processId(row)));
   const unfolding = rows.some(row => row.presentation === "process" && !previousIds.has(row.id) && previousIds.has(processId(row)));
   const structureChanged = rows.length !== previousRows.current.length || rows.some((row, index) => row.id !== previousRows.current[index]?.id);
+  const oldFirst = previousRows.current[0]?.id;
+  const prepended = oldFirst !== undefined && rows[0]?.id !== oldFirst && currentIds.has(oldFirst);
   let anchor: {id: string; offset: number; bottom: boolean} | undefined;
   if ((folding || unfolding || structureChanged && !following) && root.current) {
     const el = root.current;
@@ -135,6 +200,12 @@ export function ConversationWindow({ rows, renderRow, hasOlder, hasNewer, loadOl
     manualAnchor.current = undefined;
     if (!anchor) return;
     const saved = anchor;
+    const index = rows.findIndex(row => row.id === saved.id);
+    if (prepended && !saved.bottom && index >= 0) {
+      // Older rows can reflow after the initial restoration frames (e.g. web fonts).
+      // Keep the same reading row at the same offset until the next scroll gesture.
+      virtual.shouldAdjustScrollPositionOnItemSizeChange = item => item.index < index;
+    }
     const version = readingVersion.current;
     let frame = 0;
     let passes = 0;
@@ -143,7 +214,6 @@ export function ConversationWindow({ rows, renderRow, hasOlder, hasNewer, loadOl
       if (saved.bottom) scheduleAlignment();
       else {
         scrollInput.clearPending();
-        const index = rows.findIndex(row => row.id === saved.id);
         const item = root.current?.querySelector<HTMLElement>(`[data-index="${index}"]`);
         if (item && root.current) virtual.scrollBy(item.getBoundingClientRect().top - root.current.getBoundingClientRect().top - saved.offset);
         else if (index >= 0) virtual.scrollToIndex(index, {align: "start"});
@@ -151,12 +221,34 @@ export function ConversationWindow({ rows, renderRow, hasOlder, hasNewer, loadOl
       if (++passes < 3) frame = requestAnimationFrame(restore);
     };
     restore();
-    return () => cancelAnimationFrame(frame);
+    return () => { cancelAnimationFrame(frame); virtual.shouldAdjustScrollPositionOnItemSizeChange = undefined; };
     // Content-only renders must not cancel restoration between measurement frames.
   }, [structureKey, virtual]);
+  useLayoutEffect(() => {
+    if (!historyTarget) return;
+    stopFollowing();
+    scrollInput.clear();
+    manualAnchor.current = undefined;
+    // Opening a run is a reading destination. Do not page through it until the
+    // user scrolls, even when its short content fits entirely inside the viewport.
+    paginationAllowed.current = false;
+    setAllowPagination(false);
+    const index = rows.findIndex(row => row.turnId === historyTarget.turnId);
+    const version = readingVersion.current;
+    let frame = 0, passes = 0;
+    const restore = () => {
+      if (readingVersion.current !== version) return;
+      virtual.scrollToIndex(Math.max(0, index), { align: "start" });
+      if (++passes < 3) frame = requestAnimationFrame(restore);
+    };
+    restore();
+    return () => cancelAnimationFrame(frame);
+  }, [historyTarget?.version, virtual]);
   const items = virtual.getVirtualItems();
-  const visibleIds = items.filter((item) => item.end >= (virtual.scrollOffset ?? 0)
-    && item.start <= (virtual.scrollOffset ?? 0) + (root.current?.clientHeight ?? 0)).map((item) => rows[item.index]!.groupId);
+  const scrollOffset = virtual.scrollOffset ?? 0;
+  const viewportHeight = root.current?.clientHeight ?? 0;
+  const visibleIds = items.filter((item) => item.end >= scrollOffset
+    && item.start <= scrollOffset + viewportHeight).map((item) => rows[item.index]!.groupId);
   const visibleKey = JSON.stringify([...new Set(visibleIds)]);
   useLayoutEffect(() => { onVisibleGroups(JSON.parse(visibleKey)); }, [visibleKey, onVisibleGroups]);
   const load = useCallback(async (direction: "older" | "newer") => {
@@ -168,12 +260,12 @@ export function ConversationWindow({ rows, renderRow, hasOlder, hasNewer, loadOl
   }, [loadOlder, loadNewer]);
   useEffect(() => {
     const el = root.current;
-    if (!el || loading || pageError) return;
+    if (!el || loading || pageError || !paginationAllowed.current) return;
     if (!rows.length) { if (hasOlder) void load("older"); return; }
     if (!initial.current) return;
     if (el.scrollTop <= 120 && hasOlder && !following) void load("older");
     else if (el.scrollHeight - el.scrollTop - el.clientHeight <= 120 && hasNewer) void load("newer");
-  }, [items[0]?.index, items.at(-1)?.index, following, hasOlder, hasNewer, loading, load, pageError, rows.length]);
+  }, [pagingBoundary, totalSize, viewportHeight, following, hasOlder, hasNewer, loading, load, pageError, rows.length, allowPagination]);
   return <div className="conversation-scroll-area">
     <div className="conversation-transcript" ref={root} style={{ overflowAnchor: "none" }} tabIndex={0}
       {...scrollInput.handlers}
@@ -183,25 +275,43 @@ export function ConversationWindow({ rows, renderRow, hasOlder, hasNewer, loadOl
       onBlurCapture={(event) => setFocusedAnswer(answerAt(event.relatedTarget))}
       onClickCapture={(event) => {
       const target = event.target as HTMLElement;
-      const button = target.closest(".conversation-process-toggle");
+      const button = target.closest(".conversation-process-toggle, .user-message-toggle");
       const row = button?.closest<HTMLElement>("[data-conversation-row]");
-      if (row && root.current) {
+      if (button && row && root.current) {
         scrollInput.clear();
         stopFollowing();
-        manualAnchor.current = {id: row.dataset.conversationRow!, offset: row.getBoundingClientRect().top - root.current.getBoundingClientRect().top, bottom: false};
+        const offset = row.getBoundingClientRect().top - root.current.getBoundingClientRect().top;
+        if (button.matches(".conversation-process-toggle")) {
+          manualAnchor.current = {id: row.dataset.conversationRow!, offset, bottom: false};
+        } else if (offset < 0) {
+          virtual.scrollToIndex(Number(row.dataset.index), { align: "start" });
+        }
       }
     }} onScroll={(event) => {
       if (event.target !== root.current) return;
       scrollInput.onScroll(); scheduleAlignment();
+      // Long rows can reach an edge without changing the virtual range. Trigger
+      // the paging effect after the visible rows commit, only on edge changes.
+      const el = event.currentTarget;
+      setPagingBoundary(el.scrollTop <= 120 ? "start"
+        : el.scrollHeight - el.scrollTop - el.clientHeight <= 120 ? "end" : null);
     }}>
-      <div className="conversation-feed" ref={feed} style={{ position: "relative", paddingBlock: rows.length ? 0 : undefined, height: rows.length ? totalSize : undefined, minHeight: rows.length ? undefined : "100%" }}>
-        {!rows.length ? empty : items.map((item) => <div key={item.key} ref={virtual.measureElement} data-index={item.index}
-          data-conversation-row={rows[item.index]!.id} data-display-group={rows[item.index]!.groupId}
-          data-answer-id={answerId(rows[item.index]!)}
-          data-answer-active={Boolean(answerId(rows[item.index]!) && (answerId(rows[item.index]!) === hoveredAnswer || answerId(rows[item.index]!) === focusedAnswer)) || undefined}
-          style={{ position: "absolute", top: 0, left: 0, width: "100%", transform: `translateY(${item.start}px)`, paddingBottom: rows[item.index]!.kind === "process" || rows[item.index]!.presentation === "final" ? 8 : rows[item.index]!.presentation === "process" ? 6 : 12 }}>
-          {renderRow(rows[item.index]!)}
-        </div>)}
+      <div className="conversation-feed" ref={setFeed} style={{ position: "relative", paddingBlock: rows.length ? 0 : undefined, minHeight: rows.length ? undefined : "100%" }}>
+        {!rows.length ? empty : items.map((item) => {
+          const row = rows[item.index]!;
+          const group = toolCardGroup(row);
+          const joinsPrevious = group !== undefined && group === toolCardGroup(rows[item.index - 1]);
+          const joinsNext = group !== undefined && group === toolCardGroup(rows[item.index + 1]);
+          const answer = answerId(row);
+          const paddingBottom = row.kind === "process" || row.presentation === "final" ? 8 : row.presentation === "process" ? 6 : 12;
+          return <div key={item.key} ref={virtual.measureElement} data-index={item.index}
+            data-conversation-row={row.id} data-display-group={row.groupId}
+            data-tool-joins-previous={joinsPrevious || undefined} data-tool-joins-next={joinsNext || undefined}
+            data-answer-id={answer} data-answer-active={Boolean(answer && (answer === hoveredAnswer || answer === focusedAnswer)) || undefined}
+            style={{ position: "absolute", left: 0, width: "100%", paddingBottom: joinsNext ? 0 : paddingBottom }}>
+            {renderRow(row)}
+          </div>;
+        })}
       </div>
     </div>
     {loading ? <span className="conversation-window-loading" aria-live="polite">{t.sessionDetail.loading}</span> : null}

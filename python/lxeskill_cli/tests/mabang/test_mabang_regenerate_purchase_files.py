@@ -5,10 +5,10 @@ from pathlib import Path
 
 from openpyxl import Workbook, load_workbook
 
-from services.agent_cli.mabang import fill_purchase_contracts as contract_workbook
-from services.agent_cli.mabang import generate_fba_restock_workbook as restock_workbook
-from services.agent_cli.mabang import generate_restock_workbook as purchase_summary
-from services.agent_cli.mabang import regenerate_purchase_files as cli
+from services.commands.mabang import fill_purchase_contracts as contract_workbook
+from services.commands.mabang import generate_fba_restock_workbook as restock_workbook
+from services.commands.mabang import generate_restock_workbook as purchase_summary
+from services.commands.mabang import regenerate_purchase_files as cli
 
 
 BATCH_ID = "00000000-0000-0000-0000-000000000001"

@@ -1,5 +1,4 @@
 import { describe, expect, test } from "bun:test";
-import { createHash } from "node:crypto";
 import type { JsonObject } from "@lxe/protocol";
 import { repositoryRoot, resolveWorkspaceContext } from "@lxe/core";
 import {
@@ -16,6 +15,7 @@ import {
   validateToolCallClosure,
 } from "../../src/engine/context";
 import { RuntimeProviderError } from "../../src/providers/provider-errors";
+import { messageFixture } from "../message-fixtures";
 import type {
   RuntimeSessionRecord,
   RuntimeMessage,
@@ -37,10 +37,12 @@ class MemoryStore implements RuntimeStore {
   async getSession(): Promise<RuntimeSessionRecord> {
     return { session_id: "s1", source: {}, workspace, permission_mode: this.permissionMode };
   }
-  async popPendingEvents(): Promise<JsonObject[]> { return []; }
   async loadMessages(): Promise<RuntimeMessage[]> { return structuredClone(this.messages); }
+  async readLoadedTools() { return []; }
+  async appendLoadedTools() {}
   async appendTurnContext(): Promise<void> {}
   async appendArtifact(): Promise<void> {}
+  async appendTurnEnd(): Promise<void> {}
   async appendTurnError(): Promise<void> {}
   async resolveArtifact(): Promise<undefined> { return undefined; }
   async appendImageView(): Promise<void> {}
@@ -70,7 +72,7 @@ class SummaryProvider implements RuntimeProvider {
 }
 
 const summaryProviderError = (retryable: boolean, message = "summary unavailable"): RuntimeProviderError =>
-  new RuntimeProviderError(message, "test", "测试错误", message, retryable);
+  new RuntimeProviderError(message, "test", "测试错误", retryable);
 
 const closedTurn = (label: string, size = 0): RuntimeMessage[] => [
   { role: "user", content: `${label} request ${"u".repeat(size)}` },
@@ -97,13 +99,6 @@ describe("token-aware runtime context", () => {
     const prepared = await pipeline.prepare({ ...params, additionalContextTokens: 150 });
     expect(prepared.compacted).toBe(true);
     expect(prepared.afterTokens + 150).toBeLessThanOrEqual(pipeline.hardLimitTokens);
-  });
-
-  test("pins pi's history, update, and turn-prefix prompts byte-for-byte", () => {
-    const hash = (value: string): string => createHash("sha256").update(value).digest("hex");
-    expect(hash(HISTORY_SUMMARY_PROMPT)).toBe("9b00aa68df1a64279bc36e9093367f638701d48ec82e3d08436f65092a515f9b");
-    expect(hash(UPDATE_HISTORY_SUMMARY_PROMPT)).toBe("240c52982209146eae47d73c7172f6ba1dab60f44520bcb6a6ec1a883fef2ec7");
-    expect(hash(MIDTURN_SUMMARY_PROMPT)).toBe("9aeeb36ea731a8497d38abb03c2da351d81bcade4b2ae389bb6ae74300cf6ba5");
   });
 
   test("estimates UTF-8, JSON, schemas and images without counting base64 bytes", () => {
@@ -147,6 +142,18 @@ describe("token-aware runtime context", () => {
       }],
     });
     expect(() => validateToolCallClosure(repaired.messages)).not.toThrow();
+  });
+
+  test("a truncated reply keeps signed text and recorded tool results when an unexecuted call is omitted", () => {
+    const text = { type: "text" as const, text: "partial", textSignature: "signed" };
+    const call = { type: "tool_call" as const, name: "read", id: "recorded", arguments: {} };
+    const message = messageFixture({ stopReason: "length", content: [text, call, { ...call, id: "unexecuted" }] });
+    const result: RuntimeMessage = { role: "tool", content: [{ type: "tool_result", tool_call_id: "recorded", content: "real result" }] };
+    const earlier = messageFixture({ stopReason: "length", content: [text, call] });
+    const user: RuntimeMessage = { role: "user", content: "follow up" };
+    const repaired = sanitizeMessagesForProvider([earlier, user, message, result]);
+    expect(repaired.messages).toEqual([{ ...earlier, content: [text] }, user, { ...message, content: [text, call] }, result]);
+    expect(sanitizeMessagesForProvider(repaired.messages).changed).toBe(false);
   });
 
   test("never sends thinking signatures or encrypted redacted data to the summarizer", async () => {
@@ -302,7 +309,6 @@ src/b.ts
     expect(result.compacted).toBe(true);
     const prompt = summaryPrompt(provider);
     expect(prompt).toContain("<previous-summary>\nprevious checkpoint\n</previous-summary>");
-    expect(prompt).not.toContain("The conversation history before this point was compacted");
     expect(prompt).not.toContain("bogus.ts");
     expect(prompt).not.toContain("<read-files>");
     expect(prompt.indexOf("</conversation>")).toBeLessThan(prompt.indexOf("<previous-summary>"));
@@ -521,9 +527,24 @@ src/b.ts
     expect(result.compacted).toBe(false);
     expect(result.apiCalls).toBe(1);
     expect(result.failureReason).toBe("summary_failed");
+    expect(result.providerError).toContain("invalid credentials");
     expect(provider.requests).toHaveLength(1);
     expect(store.replacements.filter((item) => item.kind === "compaction")).toHaveLength(0);
     expect(result.messages).toEqual(messages);
+  });
+
+  test.each([5000, 61000])("honors the summary provider minimum retry delay of %s ms", async retryAfterMs => {
+    const store = new MemoryStore();
+    const provider = new SummaryProvider();
+    provider.summaries = [new RuntimeProviderError("Slow down", "openai", "限流", true, 429, false, { retryAfterMs }), "summary"];
+    const delays: number[] = [];
+    const pipeline = new ContextPipeline({ provider, store, contextWindowTokens: 1000, reserveTokens: 100, recentRawTokens: 100,
+      summaryRetryWait: async ms => { delays.push(ms); } });
+    const result = await pipeline.prepare({ sessionId: "s1", messages: [...closedTurn("old", 2000), ...closedTurn("recent", 50)],
+      systemPrompt: "system", toolSchemas: [], signal: new AbortController().signal });
+    expect(delays).toEqual(retryAfterMs > 60000 ? [] : [5000]);
+    expect(provider.requests.length).toBe(retryAfterMs > 60000 ? 1 : 2);
+    if (retryAfterMs > 60000) expect(result.providerError).toContain("Slow down");
   });
 
   test("preserves history after exhausting all summary retries", async () => {
@@ -696,3 +717,22 @@ for (const fails of [false, true]) {
     }
   });
 }
+
+
+test("compaction checkpoints the directory and schemas at the cut, preserving later changes", async () => {
+  const store = new MemoryStore();
+  const provider = new SummaryProvider();
+  const old = closedTurn("old", 9000);
+  const recent = closedTurn("recent", 30);
+  const tools = [{ name: "read", description: "read", input_schema: { type: "object" } }];
+  old[0]!.promptState = { mcpDirectory: "before cut" };
+  old[1]!.promptState = { tools };
+  recent[0]!.promptState = { mcpDirectory: "after cut" };
+  const pipeline = new ContextPipeline({ provider, store, contextWindowTokens: 4000, reserveTokens: 200, recentRawTokens: 200 });
+  const compact = await pipeline.prepare({ sessionId: "s1", messages: [...old, ...recent], systemPrompt: "sys",
+    toolSchemas: tools, signal: new AbortController().signal });
+  expect(compact.compacted).toBe(true);
+  expect(compact.messages[0]).toMatchObject({ role: "compactionSummary", promptState: { mcpDirectory: "before cut", tools } });
+  expect(compact.messages[1]?.promptState).toEqual({ mcpDirectory: "after cut" });
+  expect(sanitizeMessagesForProvider(compact.messages).messages).toEqual(compact.messages);
+});

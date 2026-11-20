@@ -297,7 +297,7 @@ describe("TurnUsageSyncService", () => {
     await store.stop();
   });
 
-  test("ignores obsolete fallback configuration and retains the cloud watermark", async () => {
+  test("retains the cloud watermark through an outage and resumes upload", async () => {
     const store = await createStore("lxe-maintenance-watermarks-");
     await recordTurn(store, "turn-shared");
     const uploads: UploadedBatch[] = [];
@@ -305,18 +305,11 @@ describe("TurnUsageSyncService", () => {
     const scheduler = schedulerFor(store, async (input, init) => {
       if (String(input).startsWith("https://cloud.example") && cloudOffline) throw new Error("offline");
       return ackingFetch(uploads)(input, init);
-    }, {
-      environment: {
-        LXE_DATA_SERVER_LOCAL_FALLBACK_ENABLED: "1",
-        LXE_DATA_SERVER_FALLBACK_URL: "http://127.0.0.1:8000/",
-        LXE_DATA_SERVER_FALLBACK_API_KEY: "fallback-secret",
-      },
     });
 
     await scheduler.start();
     await expect(scheduler.syncDataServer()).rejects.toThrow("offline");
     expect(store.turnUsageAcknowledgedSequence("https://cloud.example")).toBe(0);
-    expect(store.turnUsageAcknowledgedSequence("http://127.0.0.1:8000")).toBeUndefined();
     cloudOffline = false;
     await expect(scheduler.syncDataServer()).resolves.toMatchObject({ target: "cloud", accepted_count: 1 });
     expect(store.turnUsageAcknowledgedSequence("https://cloud.example")).toBe(1);

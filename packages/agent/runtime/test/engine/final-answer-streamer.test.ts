@@ -8,10 +8,11 @@ describe("FinalAnswerStreamer display contract", () => {
     test(`emits failed content before finish through ${desktop ? "desktop batches" : "stream frames"}`, async () => {
       const frames: EmitRequest[] = [];
       const batches: DesktopStreamBatchRequest[] = [];
+      const started = Promise.withResolvers<void>();
       const displayed = Promise.withResolvers<ToolStep>();
       const streamer = new FinalAnswerStreamer({
         sessionId: "s1", turnId: "t1", responseRouteId: "r1", toolUseMode: "on",
-        minIntervalMs: 0, desktopBatchIntervalMs: 0,
+        minIntervalMs: 0, desktopBatchIntervalMs: 0, showToolInput: desktop,
         emit: async request => {
           frames.push(request);
           const step = request.tool_steps.find(step => step.status === "error");
@@ -21,6 +22,7 @@ describe("FinalAnswerStreamer display contract", () => {
         ...(desktop ? { emitDesktopBatch: async (batch: DesktopStreamBatchRequest) => {
           batches.push(batch);
           for (const mutation of batch.mutations) {
+            if (mutation.kind === "part_updated" && mutation.part.type === "tool" && mutation.part.tool_step.status === "running") started.resolve();
             if (mutation.kind === "part_updated"
               && mutation.part.type === "tool" && mutation.part.tool_step.status === "error") {
               displayed.resolve(mutation.part.tool_step);
@@ -34,8 +36,14 @@ describe("FinalAnswerStreamer display contract", () => {
       const timeout = setTimeout(() => displayed.reject(new Error("missing live failure update")), 3_000);
       try {
         await streamer.pushToolStart(call);
+        if (desktop) await started.promise;
         await streamer.pushToolFinish(call, "error", 10, { content });
         const step = await displayed.promise;
+        if (desktop) {
+          const start = batches.flatMap(batch => batch.mutations).find(m => m.kind === "part_updated" && m.part.type === "tool" && m.part.tool_step.status === "running");
+          expect(start).toMatchObject({ part: { tool_step: { status: "running", input_block: step.input_block } } });
+          expect(JSON.parse(step.input_block!.content)).toEqual(call.arguments);
+        } else expect(step.input_block).toBeUndefined();
         expect(JSON.parse(step.error_block!.content)).toEqual(content);
         expect(step.result_block).toBeUndefined();
         expect(frames.every(frame => frame.state === "delta")).toBe(true);

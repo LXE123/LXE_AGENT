@@ -4,14 +4,13 @@ import { createServer } from "vite";
 import { ProcessAgentRuntime } from "../../../../gateway/src/orchestration/process-runtime";
 import { LocalConversationController, type LocalConversationStorage } from "../../../../gateway/src/orchestration/local-conversation";
 import { SessionScheduler } from "../../../../gateway/src/orchestration/scheduler";
-import { SessionRuntimeState } from "../../../../gateway/src/state/session-state";
 const root = process.cwd();
 const workspace = { directory: root, worktree: root };
 const sessions = new Map<string, Awaited<ReturnType<LocalConversationStorage["getSession"]>>>();
 let sessionId = "";
 let conversations!: LocalConversationController;
 const runtime = new ProcessAgentRuntime({
-  agentSoulPath: "/soul", skillsRoot: "/skills", userSkillsRoot: "/user-skills",
+  skillsRoot: "/skills", userSkillsRoot: "/user-skills",
   command: process.execPath, arguments: [resolve(root, "apps/agent-cli/test/fixtures-jsonrpc-ui.ts")],
   cwd: root, environment: { ...process.env },
   llmConfigRoot: "/llm", dataRoot: root, legacyWorkspace: workspace,
@@ -29,11 +28,11 @@ const scheduler = new SessionScheduler({ runtime: {
   cancelTurn: (handle, reason) => runtime.cancelTurn(handle, reason),
   steerTurn: (handle, message) => runtime.steerTurn(handle, message),
 }, onJobState: (event) => conversations.handleSchedulerEvent(event) });
-conversations = new LocalConversationController({ scheduler, runtimeState: new SessionRuntimeState(), defaultWorkspace: () => workspace,
+conversations = new LocalConversationController({ scheduler, defaultWorkspace: () => workspace,
   storage: {
     ensureSession: async (request) => { sessions.set(request.session_id, { session_id: request.session_id, source: request.source, workspace: request.workspace }); },
     getSession: async (id) => sessions.get(id), upsertResponseRoute: async () => {},
-    appendPendingEvent: async () => {}, getResponseRoute: async () => undefined,
+    getResponseRoute: async () => undefined,
   },
 });
 await runtime.start();

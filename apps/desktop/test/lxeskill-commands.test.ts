@@ -10,7 +10,7 @@ test("desktop gets its command listing from the public CLI", async () => {
   const dataRoot = mkdtempSync(join(tmpdir(), "lxe-desktop-list-"));
   try {
     const result = await listLxeSkillCommands({ cwd: root,
-      pythonPath: join(root, process.platform === "win32" ? ".venv/Scripts/python.exe" : ".venv/bin/python"),
+      executablePath: join(root, process.platform === "win32" ? ".venv/Scripts/lxeskill.exe" : ".venv/bin/lxeskill"),
       environment: { ...process.env, LXE_DATA_ROOT: dataRoot },
     });
     expect(result.total).toBeGreaterThan(0);

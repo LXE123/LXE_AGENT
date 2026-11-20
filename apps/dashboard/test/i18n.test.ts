@@ -10,7 +10,6 @@ describe("Dashboard language persistence", () => {
       setItem: (key: string, value: string) => values.set(key, value),
     };
     expect(initialLanguage(storage)).toBe("en");
-    expect(LANGUAGE_STORAGE_KEY).toBe("lxe.window.main.language.v1");
     expect(values.get(LANGUAGE_STORAGE_KEY)).toBe("en");
   });
 

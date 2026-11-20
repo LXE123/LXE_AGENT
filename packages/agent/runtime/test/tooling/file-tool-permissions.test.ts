@@ -178,15 +178,15 @@ test.each(["write", "edit"] as const)("%s requires a session read, and rejects c
   writeFileSync(join(a, "file"), "before"); writeFileSync(join(b, "file"), "before");
   directoryLink(a, alias);
   const path = join(alias, "file"), input = tool === "write" ? write(path) : edit(path);
-  await expect(f.execute(tool, input)).rejects.toThrow("先用 read");
+  await expect(f.execute(tool, input)).rejects.toThrow("Use read before modifying");
   await f.read(path);
-  await expect(f.execute(tool, input, f.context("workspace-write", "other"))).rejects.toThrow("先用 read");
+  await expect(f.execute(tool, input, f.context("workspace-write", "other"))).rejects.toThrow("Use read before modifying");
   writeFileSync(join(a, "file"), "external changed");
-  await expect(f.execute(tool, input)).rejects.toThrow("重新 read");
+  await expect(f.execute(tool, input)).rejects.toThrow("Read it again");
   writeFileSync(join(a, "file"), "before");
   await f.read(path);
   unlinkSync(alias); directoryLink(b, alias);
-  await expect(f.execute(tool, input)).rejects.toThrow("重新 read");
+  await expect(f.execute(tool, input)).rejects.toThrow("Read it again");
   expect(readFileSync(join(a, "file"), "utf8")).toBe("before");
   expect(readFileSync(join(b, "file"), "utf8")).toBe("before");
 });
@@ -212,7 +212,7 @@ test.each(["write", "edit"] as const)("%s rechecks links, versions and cancellat
     try {
       const operation = f.execute(tool, tool === "write" ? write(path) : edit(path), ctx);
       if (change === "hardlink" || change === "target") await denied(operation, "workspace-write", path, change === "hardlink" ? "hard links" : "target changed");
-      else await expect(operation).rejects.toThrow(change === "cancel" ? "cancel fixture" : "重新 read");
+      else await expect(operation).rejects.toThrow(change === "cancel" ? "cancel fixture" : "Read it again");
       expect(readFileSync(join(a, "file"), "utf8")).toBe(change === "version" ? "before external change" : "before");
       expect(readFileSync(join(b, "file"), "utf8")).toBe("before");
     } finally { hook.mockRestore(); }
@@ -253,7 +253,7 @@ test("write refuses a file that appears after the initial missing-file check", a
   const hook = spyOn(fs, "statSync").mockImplementationOnce(((...args: Parameters<typeof fs.statSync>) => {
     try { return original(...args); } finally { writeFileSync(target, "external"); }
   }) as typeof fs.statSync);
-  try { await expect(f.execute("write", write(target))).rejects.toThrow("重新 read"); } finally { hook.mockRestore(); }
+  try { await expect(f.execute("write", write(target))).rejects.toThrow("Read it again"); } finally { hook.mockRestore(); }
   expect(readFileSync(target, "utf8")).toBe("external");
 });
 
@@ -265,7 +265,7 @@ test("write refuses to recreate a file removed after the first observation", asy
   const hook = spyOn(fs, "statSync").mockImplementationOnce(((...args: Parameters<typeof fs.statSync>) => {
     const info = original(...args); unlinkSync(target); return info;
   }) as typeof fs.statSync);
-  try { await expect(f.execute("write", write(target))).rejects.toThrow("重新 read"); } finally { hook.mockRestore(); }
+  try { await expect(f.execute("write", write(target))).rejects.toThrow("Read it again"); } finally { hook.mockRestore(); }
   expect(existsSync(target)).toBe(false);
 });
 
@@ -281,7 +281,7 @@ test("edit refuses to recreate a file removed after reading its edit source", as
   }) as typeof fs.readFileSync;
   const hook = spyOn(fs, "readFileSync").mockImplementationOnce(readThenRemove);
   try {
-    await expect(f.execute("edit", edit(target))).rejects.toThrow("重新 read");
+    await expect(f.execute("edit", edit(target))).rejects.toThrow("Read it again");
     expect(existsSync(target)).toBe(false);
   } finally { hook.mockRestore(); }
 });

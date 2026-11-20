@@ -1,0 +1,182 @@
+import { app, BrowserWindow, session, webContents } from "electron";
+import assert from "node:assert/strict";
+import { createServer } from "node:http";
+import { join } from "node:path";
+import { TEAM_SKILLS_URL } from "@lxe/desktop-protocol/team-skills";
+import { RECENT_SELECTION_MS } from "../../src/main/manual-tools/tab-budget";
+import { ManualBrowsers } from "../../src/main/manual-tools/browsers";
+import { registerTeamSkillsGuest } from "../../src/main/team-skills-view";
+
+app.setPath("userData", process.argv[2]!);
+if (process.platform === "win32") app.disableHardwareAcceleration();
+app.on("window-all-closed", () => {});
+const wait = async (predicate: () => unknown | Promise<unknown>, label: string) => {
+  const deadline = Date.now() + 15000;
+  while (Date.now() < deadline) { if (await predicate()) return; await new Promise(resolve => setTimeout(resolve, 25)); }
+  throw new Error("Timed out: " + label);
+};
+void app.whenReady().then(async () => {
+  const win = new BrowserWindow({ width: 740, height: 500, show: true, webPreferences: { preload: join(process.argv[2]!, "preload.cjs"), contextIsolation: true, sandbox: true, webviewTag: true } });
+  const js = (script: string) => win.webContents.executeJavaScript(script);
+  const browsers = new ManualBrowsers(() => win, event => {
+    if (event.kind === "browser.release" && !win.isDestroyed()) {
+      void js(`document.getElementById(${JSON.stringify(event.mountSrc)})?.remove()`).catch(() => {});
+    }
+  });
+  const skillId = "e522e0c9-4891-439f-826a-467b6f312478";
+  const installed: Record<string, string> = {};
+  let approve = false;
+  let prompts = 0;
+  let duringInstall: (() => Promise<unknown>) | undefined;
+  registerTeamSkillsGuest(win.webContents, browsers, {
+    preload: join(process.argv[2]!, "team-skills-preload.cjs"),
+    versions: async ids => Object.fromEntries(ids.filter(id => installed[id]).map(id => [id, installed[id]!])),
+    uninstallTarget: async (id, version) => {
+      assert.equal(id, skillId); assert.equal(version, installed[id]);
+      return { id: "local-entry", version: "file-revision", name: "demo" };
+    },
+    useTarget: async id => {
+      assert.equal(id, skillId);
+      if (!installed[id]) throw new Error("本机未安装该技能");
+      return { name: "demo" };
+    },
+    confirmUninstall: async (name, version) => { assert.equal(name, "demo"); assert.equal(version, "1.0.1"); return approve; },
+    recycle: async target => {
+      assert.deepEqual(target, { id: "local-entry", version: "file-revision", name: "demo" });
+      delete installed[skillId];
+    },
+    confirmOverwrite: async name => { assert.equal(name, "demo"); prompts++; return approve; },
+    install: async ({ skillId: id, version }, replaceLocalName) => {
+      await duringInstall?.();
+      if (!installed[id] && replaceLocalName !== "demo") return { localName: "demo" };
+      installed[id] = version;
+      return version;
+    },
+  });
+  session.fromPartition("persist:lxe-workbench-team-skills").protocol.handle("https", () =>
+    new Response("<title>Catalog</title><input>", { headers: { "Content-Type": "text/html" } }));
+  const server = createServer((req, res) => {
+    res.setHeader("content-type", "text/html; charset=utf-8");
+    res.end(`<title>${req.url}</title><input value="hello">`);
+  });
+  try {
+    await new Promise<void>(resolve => server.listen(0, "127.0.0.1", resolve));
+    const port = (server.address() as { port: number }).port;
+    const base = `http://127.0.0.1:${port}`;
+    await win.loadURL("data:text/html," + encodeURIComponent("<main></main><div hidden role=menu>menu</div>"));
+    const make = async (id: string, url?: string) => {
+      const { mountSrc } = browsers.create("chat", id, "/fixture", url);
+      browsers.visible("chat", id, mountSrc, true);
+      await js(`(() => {
+        const frame = document.createElement('iframe'); frame.id = ${JSON.stringify(mountSrc)}; document.querySelector('main').append(frame);
+        const guest = document.createElement('webview'); guest.setAttribute('allowpopups', ''); guest.src = ${JSON.stringify(mountSrc)};
+        frame.contentDocument.body.append(guest);
+      })()`);
+      await wait(() => js(`(() => {try{return !!document.getElementById(${JSON.stringify(mountSrc)})?.contentDocument.querySelector('webview').getWebContentsId()}catch{return false}})()`), "attached " + id);
+      const guest = webContents.fromId(await js(`document.getElementById(${JSON.stringify(mountSrc)}).contentDocument.querySelector('webview').getWebContentsId()`))!;
+      if (url) await wait(() => guest.getURL() === url && !guest.isLoading(), "loaded " + id);
+      return { mountSrc, guest };
+    };
+    const showCatalog = async () => {
+      const ticket: string = await js("window.lxe.desktop.teamSkillsView('show')");
+      await js(`(() => {
+        const frame = document.createElement('iframe'); frame.id = ${JSON.stringify(ticket)}; document.querySelector('main').append(frame);
+        const guest = document.createElement('webview'); guest.src = ${JSON.stringify(ticket)}; frame.contentDocument.body.append(guest);
+      })()`);
+      const element = `document.getElementById(${JSON.stringify(ticket)}).contentDocument.querySelector('webview')`;
+      await wait(() => js(`(() => { try { return !!${element}.getWebContentsId() } catch { return false } })()`), "catalog attached");
+      return webContents.fromId(await js(`${element}.getWebContentsId()`))!;
+    };
+    const first = await make("first", base + "/one");
+    await first.guest.executeJavaScript("document.querySelector('input').value='draft'");
+    await js("document.querySelector('[role=menu]').hidden=false");
+    assert.equal(await first.guest.executeJavaScript("document.querySelector('input').value"), "draft");
+    browsers.navigate("chat", "first", base + "/two");
+    await wait(() => first.guest.getURL() === base + "/two" && !first.guest.isLoading(), "second navigation");
+    browsers.visible("chat", "first", first.mountSrc, false);
+    const catalog = await showCatalog();
+    await wait(() => catalog.getURL() === TEAM_SKILLS_URL && !catalog.isLoading(), "catalog home");
+    const host = "window.lxeTeamSkills";
+    const id = JSON.stringify(skillId);
+    // Before any simulated click on this page, so no transient user activation remains.
+    const unclicked = await catalog.executeJavaScript("(async () => { try { await " + host + ".use(" + id + "); return 'resolved'; } catch (error) { return error.message; } })()");
+    assert.match(unclicked, /请点击「开始使用」/);
+    assert.deepEqual(await catalog.executeJavaScript(host + ".installedVersions([" + id + "])"), {});
+    const install = (version: string) => host + ".install(" + id + ", " + JSON.stringify(version) + ", window.getTicket)";
+    await catalog.executeJavaScript(`window.ticketCalls = 0; window.requestVersion = '1.0.0'; window.getTicket = async () => {
+      window.ticketCalls++;
+      return { skillId: ${id}, version: window.requestVersion, size: 5, sha256: 'c'.repeat(64),
+        expiresAt: new Date(Date.now() + 120000).toISOString(), downloadUrl: 'https://dataloom-rdqueaxi.feishucdn.com/4577945282/bucket_aadk3bkqatkfw/demo?sign=fixture' };
+    }; void 0`);
+    duringInstall = () => js("window.lxe.desktop.teamSkillsView('hide')");
+    const left = await catalog.executeJavaScript("(async () => { try { await " + install("1.0.0") + "; return 'resolved'; } catch (error) { return error.message; } })()", true);
+    assert.match(left, /本机已有同名 Skill「demo」，不是从技能库安装的，本次未覆盖/, "leaving the catalog names the unmarked namesake");
+    assert.equal(prompts, 0); assert.equal(installed[skillId], undefined);
+    duringInstall = undefined;
+    await js("window.lxe.desktop.teamSkillsView('show')");
+    assert.equal(await catalog.executeJavaScript(install("1.0.0"), true), null);
+    assert.equal(installed[skillId], undefined);
+    approve = true;
+    assert.equal(await catalog.executeJavaScript(install("1.0.0"), true), "1.0.0");
+    await catalog.executeJavaScript("window.requestVersion = '1.0.1'");
+    assert.equal(await catalog.executeJavaScript(install("1.0.1"), true), "1.0.1");
+    assert.deepEqual(await catalog.executeJavaScript(host + ".installedVersions([" + id + "])"), { [skillId]: "1.0.1" });
+    assert.equal(prompts, 2, "only the unmarked namesake prompts; the same-ID update completes directly");
+    assert.equal(await catalog.executeJavaScript("window.ticketCalls"), 5, "confirmed overwrite renews its grant");
+    await js(`window.teamUse = []; window.teamUseError = undefined;
+      window.lxe.desktop.onTeamSkillUse(({ requestId, name }) => {
+        window.teamUse.push(name);
+        void window.lxe.desktop.teamSkillUseResult(requestId, window.teamUseError);
+      }); void 0`);
+    await catalog.executeJavaScript(host + ".use(" + id + ")", true);
+    assert.deepEqual(await js("window.teamUse"), ["demo"], "use resolves only after the dashboard answers");
+    await js("window.teamUseError = '请先选择工作区'");
+    const failed = await catalog.executeJavaScript("(async () => { try { await " + host + ".use(" + id + "); return 'resolved'; } catch (error) { return error.message; } })()", true);
+    assert.match(failed, /请先选择工作区/);
+    const uninstall = host + ".uninstall(" + id + ", '1.0.1')";
+    approve = false;
+    assert.equal(await catalog.executeJavaScript(uninstall, true), false);
+    assert.equal(installed[skillId], "1.0.1");
+    approve = true;
+    assert.equal(await catalog.executeJavaScript(uninstall, true), true);
+    assert.deepEqual(await catalog.executeJavaScript(host + ".installedVersions([" + id + "])"), {});
+    await assert.rejects(catalog.executeJavaScript(host + ".use(" + id + ")", true), /本机未安装/);
+    const catalogId = catalog.id;
+    const detail = new URL("/skill/detail", TEAM_SKILLS_URL).href;
+    await catalog.loadURL(detail);
+    assert.equal(await catalog.executeJavaScript("typeof window.lxeTeamSkills"), "undefined");
+    await js("window.lxe.desktop.teamSkillsView('hide')");
+    for (let i = 1; i <= 30; i++) {
+      const page = await make(String(i), base + "/background");
+      browsers.visible("chat", String(i), page.mountSrc, false);
+    }
+    assert.equal(first.guest.isDestroyed(), false, "32 detached pages remain live");
+    const thirtyThird = await make("33", base + "/background");
+    assert.equal(first.guest.isDestroyed(), false, "visible page is excluded from the budget");
+    browsers.visible("chat", "33", thirtyThird.mountSrc, false);
+    await wait(() => first.guest.isDestroyed(), "33rd background page suspends oldest");
+    assert.equal(catalog.isDestroyed(), false, "recently selected catalog is protected at 33");
+    assert.equal(browsers.get("chat", "first")?.url, base + "/two");
+    const restored = await make("first");
+    await wait(() => restored.guest.getURL() === base + "/two" && !restored.guest.isLoading(), "restored current page");
+    assert.equal(restored.guest.navigationHistory.canGoBack(), true);
+    browsers.command("chat", "first", "back");
+    await wait(() => restored.guest.getURL() === base + "/one", "restored earlier entry");
+    // Advance the protection clock in the fixture's main process only.
+    const now = Date.now;
+    Date.now = () => now() + RECENT_SELECTION_MS + 1;
+    browsers.visible("chat", "first", restored.mountSrc, false);
+    await wait(() => catalog.isDestroyed(), "expired background catalog suspended by shared budget");
+    Date.now = now;
+    const reopened = await showCatalog();
+    await wait(() => reopened.getURL() === detail && !reopened.isLoading(), "catalog detail restored");
+    assert.ok(reopened.navigationHistory.canGoBack(), "catalog navigation history restored");
+    assert.notEqual(reopened.id, catalogId);
+    browsers.closeSession();
+    assert.equal(browsers.get("chat", "first"), null);
+    console.log("BROWSER_FRAME_OK: menu, shared 32/33 budget, catalog and sidebar history, cleanup");
+    win.destroy(); server.close(); app.exit(0);
+  } catch (error) {
+    console.error(error); browsers.closeSession(); win.destroy(); server.close(); app.exit(1);
+  }
+});

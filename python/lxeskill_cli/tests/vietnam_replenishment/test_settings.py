@@ -169,7 +169,6 @@ def test_failed_template_promotion_preserves_both_versions_and_can_retry(
 def test_defaults_persist_and_reload_in_another_process():
     state = settings.read_state()
     assert state["parameters"] == settings.config_json(RecommendationConfig())
-    assert "sku_map" not in state and "sku_map_error" not in state
     raw = {**state["parameters"], "exchange_rate": "4100", "sales_weight_7d": "1", "sales_weight_15d": "0", "sales_weight_30d": "0"}
     settings.save_parameters(raw)
     child = subprocess.run([sys.executable, "-I", "-B", "-m", "lxeskill", "vietnam", "replenishment", "settings", "--action", "read"], capture_output=True, text=True)
@@ -231,7 +230,6 @@ def test_initialization_uses_only_skill_data_directory(tmp_path, old_parameters)
     state = settings.read_state()
     assert state["parameters"] == settings.config_json(RecommendationConfig())
     assert state["parameters_error"] is None
-    assert "sku_map" not in state and "sku_map_error" not in state
     assert (app / "config" / "settings.json").read_text() == old_parameters
 
 

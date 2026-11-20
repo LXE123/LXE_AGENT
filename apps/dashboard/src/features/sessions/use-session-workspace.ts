@@ -102,6 +102,13 @@ export function useSessionWorkspace({ activeSection, runtimeReady: dashboardRunt
     setNewConversation(session.blank === true);
   }
 
+  async function openSessionRun(session: SessionPayload, turnId: string): Promise<void> {
+    openSession(session);
+    const ticket = conversationDisplay.beginTargetHistory();
+    const page = await sessionActions.detail({ session_id: session.session_id, message_turn_id: turnId, message_limit: 10 });
+    conversationDisplay.openHistory(page, turnId, ticket);
+  }
+
   function newWorkspaceId(explicit?: string): string | undefined {
     const items = (workspacesQuery.data?.items ?? []).filter(item => !workspaceRemoved(item.workspace_id));
     if (explicit !== undefined) {
@@ -196,14 +203,30 @@ export function useSessionWorkspace({ activeSection, runtimeReady: dashboardRunt
     void queryClient.invalidateQueries({ queryKey: dashboardQueryKeys.sessions.lists });
   }
 
-  async function startSkillConversation(action: SkillConversationAction, skill?: SkillPayload) {
+  /** Open a new conversation and add the skill prompt to its draft. `required` turns a skipped draft into an error. */
+  async function writeSkillDraft(action: SkillConversationAction, skill?: Pick<SkillPayload, "name">, required = false) {
     const prompt = action === "create" ? t.userSkills.createPrompt : skill ? t.userSkills.usePrompt(skill.name) : "";
     if (!prompt) return;
-    try {
-      const session = await enterNewConversation();
-      if (session) appendComposerDraftPrompt(window.sessionStorage, session.session_id, prompt);
-    } catch (cause) { onError(queryError(cause)); }
+    const session = await enterNewConversation();
+    if (session) appendComposerDraftPrompt(window.sessionStorage, session.session_id, prompt);
+    else if (required) throw new Error(t.userSkills.useInterrupted);
   }
+
+  async function startSkillConversation(action: SkillConversationAction, skill?: Pick<SkillPayload, "name">) {
+    try { await writeSkillDraft(action, skill); } catch (cause) { onError(queryError(cause)); }
+  }
+  const writeSkillDraftRef = useRef(writeSkillDraft);
+  writeSkillDraftRef.current = writeSkillDraft;
+  // 「开始使用」 on a team catalog card writes the same draft as the Skills page's use button,
+  // then reports back so the card shows a real failure instead of a silent no-op.
+  useEffect(() => {
+    const desktop = window.lxe?.desktop;
+    return desktop?.onTeamSkillUse?.(({ requestId, name }) => {
+      void writeSkillDraftRef.current("use", { name }, true)
+        .then(() => desktop.teamSkillUseResult(requestId), cause => desktop.teamSkillUseResult(requestId, queryError(cause)))
+        .catch(cause => console.error("Failed to report a team skill use result", cause));
+    });
+  }, []);
 
   async function sendConversation(text: string, attachments: DesktopInputAttachmentPayload[]): Promise<void> {
     if (!selectedSessionId) throw new Error(t.workspaces.required);
@@ -220,6 +243,22 @@ export function useSessionWorkspace({ activeSection, runtimeReady: dashboardRunt
       queryClient.invalidateQueries({ queryKey: dashboardQueryKeys.sessions.detailSession(result.session_id) }),
     ]);
   }
+
+  const forkPending = useRef(false);
+  const [forking, setForking] = useState(false);
+  const forkSession = useLatestCallback(async (sessionId: string, turnId?: string) => {
+    if (!sessionId || forkPending.current) return;
+    const revision = workspaceSelectionRevision.current;
+    forkPending.current = true;
+    setForking(true);
+    try {
+      const child = await sessionActions.fork(sessionId, turnId);
+      if (workspaceSelectionRevision.current === revision) openSession(child);
+      await queryClient.invalidateQueries({ queryKey: dashboardQueryKeys.sessions.lists });
+    } catch (cause) { onError(queryError(cause)); }
+    finally { forkPending.current = false; setForking(false); }
+  });
+  const forkConversation = useLatestCallback((turnId?: string) => forkSession(selectedSessionId, turnId));
 
   async function stopConversation(): Promise<void> {
     if (!selectedSessionId) return;
@@ -298,6 +337,7 @@ export function useSessionWorkspace({ activeSection, runtimeReady: dashboardRunt
     onNew: useLatestCallback(startNewConversation),
     onOpen: useLatestCallback(openSession),
     onPin: useLatestCallback(setSessionPinned),
+    onForkSession: useLatestCallback((session: SessionPayload) => forkSession(session.session_id)),
     onRenameSession: useLatestCallback((session: SessionPayload) => { if (!session.blank) setRenamingSession(session); }),
     onDelete: useLatestCallback(deleteSession),
   };
@@ -307,6 +347,7 @@ export function useSessionWorkspace({ activeSection, runtimeReady: dashboardRunt
   return {
     selection: { selectedSessionId, newConversation, selectedSession } as const,
     sidebar: {
+      forking,
       renamingSession,
       expanded: expandedWorkspaces,
       display: sessionDetailQuery.display,
@@ -334,6 +375,7 @@ export function useSessionWorkspace({ activeSection, runtimeReady: dashboardRunt
       deleteBlockedSessionIds,
     } as const,
     conversation: {
+      forking,
       question: newConversation ? undefined : pendingQuestions.find(q => q.session_id === selectedSessionId),
       approvals: pendingApprovals.filter(request => request.session_id === selectedSessionId),
       fallbackSession: selectedSession,
@@ -355,8 +397,8 @@ export function useSessionWorkspace({ activeSection, runtimeReady: dashboardRunt
       isRefetchError: current.isRefetchError, error: current.error,
     } as const)),
     actions: {
-      openSession, startNewConversation, renameWorkspace, deleteWorkspace, startSkillConversation,
-      sendConversation, stopConversation, setSessionPinned, deleteSession, renameSession,
+      openSession, openSessionRun, startNewConversation, renameWorkspace, deleteWorkspace, startSkillConversation,
+      sendConversation, stopConversation, forkConversation, setSessionPinned, deleteSession, renameSession,
       cancelSessionRename: () => setRenamingSession(null),
       openConversationFile, revealConversationFile, openConversationAttachment,
       openSearch: handleSessionSearchToggle,

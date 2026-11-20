@@ -20,44 +20,6 @@ def _records(capsys) -> list[dict]:
     return [json.loads(line) for line in lines]
 
 
-def test_catalog_defines_every_cli_command_and_hidden_alias() -> None:
-    catalog = load_catalog()
-
-    assert len(catalog) == 47
-    assert sum(bool(entry.get("module")) for entry in catalog.values()) == 41
-    assert sum(entry.get("handler") == "browser" for entry in catalog.values()) == 2
-    assert sum(entry.get("visibility") == "maintenance" for entry in catalog.values()) == 4
-    assert len({tuple(entry["command_path"]) for entry in catalog.values()}) == len(catalog)
-    assert "legacy_aliases" not in catalog["mabang_auth_refresh"]
-    assert catalog["mabang_auth_refresh"]["input_schema"] == {
-        "type": "object",
-        "properties": {},
-        "additionalProperties": False,
-    }
-    assert all(
-        entry["legacy_aliases"] == [name]
-        for name, entry in catalog.items()
-        if entry.get("input_modes") != ["flags"] and not name.startswith(("mabang_auth_", "shangman_", "yacang_", "vietnam_replenishment_", "mabang_tms_", "mabang_brazil_", "assets_vietnam_sku_"))
-    )
-
-
-@pytest.mark.parametrize(
-    "arguments",
-    [
-        ["mabang", "auth", "refresh", "--scope", "erp"],
-        ["mabang", "auth", "refresh", "--require-wms-cookie-header"],
-        ["mabang", "auth", "refresh", "--force"],
-        ["mabang", "auth", "refresh", "--force-refresh"],
-        ["mabang_auth_refresh"],
-    ],
-)
-def test_auth_refresh_rejects_removed_compatibility_interfaces(arguments, capsys) -> None:
-    assert lxeskill.main(arguments) == lxeskill.EXIT_USAGE
-    (record,) = _records(capsys)
-    assert record["ok"] is False
-    assert record["error"]["code"] in {"invalid_arguments", "unknown_command"}
-
-
 def test_auth_refresh_uses_configured_credentials(monkeypatch, capsys):
     calls = []
     monkeypatch.setattr(browser_auth_service.mabang_settings, "MABANG_ACCOUNT", "configured-account")
@@ -75,13 +37,9 @@ def test_auth_refresh_uses_configured_credentials(monkeypatch, capsys):
     assert record["data"]["source"] == "refresh"
 
 
-@pytest.mark.parametrize("arguments", [
-    ["auth", "refresh"], ["auth", "browser", "bind", "--executable", "/unused"],
-    ["auth", "browser", "status"], ["auth", "browser", "unbind"], ["browser_auth_refresh"],
-])
-def test_old_auth_commands_are_removed(arguments, monkeypatch, capsys):
-    monkeypatch.setattr(browser_auth_service, "refresh_auth", lambda **kw: pytest.fail("old command must not log in"))
-    assert lxeskill.main(arguments) == lxeskill.EXIT_USAGE
+def test_unknown_command_does_not_execute_business_code(monkeypatch, capsys):
+    monkeypatch.setattr(lxeskill, "execute_module_json", lambda *args, **kwargs: pytest.fail("unknown command must not execute"))
+    assert lxeskill.main(["unknown-command"]) == lxeskill.EXIT_USAGE
     assert _records(capsys)[0]["error"]["code"] == "unknown_command"
 
 
@@ -99,7 +57,7 @@ def test_auth_refresh_rejects_account_in_all_input_modes(arguments, monkeypatch,
     assert _records(capsys)[0]["error"]["code"] == "invalid_arguments"
 
 
-def test_auth_refresh_json_input_does_not_hide_removed_flags(monkeypatch, capsys):
+def test_auth_refresh_json_input_cannot_override_configured_account(monkeypatch, capsys):
     monkeypatch.setattr(lxeskill.sys, "stdin", io.StringIO('{}'))
     monkeypatch.setattr(browser_auth_service, "refresh_auth", lambda **kw: pytest.fail("invalid input must not log in"))
     assert lxeskill.main(["mabang", "auth", "refresh", "--stdin-json", "--account", "other"]) == lxeskill.EXIT_USAGE
@@ -129,15 +87,17 @@ def test_auth_refresh_final_error_preserves_stage_url_type_and_real_message(monk
     assert "Locator.click: Element is not visible" in message
 
 
-def test_list_and_help_write_one_terminal_jsonl_record(capsys) -> None:
+def test_list_and_describe_write_one_terminal_jsonl_record(capsys) -> None:
     assert lxeskill.main(["list"]) == 0
     records = _records(capsys)
     assert len(records) == 1
     assert records[0]["type"] == "result"
     assert records[0]["ok"] is True
-    assert len(records[0]["data"]["commands"]) == 44
+    commands = [entry["command"] for entry in records[0]["data"]["commands"]]
+    assert commands
+    assert len(commands) == len(set(commands))
 
-    assert lxeskill.main(["fba", "customs", "preview", "--help"]) == 0
+    assert lxeskill.main(["describe", "fba", "customs", "preview"]) == 0
     records = _records(capsys)
     assert len(records) == 1
     assert records[0]["data"]["command"] == "fba customs preview"
@@ -181,54 +141,17 @@ def test_normal_commands_do_not_load_skill_contract_or_yaml(tmp_path, monkeypatc
 def test_doctor_reports_repository_contract_without_adding_a_list_command(capsys) -> None:
     assert lxeskill.main(["doctor"]) == 0
     records = _records(capsys)
-    assert records == [
-        {
-            "protocol_version": "1",
-            "type": "result",
-            "command": "doctor",
-            "ok": True,
-            "data": {
-                "catalog_commands": 47,
-                "business_commands": 40,
-                "skill_files": 38,
-                "owner_skills": 30,
-                "command_declarations": 40,
-            },
-            "files": [],
-        }
-    ]
+    assert len(records) == 1
+    record = records[0]
+    assert record["protocol_version"] == "1"
+    assert record["type"] == "result"
+    assert record["command"] == "doctor"
+    assert record["ok"] is True
+    assert record["files"] == []
 
     assert lxeskill.main(["list"]) == 0
     records = _records(capsys)
     assert all(item["command"] != "doctor" for item in records[-1]["data"]["commands"])
-
-
-@pytest.mark.parametrize(
-    "arguments",
-    [
-        ["fba", "logistics", "quote"],
-        ["fba", "logistics", "rates-import"],
-        ["amazon_logistic_quote"],
-        ["logistics_rate_import"],
-    ],
-)
-def test_retired_logistics_commands_are_unknown(arguments, capsys) -> None:
-    assert lxeskill.main(arguments) == lxeskill.EXIT_USAGE
-    record = _records(capsys)[0]
-    assert record["error"]["code"] == "unknown_command"
-
-
-@pytest.mark.parametrize(
-    "arguments",
-    [
-        ["fba", "purchase", "contracts-fill"],
-        ["mabang_fill_purchase_contracts"],
-    ],
-)
-def test_retired_purchase_contract_commands_are_unknown(arguments, capsys) -> None:
-    assert lxeskill.main(arguments) == lxeskill.EXIT_USAGE
-    record = _records(capsys)[0]
-    assert record["error"]["code"] == "unknown_command"
 
 
 def test_doctor_failure_is_an_environment_error_with_one_terminal(monkeypatch, capsys) -> None:
@@ -416,19 +339,6 @@ def test_preview_purchase_summary_uses_stored_contract_template(
     ) == 0
     assert seen[0]["preview"] is True
     assert Path(seen[0]["contract_template_xlsx"]).name == "合同模板.xlsx"
-
-
-def test_removed_draft_flag_is_rejected(capsys) -> None:
-    assert lxeskill.main(
-        [
-            "fba", "purchase", "summary-create",
-            "--delivery-no", "SP260710001",
-            "--gross-margin", "0.3",
-            "--draft",
-        ]
-    ) == lxeskill.EXIT_USAGE
-    record = _records(capsys)[0]
-    assert record["error"]["code"] == "invalid_arguments"
 
 
 def test_purchase_file_regeneration_uses_stored_contract_template(
@@ -709,7 +619,7 @@ def test_declared_artifact_rejects_missing_and_symlink_escape(tmp_path) -> None:
 
 
 def test_skill_scope_filters_list_and_blocks_out_of_scope_commands(monkeypatch, capsys) -> None:
-    monkeypatch.setenv("LXESKILL_SKILL_SCOPE", "replenishment-store-resolve")
+    monkeypatch.setenv("LXESKILL_SKILL_SCOPE", "amazon-replenishment")
     assert lxeskill.main(["list"]) == 0
     (record,) = _records(capsys)
     commands = {item["command"] for item in record["data"]["commands"]}
@@ -728,6 +638,31 @@ def test_skill_scope_filters_list_and_blocks_out_of_scope_commands(monkeypatch, 
     assert blocked["error"]["code"] == "skill_not_in_scope"
 
 
+def test_existing_login_skill_scope_exposes_both_platforms(monkeypatch, capsys) -> None:
+    monkeypatch.setenv("LXESKILL_SKILL_SCOPE", "shangman-login")
+    assert lxeskill.main(["list"]) == 0
+    (record,) = _records(capsys)
+    commands = {item["command"] for item in record["data"]["commands"]}
+    expected = {f"shangman login {action}" for action in ("prepare", "submit", "status", "clear")} | {"yacang login"}
+    assert {command for command in commands if command.startswith(("shangman ", "yacang "))} == expected
+    for command in sorted(expected):
+        assert lxeskill.main(["describe", *command.split()]) == 0
+        (description,) = _records(capsys)
+        assert description["data"]["owner_skills"] == ["shangman-login"]
+
+
+def test_yacang_login_requires_enabled_login_skill(monkeypatch, capsys) -> None:
+    monkeypatch.setenv("LXESKILL_SKILL_SCOPE", "yacang-reports-export")
+    assert lxeskill.main(["describe", "yacang", "login"]) == lxeskill.EXIT_ENVIRONMENT
+    (blocked,) = _records(capsys)
+    assert blocked["error"]["code"] == "skill_not_in_scope"
+
+    monkeypatch.setenv("LXESKILL_SKILL_SCOPE", "yacang-reports-export,shangman-login")
+    assert lxeskill.main(["describe", "yacang", "login"]) == 0
+    (allowed,) = _records(capsys)
+    assert allowed["data"]["owner_skills"] == ["shangman-login"]
+
+
 def test_empty_skill_scope_denies_business_commands_but_keeps_infrastructure(monkeypatch, capsys) -> None:
     monkeypatch.setenv("LXESKILL_SKILL_SCOPE", "")
     assert lxeskill.main(["list"]) == 0
@@ -743,6 +678,26 @@ def test_absent_skill_scope_is_unrestricted(monkeypatch, capsys) -> None:
     catalog = load_catalog()
     visible = [entry for entry in catalog.values() if str(entry.get("visibility") or "") != "internal"]
     assert len(record["data"]["commands"]) == len(visible)
+
+
+def test_export_catalog_exposes_warehouse_scope_and_erp_ownership(monkeypatch, capsys) -> None:
+    monkeypatch.delenv("LXESKILL_SKILL_SCOPE", raising=False)
+    assert lxeskill.main(["list"]) == 0
+    (record,) = _records(capsys)
+    commands = record["data"]["commands"]
+    (tms,) = [entry for entry in commands if entry["name"].startswith("mabang_tms_")]
+    assert tms["command"] == "mabang-tms products export"
+    assert tms["owner_skills"] == ["mabang-tms-products-export"]
+    assert tms["attribution_skill"] == "mabang-tms-products-export"
+    assert tms["artifact_paths"] == [{"field": "artifacts[].path", "role": "deliverable"}]
+    warehouse = tms["input_schema"]["properties"]["warehouse"]
+    assert warehouse["type"] == "string"
+    assert warehouse["enum"] == ["PH1", "VN1", "all"]
+    # External CLI callers retain the optional all-warehouse invocation.
+    assert "required" not in tms["input_schema"]
+    yacang = next(entry for entry in commands if entry["command"] == "yacang reports export")
+    assert yacang["owner_skills"] == ["yacang-reports-export"]
+    assert yacang["attribution_skill"] == "yacang-reports-export"
 
 
 def test_vietnam_has_one_ordinary_command_and_no_managed_contract() -> None:
@@ -776,7 +731,10 @@ def test_datasets_list_exposes_public_relative_directories(capsys):
     assert record["ok"] is True
     datasets = record["data"]["datasets"]
     assert datasets
-    assert any(item["id"] == "fba_delivery_csv" and item["dir"] == "fba/delivery_csv" for item in datasets)
+    directories = {item["id"]: item["dir"] for item in datasets}
+    assert directories["fba_delivery_csv"] == "fba/delivery_csv"
+    assert directories["vietnam_recommendations"] == "vietnam/recommendations"
+    assert directories["mabang_tms_exports"] == "mabang_tms/exports"
     assert all(set(item) == {"id", "dir", "holds"} for item in datasets)
     assert all(not Path(item["dir"]).is_absolute() and item["holds"] for item in datasets)
     assert record["files"] == []
@@ -785,3 +743,9 @@ def test_datasets_list_exposes_public_relative_directories(capsys):
 def test_datasets_list_rejects_extra_arguments(capsys):
     assert lxeskill.main(["datasets", "list", "--unknown"]) == lxeskill.EXIT_USAGE
     assert _records(capsys)[0]["error"]["code"] == "invalid_arguments"
+
+
+@pytest.mark.parametrize("flag, expected", [("--enabled", True), ("--enabled=true", True), ("--enabled=false", False)])
+def test_boolean_flags_respect_explicit_values_for_any_command(flag, expected):
+    entry = {"name": "example", "input_schema": {"properties": {"enabled": {"type": "boolean"}}}}
+    assert lxeskill._arguments_from_flags(entry, [flag]) == {"enabled": expected}

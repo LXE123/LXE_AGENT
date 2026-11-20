@@ -46,11 +46,13 @@ export class PrivateNsisUpdater extends NsisUpdater {
 }
 export class ElectronUpdateInstaller implements UpdateInstaller {
  private readonly updater:PrivateNsisUpdater;
- constructor(onError:(error:unknown)=>void=()=>{},diagnostic:(message:string)=>void=()=>{}){
+ /** cacheReady: startup cache cleanup, which must not race a download into pending. */
+ constructor(onError:(error:unknown)=>void=()=>{},diagnostic:(message:string)=>void=()=>{},private cacheReady:Promise<unknown>=Promise.resolve()){
   this.updater=new PrivateNsisUpdater(diagnostic);
   this.updater.on("error",onError);
  }
  async download(release:DesktopUpdateRelease,ticket:UpdateTicket,progress:(percent:number)=>void):Promise<string>{
+  await this.cacheReady;
   this.updater.ticket=ticket;
   class PrivateProvider extends Provider<any> {
    constructor(_options:any,_updater:any,runtime:any){super(runtime);}

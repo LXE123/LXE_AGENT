@@ -19,8 +19,9 @@ function readJson(value: unknown): unknown {
 export function questionAnswerSummary(operation: ToolOperation): QuestionAnswerSummary[] | undefined {
   if (operation.name !== "ask_user_question" || operation.status !== "success") return;
   const call = isRecord(operation.call) ? operation.call : undefined;
-  const input = readJson(call ? call.input ?? call.arguments : operation.argument);
   const result = operation.result;
+  const preview = isRecord(result) && isRecord(result.input_block) ? result.input_block.content : undefined;
+  const input = readJson(call ? call.input ?? call.arguments : preview ?? operation.argument);
   if (!isRecord(input) || !Array.isArray(input.questions) || !input.questions.length || !isRecord(result)
     || result.is_error || result.error_block) return;
   const content = isRecord(result.result_block) ? result.result_block.content : result.content;

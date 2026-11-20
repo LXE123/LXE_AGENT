@@ -1,12 +1,9 @@
-import { Plug } from "lucide-react";
-
+import { Plus, Plug } from "lucide-react";
+import { useState } from "react";
+import type { McpServerPayload } from "../../api/payloads";
 import { EmptyState } from "../../shared/components";
-import { formatNumber } from "../../shared/format";
 import { useUiText } from "../../shared/i18n";
-import type {
-  McpServerPayload,
-  ToolsetPayload,
-} from "../../api/payloads";
+import { McpAddForm } from "./add-server-form";
 
 function McpServerRow({
   server,
@@ -25,27 +22,23 @@ function McpServerRow({
         <span className="connection-row-icon"><Plug size={16} /></span>
         <div className="connection-row-copy">
           <strong>{title}</strong>
-          <span>{server.name}</span>
+          {title !== server.name && <span>{server.name}</span>}
         </div>
       </div>
       <div className="connection-row-meta">
         <span>{server.transport || t.common.unknown}</span>
-        <span>{t.common.countItems(formatNumber(server.tool_count), t.tools.itemUnit)}</span>
       </div>
-      <span className={server.error ? "connection-state error" : server.enabled ? "connection-state on" : "connection-state"}>
-        <i aria-hidden="true" />
-        {server.enabled ? server.status || t.tools.enabled : t.tools.disabled}
-      </span>
-      <button
-        aria-label={`${server.enabled ? t.tools.disable : t.tools.enable} ${title}`}
-        className={server.enabled ? "mcp-toggle on" : "mcp-toggle"}
-        disabled={saving}
-        onClick={() => onToggle(server)}
-        type="button"
-      >
-        {saving ? t.tools.saving : server.enabled ? t.tools.disable : t.tools.enable}
-      </button>
-      {server.error ? <p className="connection-row-error" role="alert">{server.error}</p> : null}
+      <div className="mcp-row-actions">
+        <button
+          aria-label={`${server.enabled ? t.tools.disable : t.tools.enable} ${title}`}
+          className={server.enabled ? "mcp-toggle on" : "mcp-toggle"}
+          disabled={saving}
+          onClick={() => onToggle(server)}
+          type="button"
+        >
+          {saving ? t.tools.saving : server.enabled ? t.tools.disable : t.tools.enable}
+        </button>
+      </div>
     </article>
   );
 }
@@ -53,16 +46,17 @@ function McpServerRow({
 export function McpServicesView({
   mcpError,
   mcpSavingId,
-  mcpToolset,
+  mcpServers,
   onToggleMcpServer,
 }: {
   mcpError: string;
   mcpSavingId: string;
-  mcpToolset: ToolsetPayload | undefined;
+  mcpServers: McpServerPayload[];
   onToggleMcpServer: (server: McpServerPayload) => void;
 }) {
   const t = useUiText();
-  const mcpServers = mcpToolset?.servers ?? [];
+  const [adding, setAdding] = useState(false);
+  if (adding) return <McpAddForm onClose={() => setAdding(false)} />;
   return (
     <div className="connections-page">
       <section className="connection-section">
@@ -71,6 +65,7 @@ export function McpServicesView({
             <h3>{t.mcp.title}</h3>
             <p>{t.mcp.description}</p>
           </div>
+          <button type="button" className="mcp-primary" onClick={() => setAdding(true)}><Plus size={16} />{t.mcp.add}</button>
         </div>
         {mcpError ? (
           <EmptyState label={t.common.errorPrefix(t.errors.api, mcpError)} />

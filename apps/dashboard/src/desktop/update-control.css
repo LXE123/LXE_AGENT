@@ -28,12 +28,11 @@
 .lxe-update-manual-button:disabled { cursor:default; opacity:1; }
 .lxe-update-manual-button .lxe-update-ring { position:static; width:16px; height:16px; color:var(--accent); }
 .desktop-settings-modal > footer > .desktop-primary-button { flex:none; }
-.lxe-update-dialog { width:min(440px,calc(100vw - 40px)); border:1px solid var(--border); border-radius:14px; padding:24px; background:var(--surface); color:var(--text); box-shadow:0 16px 60px #0005; }
+.lxe-update-dialog { width:min(440px,calc(100vw - 40px)); border:1px solid var(--border); border-radius:14px; padding:24px; background:var(--surface); color:var(--text); }
 .lxe-update-dialog p { overflow-wrap:anywhere; }
 .lxe-update-dialog h2 { margin:0 0 16px; font-size:18px; }
 .lxe-update-notes { white-space:pre-wrap; max-height:40vh; overflow:auto; }
 .lxe-update-actions { display:flex; gap:12px; justify-content:flex-end; margin-top:20px; }
 .lxe-update-actions button { border:1px solid var(--border); border-radius:8px; background:var(--surface); color:inherit; padding:8px 14px; cursor:pointer; }
-.lxe-update-actions .lxe-update-primary { background:#347ce5; color:white; border-color:#347ce5; }
 .lxe-update-actions button:disabled { opacity:.5; cursor:default; }
 @media (prefers-reduced-motion:reduce) { .lxe-update-button,.ring-progress { transition:none; } .lxe-update-ring.is-spinning { animation:none; } }

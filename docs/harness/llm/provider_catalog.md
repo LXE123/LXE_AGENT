@@ -11,6 +11,24 @@
 
 两类来源分别解析。公司模型不可用时返回配置或授权错误，不自动换用个人 Key 或本地默认模型。设备同步、加密缓存、下架与断网处理统一见 [云端接入手册](../../desktop/cloud-access.md)。
 
+使用 OpenAI 项目 Key 时，在「设置 → 模型设置 → 本地模型密钥」选择 OpenAI 并保存 Key，即可在对话栏选择 GPT-6.2 Sol、GPT-6.2 Astra 等 GPT-6 型号。独立 CLI 从数据目录的 `config/auth.json` 读取 `openai` 凭据。两个 6.2 型号均使用 272,000 tokens 的本地上下文窗口和 128,000 tokens 的最大输出，推理档位支持 low、medium、high、xhigh、max。完整列表见 [OpenAI 模型配置](../../../config/llm/providers/openai.json)。
+
+内置型号通过目录的 `display_name` 指定桌面显示名称。会话偏好、自动化任务和供应商请求都使用目录中的原始模型 ID，例如 `gpt-6.2-sol`。
+
+首次配置个人 OpenAI Key 且尚无 OpenAI 型号偏好时，LXE 选用 `gpt-6.2-sol` 和 `medium`。在聊天里手动切换型号后，新会话会沿用最近一次选择。恢复已有会话时，先用为该会话选定的型号，再回看最近一轮实际使用的型号。详见[会话模型选择](../runtime/session-models.md)。
+
+OpenAI 直连使用无状态 Responses API。开启推理时，顶层 `reasoning.effort` 固定为 `medium`，实际档位随 `configuration_update` 追加到 `input`。后续请求在原位置回放历史档位，让切档前的输入前缀可供缓存复用。选择 `off` 时，支持关闭推理的型号使用顶层 `reasoning.effort: "none"`。上下文压缩沿用 Harness 的会话摘要流程。
+
+### MCP 目录和工具在请求中的位置
+
+| 个人凭据路线 | MCP 目录有变化 | 工具定义有变化 |
+| --- | --- | --- |
+| OpenAI 直连的 GPT-6 系列 | 在本轮用户消息前追加 `developer` 指令 | 首批放在 `input` 开头的 `additional_tools`，新增和同名修改在当步追加。撤下工具时按有效清单重建声明前缀。 |
+| DeepSeek 的 `deepseek-flash` 和 `deepseek-v4-pro` | 在本轮用户消息前追加 `system` 指令 | 下次请求更新顶层 `tools`。 |
+| Google、Kimi、智谱、OpenRouter 当前模型 | 初始指令包含最新目录 | 下次请求更新顶层 `tools`。 |
+
+`supportsMidConvoSystemMessages` 控制中途指令。Responses 路线还需开启 `supportsAdditionalTools` 才会在 `input` 里声明工具。公司模型按发布的能力配置执行，省略这两个字段时沿用原请求布局。个人配置和旧会话中的 `deepseek-v4-flash` 会解析为 `deepseek-flash`，公司凭据继续匹配发布时的模型 ID。
+
 ## 定义与校验
 
 模型定义包含供应商和模型标识、展示名称、协议与地址、上下文窗口、输出上限、图片输入能力、thinking／effort 选项及协议兼容参数。目录中的认证环境变量名用于识别凭据配置，不包含实际 Key。
@@ -24,6 +42,12 @@
 Desktop 优先使用 v3，兼容 v2 和旧格式。定义版本与凭据版本分开处理，修改模型参数不等于重新领取 Key。管理员只改默认项时，客户端保留仍有效的用户选择；同步细节由云端接入手册维护。
 
 ## 选择与生效
+
+在「设置 → 模型设置 → 本地模型密钥」选择 Google 并保存个人 Key。聊天输入栏的模型菜单会出现 `gemini-4-hydrogen`、`gemini-4-argon` 和 `gemini-4-carbon`。桌面和指向同一数据目录的独立 agentcli 共用 `config/auth.json` 的 `google` 凭据。
+
+首次保存 Google Key 时默认选择 Hydrogen 和 high 推理档位。Argon 与 Carbon 的型号默认档位为 medium。三者均支持 low、medium、high，Hydrogen 另支持 xhigh。
+
+三款模型的输入和输出共享 1,048,576 tokens。Runtime 按型号预留输出空间，Hydrogen 的单次输出上限为 65,536，Argon 和 Carbon 为 32,768。发送请求时还会按估算的输入用量和剩余空间收紧输出预算。标题和摘要同时受各自的输出预算约束。[Google 模型配置](../../../config/llm/providers/google.json)
 
 每个会话保存自己的 provider、model、凭据来源和推理选项；全局偏好用于新会话。持久化顺序、并发版本与重启恢复见 [会话模型与 effort](../runtime/session-models.md)。
 

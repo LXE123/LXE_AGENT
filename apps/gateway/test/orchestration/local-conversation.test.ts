@@ -19,9 +19,9 @@ import {
   RunHandle,
   SessionScheduler,
   type RuntimePort,
+  type RoutedSteeringMessage,
   type SchedulerJobStateEvent,
 } from "../../src/orchestration/scheduler";
-import { SessionRuntimeState } from "../../src/state/session-state";
 import type { ResponseRouteRecord } from "../../src/state/models";
 import { testWorkspace } from "../workspace";
 
@@ -55,14 +55,14 @@ class RecordingRuntime implements RuntimePort {
   readonly cancelled: string[] = [];
   async startTurn(job: AgentJob): Promise<void> { this.started.push(job); }
   async cancelTurn(handle: RunHandle): Promise<void> { this.cancelled.push(handle.jobId); }
-  async steerTurn(): Promise<void> {}
+  readonly steered: RoutedSteeringMessage[] = [];
+  async steerTurn(_handle: RunHandle, message: RoutedSteeringMessage): Promise<void> { this.steered.push(message); }
 }
 
 class MemoryStorage implements LocalConversationStorage {
   readonly sessions = new Map<string, { session_id: string; blank?: boolean; source: JsonObject; workspace: WorkspaceContext }>();
   readonly ensured: SessionWorkspaceRequest[] = [];
   readonly routes: JsonObject[] = [];
-  readonly pending: JsonObject[] = [];
 
   async ensureSession(request: SessionWorkspaceRequest): Promise<void> {
     this.ensured.push(request);
@@ -74,7 +74,6 @@ class MemoryStorage implements LocalConversationStorage {
   }
   async upsertResponseRoute(request: JsonObject): Promise<void> { this.routes.push(request); }
   async getSession(sessionId: string) { return this.sessions.get(sessionId); }
-  async appendPendingEvent(_sessionId: string, event: JsonObject): Promise<void> { this.pending.push(event); }
   async getResponseRoute(): Promise<ResponseRouteRecord | undefined> { return undefined; }
 }
 
@@ -96,7 +95,6 @@ function harness(ids: string[]) {
   controller = new LocalConversationController({
     storage,
     scheduler,
-    runtimeState: new SessionRuntimeState(),
     defaultWorkspace: () => testWorkspace,
     onActivity: (activity) => activities.push(activity),
     onStreamBatch: (batch) => streamBatches.push(batch),
@@ -130,6 +128,62 @@ const externalJob = (sessionId: string): AgentJob => ({
 });
 
 describe("LocalConversationController", () => {
+  test("steers the specified desktop turn with text, an image and a file, then preserves each late submission", async () => {
+    const h = harness(["s", "first", "m1", "r1", "unused", "m2", "r2", "unused-again", "m3", "r3", "waiting", "m4", "r4"]);
+    await h.controller.send({ text: "start" });
+    const image = { type: "image", source: { type: "base64", media_type: "image/jpeg", data: "YWJj" } };
+    const photo = { attachment_id: "photo", name: "photo.png", size_bytes: 3, media_type: "image/png", path: "/private/photo", image_block: image };
+    const file = { attachment_id: "pdf", name: "source.pdf", size_bytes: 4, media_type: "application/pdf", path: "/private/source" };
+    const send = (text: string, clientId: string, attachments: (typeof photo | typeof file)[]) =>
+      h.controller.send({ session_id: "s", steer_turn_id: "first", text, client_message_id: clientId, attachments });
+    const first = send("compare", "client2", [photo, file]);
+    const retry = send("compare", "client2", [photo, file]);
+    expect(await first).toMatchObject({ turn_id: "first", state: "steered" });
+    expect(await retry).toEqual(await first);
+    expect(h.runtime.steered).toHaveLength(1);
+    expect(await send("", "client3", [file])).toMatchObject({ turn_id: "first", state: "steered" });
+    expect(h.runtime.started).toHaveLength(1);
+    expect(h.runtime.steered[0]?.user_content_blocks).toMatchObject([
+      { type: "local_file", turn_id: "first", attachment_id: "photo" }, image,
+      { type: "local_file", turn_id: "first", attachment_id: "pdf" }, { type: "text", text: "compare" },
+    ]);
+    await h.controller.send({ session_id: "s", text: "already queued" });
+    const activity = JSON.stringify(h.controller.activity("s"));
+    expect(activity).not.toContain("/private/");
+    expect(activity).not.toContain("YWJj");
+    h.scheduler.handleRuntimeEvent({ kind: "runtime.turn.completed", run_id: "first",
+      payload: { session_id: "s", status: "completed", remaining_steering: h.runtime.steered.map(message => ({ ...message })) } });
+    await tick();
+    const fallback = h.runtime.started[1]!;
+    expect(fallback).toMatchObject({ message_id: "m2", response_route_id: "r2", raw_data: { client_message_id: "client2" } });
+    expect(fallback.user_content_blocks).toMatchObject([
+      { turn_id: fallback.job_id, attachment_id: "photo" }, image, { turn_id: fallback.job_id, attachment_id: "pdf" }, { text: "compare" },
+    ]);
+    expect(h.controller.activity("s")).toMatchObject({ active: { client_message_id: "client2" },
+      queued: [{ client_message_id: "client3", text: "", attachments: [{ attachment_id: "pdf" }] }, { turn_id: "waiting" }] });
+  });
+
+  test("stopping cancels accepted steering and queues newly submitted messages even with a stale turn id", async () => {
+    const h = harness(["s", "old", "m1", "r1", "unused", "m2", "r2", "next", "m3", "r3", "last", "m4", "r4"]);
+    await h.controller.send({ text: "original" });
+    const send = (text: string) => h.controller.send({ session_id: "s", text, client_message_id: text, steer_turn_id: "old" });
+    expect((await send("before stop")).state).toBe("steered");
+    await h.controller.stop("s", "old");
+    expect(h.controller.activity("s").active?.state).toBe("stopping");
+    expect(await send("during stop")).toMatchObject({ state: "queued", turn_id: "next" });
+    expect(h.runtime.started.map(job => job.job_id)).toEqual(["old"]);
+    h.scheduler.handleRuntimeEvent({ kind: "runtime.turn.completed", run_id: "old",
+      payload: { session_id: "s", status: "cancelled", remaining_steering: h.runtime.steered.map(item => ({ ...item })) } });
+    await tick();
+    expect(h.runtime.started.map(job => job.user_input)).toEqual(["original", "during stop"]);
+    expect(await send("after stop")).toMatchObject({ state: "queued", turn_id: "last" });
+    expect(h.runtime.steered.map(message => message.text)).toEqual(["before stop"]);
+    h.scheduler.handleRuntimeEvent({ kind: "runtime.turn.completed", run_id: "next",
+      payload: { session_id: "s", status: "completed" } });
+    await tick();
+    expect(h.runtime.started.map(job => job.user_input)).toEqual(["original", "during stop", "after stop"]);
+  });
+
   test("applies desktop deltas to canonical activity without publishing full activity frames", async () => {
     const h = harness(["session-1", "turn-1", "message-1", "route-1"]);
     await h.controller.send({ text: "hello" });
@@ -312,7 +366,7 @@ describe("LocalConversationController", () => {
   });
 
   test("stops an active desktop turn without clearing work submitted by another entry", async () => {
-    const h = harness(["turn-1", "message-1", "route-1", "pending-event", "pending-job"]);
+    const h = harness(["turn-1", "message-1", "route-1"]);
     h.storage.sessions.set("session-1", {
       session_id: "session-1",
       source: { platform: "feishu", chat_id: "chat-1" },
@@ -333,7 +387,6 @@ describe("LocalConversationController", () => {
       cleared_turn_ids: [],
     });
     expect(h.runtime.cancelled).toEqual(["turn-1"]);
-    expect(h.storage.pending).toHaveLength(0);
 
     expect(h.scheduler.handleRuntimeEvent({
       kind: "runtime.turn.completed",
@@ -398,6 +451,7 @@ describe("LocalConversationController", () => {
           name: "read",
           title: "Read",
           detail: "/private/var/artifacts/report.json not found",
+          input_block: { language: "json", content: '{"path":"report.json","limit":5}' },
           icon_token: "file-link-text_outlined",
           status: "running",
           duration_ms: 0,
@@ -421,6 +475,7 @@ describe("LocalConversationController", () => {
             icon_token: "file-link-text_outlined",
             status: "success",
             duration_ms: 10,
+            input_block: { language: "json", content: '{"path":"report.json","limit":5}' },
             result_block: { language: "text", content: "result" },
           },
         }],
@@ -454,12 +509,13 @@ describe("LocalConversationController", () => {
     expect(activity.active?.stream?.process_parts.map((part) => part.part_id)).toEqual(["part-1", "part-2"]);
     expect(activity.active?.stream?.process_parts[1]).toEqual(expect.objectContaining({
       type: "tool",
-      tool_step: expect.objectContaining({ result_block: { language: "text", content: "result" } }),
+      tool_step: expect.objectContaining({ input_block: { language: "json", content: '{"path":"report.json","limit":5}' }, result_block: { language: "text", content: "result" } }),
     }));
     // The reader owns this filesystem: a path stays whole, so it reads the same
     // live as in history and an error keeps saying which file it was about.
     expect(activity.active?.stream?.tool_steps[0]?.detail)
       .toBe("/private/var/artifacts/report.json not found");
+    expect(activity.active?.stream?.tool_steps[0]?.input_block?.content).toContain('"limit":5');
     // Routing identifiers are still not the renderer's business.
     expect(JSON.stringify(activity)).not.toContain("secret-route");
     // A stream emit's own `files` field is not a delivery channel: only an
@@ -662,8 +718,6 @@ describe("LocalConversationController", () => {
     await tick();
     expect(h.controller.activity("session-1").active?.user_persisted_at).toBe(0);
 
-    // The runtime prefixes pending system events onto the stored user message,
-    // so persistence is signalled by the event, never by matching text.
     h.controller.handleAgentEvent({
 
       type: "session.changed",
@@ -768,4 +822,39 @@ test("failed blank admission preserves retry and never starts a model turn", asy
   await h.controller.send({ session_id: "blank", text: "retry me" });
   expect(h.runtime.started).toHaveLength(1);
   h.controller.dispose();
+});
+
+test("scheduled independent rounds always use their persisted fresh IDs, while reused rounds cannot join a busy chat", async () => {
+  const h=harness(["message1","route1","message2","route2","message3","route3"]);
+  try {
+    h.storage.sessions.set("blank",{session_id:"blank",blank:true,source:{platform:"desktop"},workspace:testWorkspace});
+    const first=await h.controller.send({text:"scheduled"},{id:"plan",session_id:"new-1",turn_id:"turn-1",fresh:true,assertCurrent(){}});
+    const second=await h.controller.send({text:"scheduled"},{id:"plan",session_id:"new-2",turn_id:"turn-2",fresh:true,assertCurrent(){}});
+    expect([first.session_id,second.session_id]).toEqual(["new-1","new-2"]);
+    expect(h.storage.sessions.get("blank")?.blank).toBe(true);
+    expect(h.runtime.started.map(job=>job.job_id)).toEqual(["turn-1","turn-2"]);
+    await expect(h.controller.send({session_id:"new-1",text:"reuse"},{id:"reuse",session_id:"new-1",turn_id:"turn-3",fresh:false,assertCurrent(){}})).rejects.toThrow("使用中");
+    expect(h.controller.activity("new-1").queued).toHaveLength(0);
+  } finally {h.controller.dispose();}
+});
+
+test("stopping a turn suppresses its continuation but allows the next scheduled turn after settlement", async () => {
+  const h = harness(["turn", "message", "route", "busy-message", "busy-route", "rejected-message", "rejected-route", "next-message", "next-route"]);
+  h.storage.sessions.set("chat", { session_id: "chat", source: { platform: "desktop" }, workspace: testWorkspace });
+  try {
+    await h.controller.send({ session_id: "chat", text: "manual turn" });
+    await h.controller.stop("chat", "turn");
+    const next = { id: "plan", session_id: "chat", turn_id: "next", fresh: false, assertCurrent() {} };
+    await expect(h.controller.send({ session_id: "chat", text: "still stopping" }, next)).rejects.toThrow("使用中");
+    h.scheduler.handleRuntimeEvent({ kind: "runtime.turn.completed", run_id: "turn",
+      payload: { session_id: "chat", job_id: "turn", status: "cancelled" } });
+    let checks = 0;
+    await expect(h.controller.send({ session_id: "chat", text: "revoked plan" }, { ...next,
+      assertCurrent() { if (++checks === 2) throw new Error("fixture paused during admission"); },
+    })).rejects.toThrow("paused during admission");
+    await h.controller.send({ session_id: "chat", text: "next scheduled turn" }, next);
+    expect(h.runtime.started.map(job => job.job_id)).toEqual(["turn", "next"]);
+    await expect(h.controller.stop("chat", "turn")).rejects.toThrow("no longer active");
+    expect(h.runtime.cancelled).toEqual(["turn"]);
+  } finally { h.controller.dispose(); }
 });

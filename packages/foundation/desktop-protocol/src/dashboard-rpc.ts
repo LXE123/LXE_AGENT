@@ -1,3 +1,5 @@
+import { validTeamSkillId, validTeamVersion, parseTeamInstallTicket, type TeamInstallTicket, type TeamInstallResult, type TeamUninstallTarget, type TeamUseTarget } from "./team-skills";
+import { AUTOMATION_OPERATIONS, parseAutomationCall, type AutomationRpcSpec, type AutomationOperation } from "./automations";
 import { parsePermissionMode, type PermissionMode, type PendingApproval, type ApprovalDecision } from "@lxe/protocol";
 export type { PermissionMode, PendingApproval, ApprovalDecision } from "@lxe/protocol";
 import type { DesktopStreamMutation, DisplayMetrics, ToolStep, TurnProcessPart } from "@lxe/protocol";
@@ -26,6 +28,7 @@ export type ThinkingStatePayload = {
 
 export type ModelOptionPayload = {
   model: string;
+  display_name?: string;
   thinking_request_style: string;
   thinking_levels: string[];
   thinking_level_labels: Record<string, string>;
@@ -115,6 +118,7 @@ export type SessionMessage = {
 };
 
 export type SessionTurnDisplayPayload = {
+  forkable?: boolean;
   turn_id: string;
   status: "completed" | "cancelled" | "error" | null;
   elapsed_ms: number | null;
@@ -156,6 +160,7 @@ export type MessagesPagePayload = {
 };
 
 export type SessionDetailPayload = {
+  has_forkable_turn?: boolean;
   context_display?: import("@lxe/protocol").ContextDisplaySnapshot | null;
   context_reset_at?: number;
   latest_turn_usage?: import("@lxe/protocol").ContextDisplayUsage | null;
@@ -186,8 +191,17 @@ export type DesktopConversationStreamPayload = {
   display_metrics: DisplayMetrics;
 };
 
+export type DesktopSteeringInput = {
+  client_message_id: string;
+  message_id: string;
+  text: string;
+  attachments?: DesktopInputAttachmentPayload[];
+  created_at: number;
+};
+
 /** Persistence timestamps are informational; display handoff uses message identity. */
 export type DesktopConversationTurnPayload = {
+  steering?: DesktopSteeringInput[];
   turn_id: string;
   message_id: string;
   client_message_id?: string;
@@ -232,7 +246,7 @@ export type DesktopConversationSendPayload = {
   message_id: string;
   client_message_id?: string;
   created: boolean;
-  state: "running" | "queued";
+  state: "running" | "queued" | "steered";
 };
 
 export type DesktopConversationStopPayload = {
@@ -352,19 +366,42 @@ export type ToolPayload = {
   connector_name: string;
 };
 
+export type McpServerAddInput =
+  | { name: string; transport: "stdio"; command: string; args?: string[]; env?: Record<string, string>; cwd?: string }
+  | { name: string; transport: "streamable-http"; url: string; headers?: Record<string, string>;
+      env_headers?: Record<string, string>; bearer_token_env_var?: string };
+
+/** Host-defined connection and description; enabled is used only when adding a missing entry. */
+export type McpServerPreset = McpServerAddInput & { enabled: boolean; connector_description?: string };
+
+export function parseMcpServerPresets(value: unknown): McpServerPreset[] {
+  if (!Array.isArray(value)) return rpcError("MCP presets must be an array");
+  const names = new Set<string>();
+  return value.map(raw => {
+    const input = objectValue(raw, "MCP preset");
+    const { enabled, connector_description, ...definition } = input;
+    const description = textValue(connector_description, "MCP preset.connector_description", { optional: true });
+    const preset = {
+      ...parseMcpServerAdd(definition),
+      enabled: booleanValue(enabled, "MCP preset.enabled"),
+      ...(description && { connector_description: description }),
+    };
+    const namespace = preset.name.replaceAll("-", "_");
+    if (names.has(namespace)) return rpcError(`Duplicate MCP preset namespace: ${namespace}`);
+    names.add(namespace);
+    return preset;
+  });
+}
+
 export type McpServerPayload = {
   name: string;
   enabled: boolean;
   transport: string;
-  status: string;
-  tool_count: number;
-  error: string;
   server_title: string;
   connector_id: string;
   connector_name: string;
   connector_description: string;
   exposure: string;
-  tools: Array<{ rawName: string; modelName: string }>;
 };
 
 export type ToolsetPayload = {
@@ -372,12 +409,9 @@ export type ToolsetPayload = {
   label: string;
   enabled: boolean;
   tools: ToolPayload[];
-  servers?: McpServerPayload[];
 };
 
-export type McpServerListPayload = ApiList<McpServerPayload> & {
-  tool_total: number;
-};
+export type McpServerListPayload = ApiList<McpServerPayload>;
 
 export type ChannelHealthPayload = {
   ready?: boolean;
@@ -480,7 +514,15 @@ export interface WorkspaceSummaryPayload {
   last_active_at: number;
 }
 
-export interface DashboardRpcSpec {
+export interface DashboardRpcSpec extends AutomationRpcSpec {
+  "titles.generate": {
+    input: { text: string; session_id?: string; model?: { provider: string; model: string; credential_source: "local" | "cloud" } };
+    result: { title: string };
+  };
+  "sessions.turn.lookup": {
+    input: { session_id: string; turn_id: string };
+    result: { state: import("@lxe/protocol/session-status").SessionRunPhase | "missing" };
+  };
   "sessions.create": {
     input: { workspace_id: string };
     result: SessionPayload;
@@ -508,13 +550,14 @@ export interface DashboardRpcSpec {
     result: SessionListPayload;
   };
   "sessions.detail": {
-    input: { session_id: string; message_limit?: number; message_before?: string; message_after?: string };
+    input: { session_id: string; message_limit?: number; message_before?: string; message_after?: string; message_turn_id?: string };
     result: SessionDetailPayload;
   };
   "sessions.execTasks": {
     input: { session_id: string };
     result: { items: BackgroundTaskChangedPayload[] };
   };
+  "sessions.fork": { input: { session_id: string; turn_id?: string }; result: SessionPayload };
   "sessions.rename": { input: { session_id: string; title: string }; result: SessionPayload };
   "sessions.pin": {
     input: { session_id: string; pinned: boolean };
@@ -525,7 +568,7 @@ export interface DashboardRpcSpec {
     result: { session_id: string; deleted: true };
   };
   "sessions.send": {
-    input: { session_id?: string; directory?: string; text: string; attachment_ids?: string[]; client_message_id?: string };
+    input: { session_id?: string; directory?: string; text: string; attachment_ids?: string[]; client_message_id?: string; steer_turn_id?: string };
     result: DesktopConversationSendPayload;
   };
   "sessions.stop": {
@@ -563,6 +606,10 @@ export interface DashboardRpcSpec {
     input: { session_id: string };
     result: WorkspaceReloadPayload;
   };
+  "skills.team.versions": { input: { ids: string[] }; result: Record<string, string> };
+  "skills.team.uninstallTarget": { input: { id: string; version: string }; result: TeamUninstallTarget };
+  "skills.team.useTarget": { input: { id: string }; result: TeamUseTarget };
+  "skills.team.install": { input: { ticket: TeamInstallTicket; replaceLocalName?: string }; result: TeamInstallResult };
   "skills.user.list": { input: DashboardRpcEmptyInput; result: ApiList<UserSkillPayload> };
   "skills.user.content": { input: { id: string; path?: string }; result: UserSkillContentPayload };
   "skills.user.setEnabled": { input: { id: string; version: string; enabled: boolean }; result: UserSkillPayload };
@@ -575,6 +622,7 @@ export interface DashboardRpcSpec {
   };
   "commands.list": { input: DashboardRpcEmptyInput; result: ApiList<CliCommandPayload> };
   "toolsets.list": { input: DashboardRpcEmptyInput; result: ApiList<ToolsetPayload> };
+  "mcp.servers.add": { input: McpServerAddInput; result: { name: string } };
   "mcp.servers.list": { input: DashboardRpcEmptyInput; result: McpServerListPayload };
   "mcp.servers.update": { input: { name: string; enabled: boolean }; result: McpServerPayload };
   "channels.health": { input: DashboardRpcEmptyInput; result: ChannelHealthList };
@@ -585,10 +633,10 @@ export interface DashboardRpcSpec {
   "models.list": { input: DashboardRpcEmptyInput; result: ApiList<ModelPayload> };
   "models.current": { input: { session_id?: string }; result: ModelPayload };
   "models.update": {
-    input: { provider: string; model?: string; credential_source?: "local" | "cloud"; session_id?: string; selection_version?: number };
+    input: { provider: string; model?: string; credential_source?: "local" | "cloud"; session_id?: string; selection_version?: number; remember_default?: boolean };
     result: ModelMutationPayload;
   };
-  "models.thinking.update": { input: { level: string; session_id?: string; selection_version?: number }; result: ModelMutationPayload };
+  "models.thinking.update": { input: { level: string; session_id?: string; selection_version?: number; remember_default?: boolean }; result: ModelMutationPayload };
 }
 
 export type DashboardRpcOperation = keyof DashboardRpcSpec;
@@ -604,7 +652,7 @@ export type DashboardRpcResult<O extends DashboardRpcOperation> =
 
 export type AgentDashboardRpcOperation = Exclude<
   DashboardRpcOperation,
-  "commands.list" | "channels.health" | "sessions.send" | "sessions.stop" | "sessions.activity"
+  AutomationOperation | "commands.list" | "channels.health" | "sessions.send" | "sessions.stop" | "sessions.activity"
     | "sessions.status.list" | "sessions.status.ack"
     | "sessions.file.open" | "sessions.file.reveal" | "sessions.attachment.open" | "sessions.attachment.preview" | "sessions.image_view.preview"
 >;
@@ -711,6 +759,9 @@ const emptyInput = (input: Record<string, unknown>, operation: string): Dashboar
 };
 
 const modelSelectionScope = (input: Record<string, unknown>, operation: string) => {
+  if (input.remember_default !== undefined && input.session_id === undefined) {
+    throw new DashboardRpcError("invalid_request", `${operation}.remember_default requires a session`);
+  }
   if (input.selection_version !== undefined && (input.session_id === undefined
     || !Number.isSafeInteger(input.selection_version) || Number(input.selection_version) < 0)) {
     throw new DashboardRpcError("invalid_request", `${operation}.selection_version requires a session and a nonnegative integer`);
@@ -718,8 +769,48 @@ const modelSelectionScope = (input: Record<string, unknown>, operation: string) 
   return {
     ...(input.session_id === undefined ? {} : { session_id: textValue(input.session_id, `${operation}.session_id`)! }),
     ...(input.selection_version === undefined ? {} : { selection_version: Number(input.selection_version) }),
+    ...(input.remember_default === undefined ? {} : { remember_default: booleanValue(input.remember_default, `${operation}.remember_default`) }),
   };
 };
+
+function parseMcpServerAdd(input: Record<string, unknown>): McpServerAddInput {
+  const name = textValue(input.name, "name")!;
+  if (!/^[A-Za-z0-9_-]+$/.test(name)) return rpcError("Invalid MCP service name");
+  const envName = /^[A-Za-z_][A-Za-z0-9_]*$/;
+  const headerName = /^[A-Za-z0-9!#$%&'*+.^_`|~-]+$/;
+  function strings(field: string, keyPattern: RegExp, validValue: (s: string) => boolean) {
+    if (input[field] === undefined) return undefined;
+    const entries = Object.entries(objectValue(input[field], field));
+    return Object.fromEntries(entries.map(([key, value]) => {
+      if (!keyPattern.test(key) || typeof value !== "string" || !validValue(value)) return rpcError(`Invalid entry in ${field}`);
+      return [key, value] as const;
+    }));
+  }
+  if (input.transport === "stdio") {
+    exactKeys(input, ["name", "transport", "command", "args", "env", "cwd"], "mcp.servers.add");
+    const args = input.args;
+    if (args !== undefined && (!Array.isArray(args) || !args.every(arg => typeof arg === "string" && !arg.includes("\0")))) {
+      return rpcError("args must be an array of strings without NUL characters");
+    }
+    const command = textValue(input.command, "command")!;
+    const env = strings("env", envName, value => !value.includes("\0"));
+    const cwd = textValue(input.cwd, "cwd", { optional: true });
+    if (command.includes("\0") || cwd?.includes("\0")) return rpcError("MCP process paths cannot contain NUL characters");
+    return { name, transport: "stdio", command, ...(args && { args }), ...(env && { env }), ...(cwd && { cwd }) };
+  }
+  if (input.transport !== "streamable-http") return rpcError("Unsupported MCP transport");
+  exactKeys(input, ["name", "transport", "url", "headers", "env_headers", "bearer_token_env_var"], "mcp.servers.add");
+  const url = textValue(input.url, "url")!;
+  if (!URL.canParse(url) || !["https:", "http:"].includes(new URL(url).protocol)) return rpcError("Expected an HTTP or HTTPS service URL");
+  const token = textValue(input.bearer_token_env_var, "bearer_token_env_var", { optional: true });
+  if (token && !envName.test(token)) return rpcError("Invalid bearer token environment variable name");
+  const headers = strings("headers", headerName, value => !/[\r\n\0]/.test(value));
+  const envHeaders = strings("env_headers", headerName, value => envName.test(value));
+  const names = [...Object.keys(headers ?? {}), ...Object.keys(envHeaders ?? {}), ...(token ? ["authorization"] : [])].map(k => k.toLowerCase());
+  if (new Set(names).size !== names.length) return rpcError("Duplicate HTTP header");
+  return { name, transport: "streamable-http", url, ...(headers && { headers }), ...(envHeaders && { env_headers: envHeaders }),
+    ...(token && { bearer_token_env_var: token }) };
+}
 
 export function parseDashboardRpcCall(value: unknown): DashboardRpcCall {
   const call = objectValue(value, "Dashboard RPC call");
@@ -737,7 +828,30 @@ export function parseDashboardRpcCall(value: unknown): DashboardRpcCall {
     rpcError("Dashboard RPC input is too large");
   }
 
+  if (AUTOMATION_OPERATIONS.includes(operation as AutomationOperation)) {
+    try { return parseAutomationCall(String(operation), input); }
+    catch (error) { throw new DashboardRpcError("invalid_request", error instanceof Error ? error.message : String(error)); }
+  }
+
   switch (operation) {
+    case "titles.generate": {
+      exactKeys(input, ["text", "session_id", "model"], `${operation}.input`);
+      const text = textValue(input.text, `${operation}.text`)!;
+      if (text.length > 32768) return rpcError("titles.generate.text exceeds 32768 characters");
+      if (input.model !== undefined && input.session_id !== undefined) return rpcError("titles.generate accepts either model or session_id");
+      let model: DashboardRpcSpec["titles.generate"]["input"]["model"];
+      if (input.model !== undefined) {
+        const value = objectValue(input.model, "titles.generate.model");
+        exactKeys(value, ["provider", "model", "credential_source"], "titles.generate.model");
+        if (value.credential_source !== "local" && value.credential_source !== "cloud") return rpcError("Invalid title model credential_source");
+        model = { provider: textValue(value.provider, "provider")!, model: textValue(value.model, "model")!, credential_source: value.credential_source };
+      }
+      return { operation, input: { text, ...(model ? { model } : {}),
+        ...(input.session_id === undefined ? {} : { session_id: textValue(input.session_id, "session_id")! }) } };
+    }
+    case "sessions.turn.lookup":
+      exactKeys(input, ["session_id", "turn_id"], `${operation}.input`);
+      return { operation, input: { session_id: textValue(input.session_id, "session_id")!, turn_id: textValue(input.turn_id, "turn_id")! } };
     case "sessions.create":
     case "workspaces.delete":
       exactKeys(input, ["workspace_id"], `${operation}.input`);
@@ -777,8 +891,10 @@ export function parseDashboardRpcCall(value: unknown): DashboardRpcCall {
         offset: integerValue(input.offset, `${operation}.offset`, 0, 0, Number.MAX_SAFE_INTEGER),
       } };
     case "sessions.detail": {
-      exactKeys(input, ["session_id", "message_limit", "message_before", "message_after"], `${operation}.input`);
+      exactKeys(input, ["session_id", "message_limit", "message_before", "message_after", "message_turn_id"], `${operation}.input`);
       if (input.message_before !== undefined && input.message_after !== undefined) rpcError("before and after are mutually exclusive");
+      if (input.message_turn_id !== undefined && (input.message_before !== undefined || input.message_after !== undefined)) rpcError("turn and page cursors are mutually exclusive");
+      const messageTurn = textValue(input.message_turn_id, `${operation}.message_turn_id`, { optional: true });
       const messageAfter = textValue(input.message_after, `${operation}.message_after`, { optional: true });
       const messageBefore = textValue(input.message_before, `${operation}.message_before`, { optional: true });
       return { operation, input: {
@@ -786,8 +902,15 @@ export function parseDashboardRpcCall(value: unknown): DashboardRpcCall {
         message_limit: integerValue(input.message_limit, `${operation}.message_limit`, 10, 1, 200),
         ...(messageBefore === undefined ? {} : { message_before: messageBefore }),
         ...(messageAfter === undefined ? {} : { message_after: messageAfter }),
+        ...(messageTurn === undefined ? {} : { message_turn_id: messageTurn }),
       } };
     }
+    case "sessions.fork":
+      exactKeys(input, ["session_id", "turn_id"], `${operation}.input`);
+      return { operation, input: {
+        session_id: textValue(input.session_id, "session_id")!,
+        ...(input.turn_id === undefined ? {} : { turn_id: textValue(input.turn_id, "turn_id")! }),
+      } };
     case "sessions.rename":
       exactKeys(input, ["session_id", "title"], `${operation}.input`);
       return { operation, input: { session_id: textValue(input.session_id, `${operation}.session_id`)!, title: textValue(input.title, `${operation}.title`)! } };
@@ -801,9 +924,10 @@ export function parseDashboardRpcCall(value: unknown): DashboardRpcCall {
       exactKeys(input, ["session_id"], `${operation}.input`);
       return { operation, input: { session_id: textValue(input.session_id, `${operation}.session_id`)! } };
     case "sessions.send": {
-      exactKeys(input, ["session_id", "directory", "text", "attachment_ids", "client_message_id"], `${operation}.input`);
+      exactKeys(input, ["session_id", "directory", "text", "attachment_ids", "client_message_id", "steer_turn_id"], `${operation}.input`);
       if (input.session_id !== undefined && input.directory !== undefined) rpcError("Existing sessions cannot change workspace");
       const text = textValue(input.text, `${operation}.text`, { allowEmpty: true })!;
+      if (input.steer_turn_id !== undefined && !input.session_id) rpcError("Steering requires an existing session");
       const attachmentIds = attachmentIdsValue(input.attachment_ids, `${operation}.attachment_ids`);
       if (!text && !attachmentIds?.length) rpcError(`${operation} requires text or an attachment`);
       return { operation, input: {
@@ -813,6 +937,7 @@ export function parseDashboardRpcCall(value: unknown): DashboardRpcCall {
           : { session_id: textValue(input.session_id, `${operation}.session_id`)! }),
         text,
         ...(attachmentIds ? { attachment_ids: attachmentIds } : {}),
+        ...(input.steer_turn_id === undefined ? {} : { steer_turn_id: textValue(input.steer_turn_id, `${operation}.steer_turn_id`)! }),
         ...(input.client_message_id === undefined ? {} : { client_message_id: textValue(input.client_message_id, `${operation}.client_message_id`)! }),
       } };
     }
@@ -877,6 +1002,25 @@ export function parseDashboardRpcCall(value: unknown): DashboardRpcCall {
     case "models.current":
       exactKeys(input, ["session_id"], `${operation}.input`);
       return { operation, input: input.session_id === undefined ? {} : { session_id: textValue(input.session_id, `${operation}.session_id`)! } };
+    case "skills.team.versions":
+      exactKeys(input, ["ids"], operation);
+      if (!Array.isArray(input.ids) || input.ids.length > 100 || !input.ids.every(validTeamSkillId)) return rpcError("Invalid team skill IDs");
+      return { operation, input: { ids: input.ids } };
+    case "skills.team.uninstallTarget":
+      exactKeys(input, ["id", "version"], operation);
+      if (!validTeamSkillId(input.id) || !validTeamVersion(input.version)) return rpcError("Invalid team skill ID or installed version");
+      return { operation, input: { id: input.id, version: input.version } };
+    case "skills.team.useTarget":
+      exactKeys(input, ["id"], operation);
+      if (!validTeamSkillId(input.id)) return rpcError("Invalid team skill ID");
+      return { operation, input: { id: input.id } };
+    case "skills.team.install": {
+      exactKeys(input, ["ticket", "replaceLocalName"], operation);
+      const ticket = parseTeamInstallTicket(input.ticket);
+      if (input.replaceLocalName === undefined) return { operation, input: { ticket } };
+      if (typeof input.replaceLocalName !== "string" || !input.replaceLocalName || input.replaceLocalName.length > 160) return rpcError("Invalid local skill name");
+      return { operation, input: { ticket, replaceLocalName: input.replaceLocalName } };
+    }
     case "skills.user.list":
     case "commands.list":
     case "toolsets.list":
@@ -904,6 +1048,8 @@ export function parseDashboardRpcCall(value: unknown): DashboardRpcCall {
         name: textValue(input.name, `${operation}.name`)!,
         path: textValue(input.path, `${operation}.path`)!,
       } };
+    case "mcp.servers.add":
+      return { operation, input: parseMcpServerAdd(input) };
     case "mcp.servers.update":
       exactKeys(input, ["name", "enabled"], `${operation}.input`);
       return { operation, input: {
@@ -922,7 +1068,7 @@ export function parseDashboardRpcCall(value: unknown): DashboardRpcCall {
         days: integerValue(input.days, `${operation}.days`, 30, 1, 365),
       } };
     case "models.update":
-      exactKeys(input, ["provider", "model", "credential_source", "session_id", "selection_version"], `${operation}.input`);
+      exactKeys(input, ["provider", "model", "credential_source", "session_id", "selection_version", "remember_default"], `${operation}.input`);
       if (input.credential_source !== undefined
         && input.credential_source !== "local"
         && input.credential_source !== "cloud") {
@@ -935,7 +1081,7 @@ export function parseDashboardRpcCall(value: unknown): DashboardRpcCall {
         ...(input.credential_source === undefined ? {} : { credential_source: input.credential_source }),
       } };
     case "models.thinking.update":
-      exactKeys(input, ["level", "session_id", "selection_version"], `${operation}.input`);
+      exactKeys(input, ["level", "session_id", "selection_version", "remember_default"], `${operation}.input`);
       return { operation, input: { level: textValue(input.level, `${operation}.level`)!, ...modelSelectionScope(input, operation) } };
     default:
       return rpcError(`unsupported Dashboard RPC operation: ${operation}`);
@@ -944,7 +1090,7 @@ export function parseDashboardRpcCall(value: unknown): DashboardRpcCall {
 
 export function parseAgentDashboardRpcCall(value: unknown): AgentDashboardRpcCall {
   const call = parseDashboardRpcCall(value);
-  if (call.operation === "commands.list"
+  if (call.operation === "automations.list" || call.operation === "automations.save" || call.operation === "automations.status" || call.operation === "automations.delete" || call.operation === "automations.run" || call.operation === "automations.runs" || call.operation === "automations.preview" || call.operation === "automations.editing" || call.operation === "commands.list"
     || call.operation === "channels.health"
     || call.operation === "sessions.send"
     || call.operation === "sessions.stop"

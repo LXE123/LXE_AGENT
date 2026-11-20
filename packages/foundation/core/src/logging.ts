@@ -1,7 +1,8 @@
 import { AsyncLocalStorage } from "node:async_hooks";
-import { appendFileSync, existsSync, mkdirSync, readdirSync, rmdirSync, rmSync, statSync } from "node:fs";
-import { basename, dirname, join, resolve } from "node:path";
+import { appendFileSync, lstatSync, mkdirSync, readdirSync, realpathSync, rmdirSync, rmSync } from "node:fs";
+import { basename, dirname, join, relative, resolve } from "node:path";
 import { envFlag, envInteger, envText, type Environment } from "./env";
+import { resolveUnlinkedDirectory } from "./workspace-paths";
 
 export type LogLevel = "debug" | "info" | "warn" | "error";
 export type LogFields = Readonly<Record<string, unknown>>;
@@ -28,7 +29,8 @@ export interface Logger {
 }
 
 export interface LoggingController {
-  readonly filePath?: string;
+  /** Today's file; a long-running process moves to a new dated directory each day. */
+  readonly filePath?: string | undefined;
   readonly status: LoggingStatus;
   close(): Promise<void>;
 }
@@ -53,6 +55,8 @@ export interface ConfigureLoggingOptions {
   projectRoot: string;
   stateRoot?: string;
   fileName?: string;
+  /** Commands can reserve stdout/stderr for results while retaining file diagnostics. */
+  consoleEnabled?: boolean;
   environment: Environment;
   onStatusChange?: (status: LoggingStatus) => void;
 }
@@ -92,8 +96,8 @@ const SAFE_ERROR_FIELDS = new Set([
 ]);
 const SENSITIVE_KEYS = new Set([
   "authorization", "proxyauthorization", "cookie", "setcookie", "token", "accesstoken",
-  "refreshtoken", "sessiontoken", "apikey", "xapikey", "secret", "appsecret", "clientsecret",
-  "password", "signature", "redactedthinking",
+  "refreshtoken", "sessiontoken", "apikey", "xapikey", "xgoogapikey", "secret", "appsecret", "clientsecret",
+  "password", "signature", "redactedthinking", "thoughtsignature", "thinkingsignature", "textsignature",
 ]);
 
 let processSink: ProcessLoggingSink | undefined;
@@ -192,8 +196,9 @@ const sanitizeValue = (
     if (value instanceof Set) return sanitizeValue([...value].slice(0, policy.maxItems), key, depth + 1, seen, policy);
     const entries = Object.entries(value as Record<string, unknown>);
     const result: Record<string, unknown> = {};
+    const inlineData = normalizedKey(key) === "inlinedata";
     for (const [childKey, childValue] of entries.slice(0, policy.maxItems)) {
-      result[childKey] = sanitizeValue(childValue, childKey, depth + 1, seen, policy);
+      result[childKey] = inlineData && childKey === "data" ? "***" : sanitizeValue(childValue, childKey, depth + 1, seen, policy);
     }
     if (entries.length > policy.maxItems) result._omitted_fields = entries.length - policy.maxItems;
     return result;
@@ -280,6 +285,59 @@ const dateValue = (name: string): number | undefined => {
 
 const failureText = (error: unknown): string => truncate(error instanceof Error ? error.message : String(error), 1_000);
 
+/**
+ * `logs/<name>/YYYYMMDD/` trees removed by retention. Python's
+ * `shared/log_retention.py` runs the same cleanup for lxeskill and keeps the same list.
+ */
+export const MANAGED_DATED_LOG_DIRECTORIES = [
+  "agent_traces",
+  "sse_wire_traces",
+  "feishu_msg",
+  "runtime",
+  "browser_auth_service",
+  "ziniao_traces",
+] as const;
+
+/**
+ * Names inside a managed root. A root that is a symbolic link or Windows junction
+ * (lstat reports both as links, not directories) is skipped so cleanup never walks
+ * into a directory outside the data root.
+ */
+const managedRootNames = (stateRoot: string, root: string, result: RetentionResult): string[] => {
+  try {
+    const directory = resolveUnlinkedDirectory(stateRoot, root);
+    return directory ? readdirSync(directory) : [];
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
+      result.failures.push({ path: root, error: failureText(error) });
+    }
+    return [];
+  }
+};
+
+/** Removes one real (unlinked) entry whose real path is still directly inside `root`. */
+const removeManagedEntry = (
+  stateRoot: string,
+  root: string,
+  name: string,
+  kind: "directory" | "file",
+  result: RetentionResult,
+): void => {
+  const entry = resolve(root, name);
+  try {
+    const directory = resolveUnlinkedDirectory(stateRoot, root);
+    if (!directory) return;
+    const target = join(directory, name);
+    const stats = lstatSync(target);
+    if (kind === "directory" ? !stats.isDirectory() : !stats.isFile()) return;
+    if (relative(target, realpathSync.native(target)) !== "") return;
+    rmSync(target, { recursive: kind === "directory", force: true });
+    result.deleted.push(entry);
+  } catch (error) {
+    result.failures.push({ path: entry, error: failureText(error) });
+  }
+};
+
 const cleanupRetention = (
   stateRoot: string,
   environment: Environment,
@@ -288,66 +346,30 @@ const cleanupRetention = (
   const result: RetentionResult = { deleted: [], failures: [] };
   const retentionDays = envInteger(environment, "LOCAL_LOG_RETENTION_DAYS", 7, { min: 1 });
   const cutoff = new Date(today.getFullYear(), today.getMonth(), today.getDate() - (retentionDays - 1)).getTime();
-  const legacyAgentTraceRoot = resolve(stateRoot, "logs", "agent_traces");
-  const directoryRoots = [
-    legacyAgentTraceRoot,
-    resolve(stateRoot, "logs", "sse_wire_traces"),
-    resolve(stateRoot, "logs", "feishu_msg"),
-    resolve(stateRoot, "logs", "runtime"),
-  ];
-  for (const root of directoryRoots) {
-    if (!existsSync(root)) continue;
-    let names: string[];
-    try {
-      names = readdirSync(root);
-    } catch (error) {
-      result.failures.push({ path: root, error: failureText(error) });
-      continue;
-    }
-    for (const name of names) {
-      const entry = resolve(root, name);
+  for (const directory of MANAGED_DATED_LOG_DIRECTORIES) {
+    const root = resolve(stateRoot, "logs", directory);
+    for (const name of managedRootNames(stateRoot, root, result)) {
       const date = dateValue(name);
-      if (date === undefined || date >= cutoff) continue;
-      try {
-        if (statSync(entry).isDirectory()) {
-          rmSync(entry, { recursive: true, force: true });
-          result.deleted.push(entry);
-        }
-      } catch (error) {
-        result.failures.push({ path: entry, error: failureText(error) });
-      }
+      if (date !== undefined && date < cutoff) removeManagedEntry(stateRoot, root, name, "directory", result);
     }
   }
-  if (existsSync(legacyAgentTraceRoot)) {
-    try {
-      if (readdirSync(legacyAgentTraceRoot).length === 0) {
-        rmdirSync(legacyAgentTraceRoot);
-        result.deleted.push(legacyAgentTraceRoot);
-      }
-    } catch (error) {
+  const legacyAgentTraceRoot = resolve(stateRoot, "logs", "agent_traces");
+  try {
+    const directory = resolveUnlinkedDirectory(stateRoot, legacyAgentTraceRoot);
+    if (directory && readdirSync(directory).length === 0) {
+      rmdirSync(directory);
+      result.deleted.push(legacyAgentTraceRoot);
+    }
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
       result.failures.push({ path: legacyAgentTraceRoot, error: failureText(error) });
     }
   }
   const rawEventRoot = resolve(stateRoot, "logs", "feishu_raw_events");
-  if (!existsSync(rawEventRoot)) return result;
-  let names: string[];
-  try {
-    names = readdirSync(rawEventRoot);
-  } catch (error) {
-    result.failures.push({ path: rawEventRoot, error: failureText(error) });
-    return result;
-  }
-  for (const name of names) {
+  for (const name of managedRootNames(stateRoot, rawEventRoot, result)) {
     const match = /^(\d{8})\.jsonl$/.exec(name);
     const date = match ? dateValue(match[1]!) : undefined;
-    if (date === undefined || date >= cutoff) continue;
-    const entry = resolve(rawEventRoot, name);
-    try {
-      rmSync(entry, { force: true });
-      result.deleted.push(entry);
-    } catch (error) {
-      result.failures.push({ path: entry, error: failureText(error) });
-    }
+    if (date !== undefined && date < cutoff) removeManagedEntry(stateRoot, rawEventRoot, name, "file", result);
   }
   return result;
 };
@@ -471,8 +493,10 @@ export function configureLogging(options: ConfigureLoggingOptions): LoggingContr
   const overrides = loggerLevels(envText(environment, "LOG_LEVELS"));
   const enabled = envFlag(environment, "LOCAL_LOGS_ENABLED", false);
   const fileName = basename(String(options.fileName ?? "runtime.log").trim() || "runtime.log");
-  const filePath = enabled && fileName && ![".", ".."].includes(fileName)
-    ? resolve(stateRoot, "logs", "runtime", localDay(), fileName)
+  const dailyFilePath = (day: string): string => resolve(stateRoot, "logs", "runtime", day, fileName);
+  let currentDay = localDay();
+  let filePath = enabled && fileName && ![".", ".."].includes(fileName)
+    ? dailyFilePath(currentDay)
     : undefined;
   const retention = enabled
     ? cleanupRetention(stateRoot, environment)
@@ -507,29 +531,67 @@ export function configureLogging(options: ConfigureLoggingOptions): LoggingContr
       }));
     }
   };
+  const failSink = (error: unknown): void => {
+    fileUsable = false;
+    status.localFileEnabled = false;
+    status.disabledReason = "sink_failed";
+    status.lastError = failureText(error);
+    if (!sinkFailureReported) {
+      sinkFailureReported = true;
+      safeConsole("error", JSON.stringify({
+        timestamp: new Date().toISOString(), level: "error", logger: "logging",
+        message: "logging_sink_failed", file_path: filePath, error: status.lastError,
+      }));
+      notifyStatusChange();
+    }
+  };
+  const reportRetention = (retention: RetentionResult): void => {
+    const retentionLogger = createLogger("logging.retention");
+    if (retention.deleted.length > 0) retentionLogger.info("log_retention_completed", {
+      deleted_count: retention.deleted.length,
+      retention_days: envInteger(environment, "LOCAL_LOG_RETENTION_DAYS", 7, { min: 1 }),
+    });
+    for (const failure of retention.failures) retentionLogger.warn("log_retention_failed", failure);
+  };
+  /**
+   * A long-running process moves its file to the new day's directory and reruns
+   * retention once per day, so the active file is never in a directory retention removes.
+   * Retention runs after the current record so its own records are not nested inside it.
+   */
+  const rollOverDay = (): void => {
+    const day = localDay();
+    if (day === currentDay) return;
+    currentDay = day;
+    if (filePath) {
+      filePath = dailyFilePath(day);
+      status.filePath = filePath;
+      if (fileUsable) {
+        try {
+          mkdirSync(dirname(filePath), { recursive: true });
+        } catch (error) {
+          failSink(error);
+        }
+      }
+      notifyStatusChange();
+    }
+    const timer = setTimeout(() => {
+      if (!closed) reportRetention(cleanupRetention(stateRoot, environment));
+    }, 0);
+    timer.unref?.();
+  };
   const sink: ProcessLoggingSink = {
     write(level, logger, record, line) {
       if (closed) return;
+      if (enabled) rollOverDay();
       const override = overrideLevel(logger, overrides);
-      if (shouldWrite(level, consoleLevel, override)) {
+      if (options.consoleEnabled !== false && shouldWrite(level, consoleLevel, override)) {
         safeConsole("log", formatConsoleLine(record, consoleColors));
       }
       if (filePath && fileUsable && shouldWrite(level, fileLevel, override)) {
         try {
           appendFileSync(filePath, `${line}\n`, "utf8");
         } catch (error) {
-          fileUsable = false;
-          status.localFileEnabled = false;
-          status.disabledReason = "sink_failed";
-          status.lastError = failureText(error);
-          if (!sinkFailureReported) {
-            sinkFailureReported = true;
-            safeConsole("error", JSON.stringify({
-              timestamp: new Date().toISOString(), level: "error", logger: "logging",
-              message: "logging_sink_failed", file_path: filePath, error: status.lastError,
-            }));
-            notifyStatusChange();
-          }
+          failSink(error);
         }
       }
     },
@@ -539,14 +601,9 @@ export function configureLogging(options: ConfigureLoggingOptions): LoggingContr
     },
   };
   processSink = sink;
-  const retentionLogger = createLogger("logging.retention");
-  if (retention.deleted.length > 0) retentionLogger.info("log_retention_completed", {
-    deleted_count: retention.deleted.length,
-    retention_days: envInteger(environment, "LOCAL_LOG_RETENTION_DAYS", 7, { min: 1 }),
-  });
-  for (const failure of retention.failures) retentionLogger.warn("log_retention_failed", failure);
+  reportRetention(retention);
   return {
-    ...(filePath ? { filePath } : {}),
+    get filePath() { return filePath; },
     get status() { return statusSnapshot(status); },
     close: async () => sink.close(),
   };

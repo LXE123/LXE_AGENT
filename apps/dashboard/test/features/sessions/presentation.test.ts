@@ -11,11 +11,39 @@ const pending: PendingMessage = { pendingId: "client", sessionId: "s", text: "sa
 const turn = { turn_id: "turn", message_id: "server", client_message_id: "client", text: pending.text, created_at: 10, started_at: 10, settled_at: 20, user_persisted_at: 12, state: "completed" } as DesktopConversationTurnPayload;
 const stored: SessionMessage = { display_group_id: "g1", display_id: "g1:0", role: "user", client_message_id: "client", message_id: "server", content: pending.text, turn: {turn_id:"turn", status:"completed", elapsed_ms:10} };
 describe("unified conversation identity", () => {
+  test("keeps steering between the preceding and following responses, live and after reopen", () => {
+    const steering = { ...stored, client_message_id: "second", message_id: "m2", content: "new direction", source_reason: "steering" };
+    const answer = (id: string): SessionMessage => ({ ...stored, role: "assistant", id, content: [{ type: "text", text: id }] });
+    const history = [stored, answer("before"), steering, answer("after")];
+    const active = { ...turn, state: "running", steering: [{ client_message_id: "second", message_id: "m2", text: "new direction", created_at: 20 }],
+      stream: { display_metrics: { phase: "waiting_model" }, process_parts: ["before", "after"].map((id, index) => ({
+        type: "text", part_id: id + ":0", sequence: index + 1, text: id, status: "completed", presentation: index ? "final" : "process",
+      })) } } as DesktopConversationTurnPayload;
+    for (const turns of [[], [active]]) {
+      const rows = conversationRows(history, turns, []).filter(row => row.kind === "message");
+      expect(rows.map(row => row.id)).toEqual(["user:client", "before:0", "user:second", "after:0"]);
+    }
+    expect(conversationRows([stored], [active], [{ ...pending, pendingId: "second", steering: true, turnId: "turn" }])
+      .filter(row => row.id === "user:second").map(row => row.status)).toEqual(["steering"]);
+  });
+
   test("pending, activity and persistence share one user key for every arrival order", () => {
     for (const [messages, turns, sends] of [ [[], [], [pending]], [[], [turn], [pending]], [[stored], [], [pending]], [[stored], [turn], [pending]], [[stored], [turn], []] ] as [SessionMessage[], DesktopConversationTurnPayload[], PendingMessage[]][]) {
       expect(conversationRows(messages, turns, sends).filter(r=>r.message?.role === "user").map(r=>r.id)).toEqual(["user:client"]);
     }
     expect(conversationRows([], [], [pending, {...pending, pendingId:"other"}]).length).toBe(2);
+  });
+  test("only waiting user messages carry a queue label, including after history loads", () => {
+    const first = { ...turn, state: "queued" as const, started_at: 0, settled_at: 0 };
+    const next = { ...first, turn_id: "next", message_id: "next-server", client_message_id: "next-client", created_at: 11 };
+    const savedInput = { ...stored, created_at: pending.createdAt / 1000, turn: { turn_id: first.turn_id, status: null, elapsed_ms: null } };
+    for (const history of [[], [savedInput]]) {
+      const waiting = conversationRows(history, [first, next], [pending]);
+      expect(waiting.map(row => [row.id, row.status])).toEqual([["user:client", "queued"], ["user:next-client", "queued"]]);
+      const running = conversationRows(history, [{ ...first, state: "running" }, next], []);
+      expect(running.filter(row => row.status === "queued").map(row => row.id)).toEqual(["user:next-client"]);
+      expect(running.find(row => row.id === "status:turn")?.status).toBe("running");
+    }
   });
   test("failed sends stay visible; timestamps alone never retire a bubble", () => {
     expect(conversationRows([], [turn], [pending]).some(r=>r.id === "user:client")).toBe(true);
@@ -37,6 +65,29 @@ describe("unified conversation identity", () => {
     }
     const old = { ...hidden, source_reason: undefined };
     expect(conversationRows([old], [], []).some(row => row.message?.content === content)).toBe(true);
+  });
+  test("stopped turns expose one footer after persistence even when the last message is internal", () => {
+    const boundary: SessionMessage = { ...stored, display_group_id: "end", source_reason: "turn_aborted",
+      turn: { turn_id: "turn", status: "cancelled", elapsed_ms: 10, forkable: true } };
+    for (const live of [[], [{ ...turn, state: "cancelled" as const }]]) {
+      const rows = conversationRows([stored, boundary], live, []);
+      expect(rows.filter(row => row.answerMeta?.forkable)).toHaveLength(1);
+      expect(rows.at(-1)?.answerMeta?.forkable).toBe(true);
+    }
+    expect(conversationRows([stored], [], []).some(row => row.answerMeta?.forkable)).toBe(false);
+  });
+  test("failed text keeps its live block ID and remains a process row after reload", () => {
+    const failed: SessionMessage = { ...stored, id: "failed", role: "assistant", stopReason: "error",
+      source_reason: "assistant_partial", content: [{ type: "text", text: "prefix", contentIndex: 2 }] };
+    const live = { ...turn, stream: { process_parts: [
+      { type: "text", part_id: "failed:2", sequence: 1, text: "prefix", status: "error", presentation: "process" },
+    ], display_metrics: {} } } as DesktopConversationTurnPayload;
+    for (const turns of [[], [live]]) {
+      const rows = conversationRows([stored, failed], turns, []);
+      expect(rows.filter(row => row.id.startsWith("failed:")).map(row => [row.id, row.status, row.presentation]))
+        .toEqual([["failed:2", "error", "process"]]);
+      expect(rows.filter(row => row.answerMeta?.text)).toHaveLength(0);
+    }
   });
   test("streaming and persisted block identity and failed attempt order survive handoff", () => {
     const streaming = {...turn,stream:{display_metrics:{phase:"generating_answer"},process_parts:[

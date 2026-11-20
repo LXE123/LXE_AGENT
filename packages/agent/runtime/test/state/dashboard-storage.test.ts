@@ -13,7 +13,7 @@ afterEach(async () => {
   for (const root of roots.splice(0)) await removeTemporaryRoot(root);
 });
 
-test("old compaction events have identical indexed/direct markers without rewriting the transcript", async () => {
+test("old compaction events retain identical indexed/direct markers across the one-time node migration", async () => {
   const root = mkdtempSync(join(tmpdir(), "lxe-compaction-display-")); roots.push(root);
   const database = join(root, "agent.sqlite3");
   let store = new SqliteRuntimeStore(database);
@@ -41,11 +41,13 @@ test("old compaction events have identical indexed/direct markers without rewrit
     expect(indexed.messages.map(message => message.context_marker)).toEqual([
       undefined, { kind: "compaction", compacted_count: 255 }, { kind: "compaction" }, undefined, undefined, undefined, undefined,
     ]);
+    const migrated = readFileSync(path, "utf8");
+    expect(JSON.parse(migrated.split("\n")[0]!).version).toBe(3);
     const latest = await store.loadTranscriptDisplayPage("s", { limit: 5 });
     expect(latest.messages[0]?.context_marker).toEqual({ kind: "compaction" });
     await store.stop(); store = new SqliteRuntimeStore(database); await store.start();
     expect(fields((await store.loadTranscriptDisplayPage("s", { limit: 20 })).messages)).toEqual(fields(indexed.messages));
-    expect(readFileSync(path, "utf8")).toBe(original);
+    expect(readFileSync(path, "utf8")).toBe(migrated);
   } finally { await store.stop(); }
 });
 
@@ -155,7 +157,6 @@ describe("SqliteRuntimeStore dashboard queries", () => {
       name: "report.xlsx",
       ts: 101,
     });
-    await store.appendPendingEvent("delete-me", { event_id: "pending-1", job_id: "job-1", text: "wake" });
     await store.recordTurn("delete-me", {
       turn_id: "turn-delete", started_at: Date.now() / 1_000, status: "completed", elapsed_ms: 20,
       input_tokens: 2, output_tokens: 3, tool_calls: 1, api_calls: 1,
@@ -169,7 +170,6 @@ describe("SqliteRuntimeStore dashboard queries", () => {
     expect(await store.deleteSession("delete-me")).toBe(true);
     expect(await store.deleteSession("delete-me")).toBe(false);
     expect(await store.sessionDetail("delete-me", { limit: 10 })).toBeUndefined();
-    expect(await store.hasPendingEvents("delete-me")).toBe(false);
     expect(await store.resolveAttachment("delete-me", "attachment-1")).toBeUndefined();
     expect(await store.resolveArtifact("delete-me", "artifact-1")).toBeUndefined();
     expect(existsSync(transcriptPath)).toBe(false);
@@ -581,3 +581,24 @@ test("old sessions recover latest turn consumption separately from unknown occup
   expect((await store.sessionDetail("s",{limit:10}))?.latest_turn_usage).toBeNull();
   await store.stop();
 });
+
+// Forty durable transcript writes can exceed Bun's default five seconds on Windows.
+test("scheduled run navigation reads a bounded window starting at the requested historical turn", async () => {
+  const root=mkdtempSync(join(tmpdir(),"lxe-turn-window-")); roots.push(root);
+  const store=new SqliteRuntimeStore(join(root,"agent.sqlite3")); await store.start();
+  try {
+    await store.ensureSession({session_id:"s",source:{platform:"desktop"},workspace:testWorkspace});
+    for(let index=0;index<20;index++) {
+      await store.appendMessage("s",{role:"user",content:`prompt ${index}`} as RuntimeMessage,"turn_input",`t${index}`);
+      await store.appendMessage("s",{role:"assistant",content:`answer ${index}`} as RuntimeMessage,"runtime",`t${index}`);
+    }
+    const page=await store.loadTranscriptDisplayPage("s",{limit:2,turnId:"t3"});
+    expect(JSON.stringify(page.messages)).toContain("prompt 3"); expect(JSON.stringify(page.messages)).toContain("answer 3");
+    expect(JSON.stringify(page.messages)).not.toContain("prompt 19");
+    expect(page.page.has_previous).toBe(true); expect(page.page.has_next).toBe(true);
+    store.sessionStatus({action:"reconcile",owner:"boot",live:[]});
+    store.sessionStatus({action:"apply",owner:"boot",updates:[{session_id:"s",turn_id:"t3",state:"completed",event_version:1}]});
+    expect(store.lookupTurn("s","t3").state).toBe("completed");
+    expect(store.lookupTurn("other","t3").state).toBe("missing");
+  } finally {await store.stop();}
+}, 30_000);

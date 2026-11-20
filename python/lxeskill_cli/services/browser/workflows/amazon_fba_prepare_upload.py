@@ -6,13 +6,13 @@ from services.browser.workflows.amazon_fba_shipment_files import (
     fill_shipment_template_payload,
     prepare_upload_local_consignment_excel_payload,
 )
-from services.agent_cli.browser.amazon_common.region_switch import normalize_site_code, switch_region
-from services.agent_cli.browser.amazon_common.send_to_amazon import (
+from services.commands.browser.amazon_common.region_switch import normalize_site_code, switch_region
+from services.commands.browser.amazon_common.send_to_amazon import (
     download_template,
     open_send_to_amazon_upload_mode,
     upload_filled_template,
 )
-from services.agent_cli.browser.amazon_common.send_to_amazon_multi_box import advance_to_multi_box_entry
+from services.commands.browser.amazon_common.send_to_amazon_multi_box import advance_to_multi_box_entry
 from services.browser.models.protocol import bind_event_writer
 from services.browser.workflows.amazon_fba_common import (
     WorkflowBrowserSession,

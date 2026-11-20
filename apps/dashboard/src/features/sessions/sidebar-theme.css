@@ -1,20 +1,175 @@
 @import "../../shared/cds-theme.css";
 
-/* CDS purpose colors, scoped to the conversation list. Preserve its geometry,
-   typography and interaction behavior; these mappings are an LXE adaptation. */
+/* CDS semantic colors and comfortable density, scoped to the conversation list.
+   Geometry and type sizes are LXE choices, not recovered Claude measurements. */
 .app-sidebar.conversation-chrome-theme {
   --sidebar-bg: var(--cds-surface-nav);
   --sidebar-border: var(--cds-alpha-2);
   --sidebar-ink: var(--cds-ink);
   --sidebar-ink-soft: var(--cds-secondary);
+  --sidebar-label: color-mix(in srgb, var(--cds-secondary) 40%, var(--cds-muted));
   --sidebar-accent: var(--cds-accent);
   --sidebar-hover: color-mix(in srgb, var(--sidebar-bg) 95%, var(--sidebar-ink));
-  --sidebar-active: color-mix(in srgb, var(--sidebar-bg) 90%, var(--sidebar-ink));
-  /* Opaque fills also mask long titles behind the existing action-button fade. */
+  --sidebar-active: color-mix(in srgb, var(--sidebar-bg) 94%, var(--sidebar-ink));
   --sidebar-action-bg: var(--sidebar-hover);
   --sidebar-shadow: var(--shadow-strong);
   --focus-ring: var(--cds-accent);
+  --sidebar-row-height: 30px;
+  --sidebar-group-height: 30px;
+  --sidebar-row-pad: 8px;
+  --sidebar-icon-column: 16px;
+  padding-inline: 12px;
   color: var(--sidebar-ink-soft);
+}
+:root[data-theme="dark"] .app-sidebar.conversation-chrome-theme {
+  --sidebar-active: color-mix(in srgb, var(--sidebar-bg) 90%, var(--sidebar-ink));
+}
+.app-sidebar.conversation-chrome-theme .sidebar-list-header {
+  min-height: 40px;
+  padding-inline: var(--sidebar-row-pad) 2px;
+  font-size: 0.875rem;
+  font-weight: 600;
+}
+.app-sidebar.conversation-chrome-theme .sidebar-session-section {
+  margin-top: 8px;
+  /* The sidebar owns outer clipping; allow the scrollbar into its end padding. */
+  overflow: visible;
+}
+.app-sidebar.conversation-chrome-theme .workspace-index {
+  gap: 8px;
+}
+.app-sidebar.conversation-chrome-theme .session-new-button {
+  min-height: 40px;
+  flex-shrink: 0;
+  gap: 8px;
+  padding: 8px var(--sidebar-row-pad);
+  font-size: 0.8125rem;
+  font-weight: 400;
+}
+.app-sidebar.conversation-chrome-theme .workspace-index-heading {
+  min-height: 32px;
+  margin-top: 12px;
+  padding-inline: var(--sidebar-row-pad) 4px;
+  color: var(--sidebar-label);
+  font-size: 0.75rem;
+  font-weight: 400;
+}
+.app-sidebar.conversation-chrome-theme .workspace-group {
+  margin-bottom: 10px;
+}
+.app-sidebar.conversation-chrome-theme .workspace-group:last-child {
+  margin-bottom: 8px;
+}
+.app-sidebar.conversation-chrome-theme .workspace-group-header {
+  min-height: var(--sidebar-group-height);
+  margin-bottom: 0;
+  padding-right: 4px;
+}
+.app-sidebar.conversation-chrome-theme .workspace-group-toggle {
+  min-height: var(--sidebar-group-height);
+  gap: 8px;
+  padding: 5px var(--sidebar-row-pad);
+  color: var(--sidebar-label);
+  font-size: 0.75rem;
+  font-weight: 400;
+  line-height: 20px;
+}
+.app-sidebar.conversation-chrome-theme .workspace-icon-button {
+  width: 28px;
+  height: 30px;
+  border-radius: 6px;
+}
+.app-sidebar.conversation-chrome-theme .workspace-default-badge {
+  padding: 0 4px;
+  border-radius: 4px;
+  font-size: 0.625rem;
+  line-height: 16px;
+}
+.app-sidebar.conversation-chrome-theme .sidebar-session-section .session-index-list {
+  gap: 1px;
+  margin-right: 0;
+}
+/* Titles use the full row. Revealing the overlay menu moves only the fade edge,
+   so text, status markers and neighboring rows never shift. */
+.app-sidebar.conversation-chrome-theme .session-index-item {
+  --sidebar-title-end: 0px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  border-radius: 8px;
+}
+.app-sidebar.conversation-chrome-theme .session-index-item:is(:hover, :focus-within, .menu-open) {
+  --sidebar-title-end: 32px;
+}
+.app-sidebar.conversation-chrome-theme .session-index-item.menu-open {
+  background: var(--sidebar-hover);
+}
+.app-sidebar.conversation-chrome-theme .sidebar-session-section .session-index-open {
+  min-height: var(--sidebar-row-height);
+  grid-template-columns: var(--sidebar-icon-column) minmax(0, 1fr);
+  gap: 8px;
+  padding: 5px 0 5px var(--sidebar-row-pad);
+  border-radius: 8px;
+}
+.app-sidebar.conversation-chrome-theme .session-index-icon {
+  justify-self: center;
+}
+.app-sidebar.conversation-chrome-theme .session-index-item .primary-cell {
+  color: var(--cds-secondary);
+  font-size: 0.8125rem;
+  font-weight: 400;
+  line-height: 20px;
+  text-overflow: clip;
+  -webkit-mask-image: linear-gradient(to right, #000 calc(100% - var(--sidebar-title-end) - 20px), transparent calc(100% - var(--sidebar-title-end)));
+  mask-image: linear-gradient(to right, #000 calc(100% - var(--sidebar-title-end) - 20px), transparent calc(100% - var(--sidebar-title-end)));
+}
+.app-sidebar.conversation-chrome-theme .session-index-item:is(:hover, :focus-within) .primary-cell {
+  color: var(--cds-ink);
+}
+.app-sidebar.conversation-chrome-theme .session-index-item.active .primary-cell {
+  color: var(--cds-ink);
+  font-size: 0.8125rem;
+  font-weight: 400;
+}
+.app-sidebar.conversation-chrome-theme .session-workspace-result {
+  text-overflow: clip;
+}
+.app-sidebar.conversation-chrome-theme .sidebar-session-section .session-index-item .session-index-actions {
+  position: absolute;
+  top: 50%;
+  right: 0;
+  width: 28px;
+  height: 28px;
+  transform: translateY(-50%);
+  pointer-events: none;
+  background: transparent;
+  box-shadow: none;
+}
+.app-sidebar.conversation-chrome-theme .sidebar-session-section .session-index-item:is(:hover, :focus-within, .menu-open) .session-index-actions {
+  pointer-events: auto;
+}
+.app-sidebar.conversation-chrome-theme .sidebar-session-section .session-index-item .session-index-actions:is(:hover, :focus-visible) {
+  background: var(--cds-alpha-2);
+}
+.app-sidebar.conversation-chrome-theme .workspace-load-more,
+.app-sidebar.conversation-chrome-theme .workspace-empty {
+  min-height: 32px;
+  padding: 6px 8px 6px calc(var(--sidebar-row-pad) + var(--sidebar-icon-column) + 8px);
+  color: var(--cds-secondary);
+  font-size: 0.75rem;
+  line-height: 20px;
+}
+.app-sidebar.conversation-chrome-theme .workspace-load-more {
+  justify-self: start;
+  border-radius: 6px;
+}
+.app-sidebar.conversation-chrome-theme .workspace-load-more:hover:not(:disabled) {
+  background: var(--sidebar-hover);
+  color: var(--cds-ink);
+}
+.app-sidebar.conversation-chrome-theme .session-index-heading {
+  padding: 4px 8px 4px calc(var(--sidebar-row-pad) + var(--sidebar-icon-column) + 8px);
+  font-size: 0.6875rem;
+  line-height: 16px;
 }
 .app-sidebar.conversation-chrome-theme .session-index-item.active {
   --sidebar-action-bg: var(--sidebar-active);
@@ -32,8 +187,42 @@
 .app-sidebar.conversation-chrome-theme .workspace-default-badge {
   color: var(--cds-muted);
 }
-.app-sidebar.conversation-chrome-theme .workspace-index-scroll {
-  scrollbar-color: var(--cds-alpha-3) transparent;
+/* Extend only the real scroller into the sidebar's end padding. The 8px gutter
+   and 2px content gap preserve row width and keep the thumb off selected rows. */
+.app-sidebar.conversation-chrome-theme .sidebar-session-section .sidebar-scroll-area {
+  --sidebar-scrollbar-fill: transparent;
+  margin-right: -10px;
+  padding-right: 2px;
+  overflow-x: hidden;
+  overflow-y: auto;
+  scrollbar-gutter: stable;
+  /* Let Chromium use the thumb geometry and states below instead of its
+     inherited native scrollbar-color / scrollbar-width overrides. */
+  scrollbar-color: auto;
+  scrollbar-width: auto;
+}
+/* Activity comes from scrolling, not hover or focus; the gutter stays stable. */
+.app-sidebar.conversation-chrome-theme .sidebar-session-section .sidebar-scroll-area[data-scrollbar-active] {
+  --sidebar-scrollbar-fill: var(--cds-alpha-3);
+}
+.app-sidebar.conversation-chrome-theme .sidebar-scroll-area::-webkit-scrollbar {
+  width: 8px;
+}
+.app-sidebar.conversation-chrome-theme .sidebar-scroll-area::-webkit-scrollbar-track {
+  background: transparent;
+}
+.app-sidebar.conversation-chrome-theme .sidebar-scroll-area::-webkit-scrollbar-thumb {
+  min-height: 32px;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  background: var(--sidebar-scrollbar-fill);
+  background-clip: padding-box;
+}
+.app-sidebar.conversation-chrome-theme .sidebar-scroll-area[data-scrollbar-active]::-webkit-scrollbar-thumb:hover {
+  background-color: color-mix(in srgb, var(--cds-ink) 30%, transparent);
+}
+.app-sidebar.conversation-chrome-theme .sidebar-scroll-area::-webkit-scrollbar-thumb:active {
+  background-color: color-mix(in srgb, var(--cds-ink) 40%, transparent);
 }
 .app-sidebar.conversation-chrome-theme .session-index-icon[data-session-state="completed"] { color: var(--success); }
 .app-sidebar.conversation-chrome-theme .session-index-icon[data-session-state="error"] { color: var(--danger); }

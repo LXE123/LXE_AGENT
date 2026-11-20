@@ -9,7 +9,7 @@ from openpyxl import Workbook, load_workbook
 
 from services.mabang.amazon.fba import source_verification as active
 from services.mabang.amazon.fba import combo_sku as combo
-from services.mabang.amazon.fba.sku_catalog import LocalSkuDefinition, SkuCatalogSnapshot, NOT_FOUND_REASON
+from services.mabang.amazon.fba.sku_catalog import LocalSkuDefinition, SkuCatalogSnapshot
 from services.mabang.amazon.fba import store_msku as download
 from services.mabang.amazon.fba import store_msku_actual_inventory as inventory
 from services.mabang.amazon.fba import store_msku_sales_analysis as sales
@@ -43,7 +43,9 @@ def source(path, records, bindings=(binding(),)):
 def test_classification_uses_source_sku_for_every_msku():
     rows = [row(), row('Amazon.Found.A'), row('inactive', sku='U'), row('unpaired', sku='')]
     skus = (binding(), binding(sku='U', kind=None))
-    assert active.classify(rows, skus) == [('已核验', True, ''), ('已核验', True, ''), ('未匹配', False, NOT_FOUND_REASON), ('缺少本地SKU', False, '源表无本地SKU，不参与备货计算')]
+    assert [(status, matched) for status, matched, _ in active.classify(rows, skus)] == [
+        ('已核验', True), ('已核验', True), ('未匹配', False), ('缺少本地SKU', False),
+    ]
     assert rows[3]['本地SKU'] == ''
     assert active.classify([row(' M ', sku=' S ')], (binding(),))[0][1] is True
     assert active.classify([row('m', asin='')], (binding(),))[0][1] is True
@@ -112,6 +114,7 @@ def test_full_source_sales_and_verified_inventory_reuse(monkeypatch, tmp_path):
         return {'code': 200, 'data': {'page': 1, 'rowsPerPage': 20, 'total': 1, 'data': [{'comboSku': 'C', 'comboProductDetail': [{'stockSku': 'S', 'quantity': 2}]}]}}
     async def search(skus):
         assert skus == ['S']
+        return '', 'synthetic-search-token'
     async def warehouse(**kwargs):
         return tmp_path/'stock.xlsx'
     monkeypatch.setattr(combo, 'post_json', post)
@@ -256,7 +259,7 @@ def test_download_listing_deadline_cancels_without_publication(monkeypatch, tmp_
 
 
 def test_download_cli_business_error_does_not_request_cookie_refresh(monkeypatch):
-    from services.agent_cli.mabang import download_store_msku_excel as cli
+    from services.commands.mabang import download_store_msku_excel as cli
     async def failure(*args, **kwargs):
         raise OfficialApiError('sid=401403', 'HTTP 401 upstream actual-denial')
     monkeypatch.setattr(cli, 'download_store_msku_excel', failure)
@@ -308,13 +311,13 @@ def test_version_three_catalog_files_remain_readable_but_cannot_mix_with_new_rou
             active.stamp_report(report, invalid)
 
 
-def test_unverified_marker_blocks_positive_inventory_and_preserves_full_key(tmp_path):
+def test_unverified_msku_stays_excluded_even_with_positive_inventory(tmp_path):
     from dataclasses import replace
     records = [row('unknown', sku='U', **{'父ASIN': 'P'}), row('known', **{'父ASIN': 'P'})]
     path = source(tmp_path/'source.xlsx', records, (binding('known'), binding(sku='U', kind=None)))
     verified = active.load_verified_source(path, store_name='shop')
     inputs = inventory.load_store_msku_rows(path, records=verified.records)
-    rows, _ = inventory.calculate_inventory_rows(inputs, combo_map={}, stock_quantities={'S': Decimal(100)}, unverified_rows=active.unverified_reasons(verified.metadata))
+    rows, _ = inventory.calculate_inventory_rows(inputs, combo_map={}, stock_quantities={'S': Decimal(100)}, unverified_local_skus=active.unverified_local_sku_reasons(verified.metadata))
     assert rows[0].binding_verified is False
     assert rows[1].binding_verified is True
     # Even a positive quantity cannot promote an unverified record into stock rows.

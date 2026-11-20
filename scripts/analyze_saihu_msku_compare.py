@@ -74,7 +74,14 @@ def replay(source, combos, stock, sales_source, unlinked, template=None):
     eligible = inv.split_inventory_rows(actual).inventory_rows
     # Preserve the existing Excel boundary's 2-decimal rounding before calculation.
     inputs = [rep.InventoryInputRow(msku=x.msku,parent_asin=x.parent_asin or '未填写父ASIN',asin=x.asin,local_sku=x.local_sku,local_sku_name=x.local_sku_name,product_name=x.product_name,remark=x.remark,product_link=x.product_link,sku_type='组合sku' if x.is_combo_sku else '库存sku',weighted_daily_sales=inv._display_two_decimal(x.weighted_daily_sales),sales_days=None if x.sales_days is None else inv._display_two_decimal(x.sales_days),fba_total_inventory=float(x.fba_total_inventory),actual_inventory=None if x.actual_inventory is None else float(x.actual_inventory),child_skus=x.child_skus) for x in eligible]
-    results = rep.calculate_replenishment_rows(inputs, details, template=template, unlinked_quantities=unlinked)
+    active_template = template or rep.get_template(rep.DEFAULT_TEMPLATE_NAME)
+    results = []
+    for row in inputs:
+        detail = details[(row.msku, row.parent_asin, row.asin, row.local_sku)]
+        results.extend(rep.calculate_replenishment_rows(
+            [row], {rep.normalize_sku_key(row.msku): detail},
+            template=active_template, unlinked_quantities=unlinked,
+        ))
     return [asdict(x) for x in results], [asdict(x) for x in actual], missing
 
 

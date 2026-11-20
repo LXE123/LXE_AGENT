@@ -2,10 +2,14 @@
 from __future__ import annotations
 
 import asyncio
+import json
+import time
+from contextlib import contextmanager
 from dataclasses import dataclass
 from typing import Any
 
-from services.mabang.official_api import invalid, post_json
+from services.mabang.official_api import RequestMetrics, catalog_client_scope, invalid, observe_requests, post_json
+from shared.logging import get_logger
 from .combo_sku import (
     COMBO_WORKERS, ComboComponent, ComboSku, _fetch_combo, _parse_combo, _progress,
     clean_text, normalize_sku_key,
@@ -16,6 +20,26 @@ STOCK_BATCH_SIZE = 50
 STOCK_PAGE_SIZE = 1000
 VERIFICATION_METHOD = "stock_then_combo"
 NOT_FOUND_REASON = "本地 SKU 未在库存或组合接口中查到，SKU 类型未核验，本轮不计算备货"
+logger = get_logger(__name__)
+
+
+@contextmanager
+def _query_timing(query: str):
+    metrics = RequestMetrics()
+    started = time.perf_counter()
+    status = "failed"
+    with observe_requests(metrics):
+        try:
+            yield metrics
+            status = "success"
+        except asyncio.CancelledError:
+            status = "cancelled"
+            raise
+        finally:
+            summary = {"wall_ms": round((time.perf_counter() - started) * 1000, 3), **metrics.summary()}
+            log = logger.info if status == "success" else logger.warning
+            log("[SkuCatalogTiming] query=%s status=%s metrics=%s", query, status,
+                json.dumps(summary, sort_keys=True))
 
 
 @dataclass(frozen=True)
@@ -107,6 +131,11 @@ async def _stock_batch(skus: list[str]) -> set[str]:
 
 
 async def fetch_local_sku_definitions(local_skus: list[str]) -> tuple[LocalSkuDefinition, ...]:
+    async with catalog_client_scope():
+        return await _fetch_local_sku_definitions(local_skus)
+
+
+async def _fetch_local_sku_definitions(local_skus: list[str]) -> tuple[LocalSkuDefinition, ...]:
     unique = {normalize_sku_key(sku): clean_text(sku) for sku in local_skus if normalize_sku_key(sku)}
     if not unique:
         return ()
@@ -114,26 +143,30 @@ async def fetch_local_sku_definitions(local_skus: list[str]) -> tuple[LocalSkuDe
         invalid("本地 SKU 类型核验", "本地 SKU 含逗号，无法安全使用批量查询", list(unique.values()))
     found: set[str] = set()
     values = list(unique.values())
-    for offset in range(0, len(values), STOCK_BATCH_SIZE):
-        found.update(await _stock_batch(values[offset:offset + STOCK_BATCH_SIZE]))
-        _progress(f"库存 SKU 类型核验 {min(offset + STOCK_BATCH_SIZE, len(values))}/{len(values)}，命中={len(found)}")
+    with _query_timing("stock") as stock_metrics:
+        for offset in range(0, len(values), STOCK_BATCH_SIZE):
+            stock_metrics.batch_count += 1
+            found.update(await _stock_batch(values[offset:offset + STOCK_BATCH_SIZE]))
+            _progress(f"库存 SKU 类型核验 {min(offset + STOCK_BATCH_SIZE, len(values))}/{len(values)}，命中={len(found)}")
     results = {key: LocalSkuDefinition(unique[key], 1) for key in found}
     missing = iter((key, sku) for key, sku in unique.items() if key not in found)
 
     async def worker() -> None:
         for key, sku in missing:
+            combo_metrics.batch_count += 1
             combo = await _fetch_combo(sku, allow_missing=True)
             results[key] = LocalSkuDefinition(sku, None) if combo is None else LocalSkuDefinition(sku, 2, combo.components)
             _progress(f"商品类型核验 {len(results)}/{len(unique)}")
 
-    tasks = [asyncio.create_task(worker()) for _ in range(min(COMBO_WORKERS, len(unique) - len(found)))]
-    try:
-        await asyncio.gather(*tasks)
-    finally:
-        for task in tasks:
-            if not task.done():
-                task.cancel()
-        await asyncio.gather(*tasks, return_exceptions=True)
+    with _query_timing("combo") as combo_metrics:
+        tasks = [asyncio.create_task(worker()) for _ in range(min(COMBO_WORKERS, len(unique) - len(found)))]
+        try:
+            await asyncio.gather(*tasks)
+        finally:
+            for task in tasks:
+                if not task.done():
+                    task.cancel()
+            await asyncio.gather(*tasks, return_exceptions=True)
     ordered = tuple(results[key] for key in unique)
     definition_map(ordered)
     _progress(f"商品类型核验完成: 普通={len(found)}，组合={sum(s.stock_type == 2 for s in ordered)}，未命中={sum(s.stock_type is None for s in ordered)}")

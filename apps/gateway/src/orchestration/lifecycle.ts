@@ -31,10 +31,6 @@ export interface GatewayLifecycleOptions {
     stop(): Promise<void>;
   };
   scheduler: { setRuntimeReady(ready: boolean): void };
-  heartbeat: {
-    start(): void | Promise<void>;
-    stop(): void | Promise<void>;
-  };
   channels: LifecycleChannelsPort;
   inbound: (event: InboundEvent) => Promise<void>;
   logger?: Logger;
@@ -42,7 +38,6 @@ export interface GatewayLifecycleOptions {
 }
 
 export interface GatewayShutdownTimeouts {
-  heartbeatMs: number;
   schedulerMs: number;
   activeRunsMs: number;
   channelsMs: number;
@@ -51,7 +46,6 @@ export interface GatewayShutdownTimeouts {
 }
 
 const DEFAULT_SHUTDOWN_TIMEOUTS: GatewayShutdownTimeouts = {
-  heartbeatMs: 3_000,
   schedulerMs: 3_000,
   activeRunsMs: 3_000,
   channelsMs: 8_000,
@@ -66,7 +60,6 @@ export class GatewayLifecycle {
   private stateUsable = false;
   private channelsStarted = false;
   private channelsAttempted = false;
-  private heartbeatAttempted = false;
   private acceptingIngress = false;
   private started = false;
   private shutdownStarted = false;
@@ -104,10 +97,6 @@ export class GatewayLifecycle {
       this.assertStartupActive(generation);
       if (!this.options.runtime.isReady) throw new Error("runtime is not ready");
       this.logger.debug("startup_component_ready", { component: "runtime" });
-      this.heartbeatAttempted = true;
-      await this.options.heartbeat.start();
-      this.logger.debug("startup_component_ready", { component: "heartbeat" });
-      this.assertStartupActive(generation);
       this.options.channels.wireInbound((event) => this.acceptInbound(event));
       this.acceptingIngress = true;
       this.channelsAttempted = true;
@@ -222,10 +211,6 @@ export class GatewayLifecycle {
     }
     this.channelsStarted = false;
     if (!preserveAttempts) this.channelsAttempted = false;
-    if (this.heartbeatAttempted) {
-      await this.runStopStep("heartbeat", () => this.options.heartbeat.stop(), errors, this.shutdownTimeouts.heartbeatMs);
-    }
-    if (!preserveAttempts) this.heartbeatAttempted = false;
     await this.runStopStep(
       "scheduler",
       () => this.options.scheduler.setRuntimeReady(false),

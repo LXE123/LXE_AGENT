@@ -151,6 +151,35 @@ describe("SqliteRuntimeStore", () => {
     await store.stop();
   });
 
+  test("reopening a steered turn restores the user input, file reference and original image in order", async () => {
+    const root = mkdtempSync(join(tmpdir(), "lxe-steering-reopen-"));
+    roots.push(root);
+    const path = join(root, "agent.sqlite3");
+    const png = { type: "image", source: { type: "base64", media_type: "image/png", data: "YWJj" } };
+    const attachment = { type: "local_file", attachment_id: "screen", turn_id: "turn", path: join(root, "screen.png"),
+      name: "screen.png", size_bytes: 3, media_type: "image/png", ts: 1 };
+    let store = new SqliteRuntimeStore(path);
+    await store.start();
+    await store.ensureSession({ session_id: "s", source: { platform: "desktop" }, workspace: testWorkspace });
+    await store.appendMessage("s", { role: "user", content: "first" }, "turn_input", "turn");
+    await store.appendMessage("s", messageFixture({ content: [{ type: "text", text: "before" }] }), "assistant_response", "turn");
+    await store.appendMessage("s", { role: "user", message_id: "m", client_message_id: "client", content: [attachment, png] }, "steering", "turn");
+    await store.appendMessage("s", messageFixture({ content: [{ type: "text", text: "after" }] }), "assistant_response", "turn");
+    await store.stop();
+    store = new SqliteRuntimeStore(path);
+    await store.start();
+    try {
+      const messages = await store.loadMessages("s");
+      expect(messages.map(message => message.role)).toEqual(["user", "assistant", "user", "assistant"]);
+      expect(messages[2]).toMatchObject({ message_id: "m", client_message_id: "client", content: [attachment, png] });
+      const detail = await store.loadTranscriptDisplayPage("s", { limit: 10 });
+      expect(detail.messages.map(message => message.source_reason)).toEqual(["turn_input", "assistant_response", "steering", "assistant_response"]);
+      expect(detail.messages[2]).toMatchObject({ client_message_id: "client", attachments: [{ attachment_id: "screen" }] });
+      expect(JSON.stringify(detail)).not.toContain("YWJj");
+      expect(await store.resolveAttachment("s", "screen")).toMatchObject({ path: attachment.path, turn_id: "turn" });
+    } finally { await store.stop(); }
+  });
+
   test("persists local file references while projecting only safe attachment metadata", async () => {
     const root = mkdtempSync(join(tmpdir(), "lxe-runtime-attachments-"));
     roots.push(root);
@@ -260,7 +289,6 @@ describe("SqliteRuntimeStore", () => {
     expect(await store.sessionDetail("legacy", { limit: 10 })).toMatchObject({
       session: { workspace: testWorkspace },
     });
-    await store.appendPendingEvent("legacy", { event_id: "migration-event", job_id: "job-1", text: "preserved" });
     await store.appendMessage("legacy", { role: "user", content: "preserved transcript" }, "turn_input");
     await store.stop();
 
@@ -271,6 +299,8 @@ describe("SqliteRuntimeStore", () => {
     expect(newColumns.map((column) => column.name)).toContain("pinned_at");
     expect(newColumns.map((column) => column.name)).not.toContain(retiredWorkspaceColumn);
     oldDatabase.exec(`
+      CREATE TABLE agent_session_pending_events (session_id TEXT, text TEXT);
+      INSERT INTO agent_session_pending_events VALUES ('legacy', 'obsolete wake');
       ALTER TABLE agent_sessions
       ADD COLUMN ${retiredWorkspaceColumn} TEXT NOT NULL DEFAULT 'unexpected';
       INSERT INTO turn_usage (turn_id, session_id, started_at)
@@ -284,15 +314,13 @@ describe("SqliteRuntimeStore", () => {
       source: { platform: "feishu", chat_id: "same-workspace" },
       workspace: testWorkspace,
     }));
-    expect(await reopened.popPendingEvents("legacy")).toEqual([
-      expect.objectContaining({ event_id: "migration-event", job_id: "job-1", text: "preserved" }),
-    ]);
     expect(await reopened.loadMessages("legacy")).toEqual([
       { role: "user", content: "preserved transcript" },
     ]);
     await reopened.stop();
 
     const migrated = new Database(databasePath);
+    expect(migrated.query("SELECT name FROM sqlite_master WHERE name = 'agent_session_pending_events'").get()).toBeNull();
     const migratedColumns = migrated.query("PRAGMA table_info(agent_sessions)").all() as Array<{ name: string }>;
     expect(migratedColumns.map((column) => column.name)).not.toContain(retiredWorkspaceColumn);
     expect(migrated.query(`
@@ -387,25 +415,12 @@ describe("SqliteRuntimeStore", () => {
     await store.stop();
   });
 
-  test("round-trips existing session, pending-event, and transcript shapes", async () => {
+  test("round-trips existing session and transcript shapes", async () => {
     const root = mkdtempSync(join(tmpdir(), "lxe-runtime-store-"));
     roots.push(root);
     const store = new SqliteRuntimeStore(join(root, "local_agent.sqlite3"));
     await store.start();
     await store.ensureSession({ workspace: testWorkspace, session_id: "s1", source: { platform: "feishu", chat_id: "c1" } });
-    await store.appendPendingEvent("s1", { event_id: "e1", job_id: "j1", text: "done" });
-    expect(await store.hasPendingEvents("s1")).toBe(true);
-    expect(await store.popPendingEvents("s1")).toEqual([
-      expect.objectContaining({ event_id: "e1", job_id: "j1", text: "done" }),
-    ]);
-    await store.appendPendingEvent("s1", { event_id: "e2", job_id: "j2", text: "consume me" });
-    await store.appendPendingEvent("s1", { event_id: "e3", job_id: "j3", text: "keep me" });
-    expect(store.discardPendingEvent("s1", "j2")).toBe(1);
-    expect(store.discardPendingEvent("s1", "j2")).toBe(0);
-    expect(store.discardPendingEvent("", "j3")).toBe(0);
-    expect(await store.popPendingEvents("s1")).toEqual([
-      expect.objectContaining({ event_id: "e3", job_id: "j3", text: "keep me" }),
-    ]);
     await store.appendMessage("s1", { role: "user", content: "hello" }, "turn_input");
     await store.appendMessage("s1", { role: "assistant", content: "world" }, "turn_output");
     await store.replaceMessages("s1", [
@@ -481,8 +496,6 @@ describe("SqliteRuntimeStore", () => {
     const store = new SqliteRuntimeStore(databasePath);
     await store.start();
     await store.ensureSession({ workspace: testWorkspace, session_id: "s1", source: { tool_state: { browser: { page: 1 } } } });
-    await store.appendPendingEvent("s1", { event_id: "e1", text: "pending" });
-    expect(store.discardPendingEvents("s1")).toBe(1);
     await store.appendMessage("s1", { role: "user", content: "keep until reset" }, "turn_input");
     await store.resetContext("s1");
     expect(await store.loadMessages("s1")).toEqual([]);

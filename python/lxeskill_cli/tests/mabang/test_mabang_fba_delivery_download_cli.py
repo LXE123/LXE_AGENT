@@ -5,8 +5,8 @@ import asyncio
 import pytest
 from aiohttp import web
 
-from services.agent_cli.mabang import customs_erp
-from services.agent_cli.mabang import download_fba_delivery_csv as cli
+from services.commands.mabang import customs_erp
+from services.commands.mabang import download_fba_delivery_csv as cli
 from services.mabang.amazon.fba.batch_delivery import BatchDeliveryCsvResult
 from shared.infra.net.aiohttp_client import (
     HttpSessionPurpose,

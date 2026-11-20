@@ -11,7 +11,7 @@ from openpyxl import load_workbook
 
 from lxeskill import cli
 from lxeskill.business import load_catalog
-from services.agent_cli.vietnam_replenishment import settings as command
+from services.commands.vietnam_replenishment import settings as command
 from services.vietnam_replenishment import settings
 from services.vietnam_replenishment.full_workbook import UNCHANGED
 
@@ -83,7 +83,6 @@ def test_cli_round_trip_uses_shared_storage_and_preserves_failed_upload(tmp_path
     state = invoke("upload", "--path", str(source))["data"]["data"]
     uploaded = state["template"]
     assert state["template"]["file_name"] == source.name
-    assert "sku_map" not in state
     assert Path(state["template"]["path"]).read_bytes() == source.read_bytes()
     with settings.run_inputs() as (config, _):
         assert str(config.exchange_rate) == "4200"
@@ -98,10 +97,10 @@ def test_cli_round_trip_uses_shared_storage_and_preserves_failed_upload(tmp_path
     assert output.read_bytes() == source.read_bytes()
 
 
-def test_settings_cli_rejects_retired_export_kind(tmp_path, capsys):
-    assert cli.main([*COMMAND, "--action", "export", "--kind", "template", "--path", str(tmp_path / "out.xlsx")]) == cli.EXIT_USAGE
+def test_settings_cli_rejects_unknown_options_before_creating_output(tmp_path, capsys):
+    assert cli.main([*COMMAND, "--action", "export", "--unknown-option", "value", "--path", str(tmp_path / "out.xlsx")]) == cli.EXIT_USAGE
     result = json.loads(capsys.readouterr().out)
-    assert "unknown option: --kind" in result["error"]["message"]
+    assert result["error"]["code"] == "invalid_arguments"
     assert not (tmp_path / "out.xlsx").exists()
 
 

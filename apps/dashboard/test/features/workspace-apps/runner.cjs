@@ -8,10 +8,10 @@ app.whenReady().then(async()=>{
  const host=require(path.join(output,'main','host.cjs'));
  host.registerDashboardProtocol(output);
  session.defaultSession.webRequest.onHeadersReceived((details,callback)=>callback({responseHeaders:{...details.responseHeaders,'Content-Security-Policy':[host.DASHBOARD_CSP]}}));
- const options={width:1100,height:740,show:true,webPreferences:{preload:path.join(output,'main','preload.cjs'),contextIsolation:true,nodeIntegration:false,sandbox:true}};
+ const options={width:1100,height:740,show:true,webPreferences:{preload:path.join(output,'main','preload.cjs'),contextIsolation:true,nodeIntegration:false,sandbox:true,webviewTag:true}};
  const win=new BrowserWindow(options),js=code=>win.webContents.executeJavaScript(code);
- const tools=new host.ManualToolsService(()=>win,output,async()=>profile);tools.register();
- const visibleBrowser=()=>win.contentView.children.some(view=>view.webContents&&view.webContents!==win.webContents&&view.getVisible());
+ const tools=new host.ManualToolsService(()=>win,output,async()=>profile);tools.register();host.registerTeamSkillsGuest(win.webContents,tools.browsers);
+ const visibleBrowser=()=>js("!!document.querySelector('.tool-browser-page iframe:not([hidden])')");
  const dispose=host.registerDesktopIpc({isTrustedFileSender:event=>event.sender===win.webContents&&event.senderFrame===win.webContents.mainFrame});
  const wait=async(condition,label)=>{for(let i=0;i<160;i++){if(await js(condition))return;await delay(50);}throw new Error('Timeout '+label+'\n'+await js('document.body.innerText'));};
  const click=async(selector)=>{await js(`document.querySelector(${JSON.stringify(selector)}).click()`);await delay(100);};
@@ -27,14 +27,15 @@ app.whenReady().then(async()=>{
    await wait("document.querySelectorAll('.workspace-open-split button[aria-label*=Code]').length===3",'shared selection');
    assert.deepEqual(await js('fixture.calls.find(c=>c.directory)'),{directory:'/first',id:'vscode'});
    assert.equal(await js("localStorage.getItem('lxe.workspace-open.application.v1')"),'vscode');
-   assert.equal(await js("document.querySelectorAll('.conversation-workspace-label').length"),1);
+   assert.equal(await js("document.querySelectorAll('#existing .conversation-workspace-label').length"),0);
+   assert.ok(await js("document.querySelector('#existing .workspace-open-split button').title.endsWith('/first')"));
   });
-  await step('Popup keyboard navigation, focus return and browser occlusion',async()=>{
-   assert.equal(visibleBrowser(),true,'native browser visible before menu');
+  await step('Popup keyboard navigation, focus return and sidebar webpage',async()=>{
+   await wait("!!document.querySelector('.tool-browser-page iframe:not([hidden])')",'webpage visible before menu');
    await click('#existing .workspace-open-split button:last-child');
-   await wait("fixture.calls.some(c=>c.operation==='browser.present'&&c.input.bounds===null)",'browser hidden behind menu');
+
    await js("document.querySelector('[role=menu]').dispatchEvent(new KeyboardEvent('keydown',{key:'End',bubbles:true}))");
-   assert.equal(visibleBrowser(),false,'native browser hidden by menu');
+   assert.equal(await visibleBrowser(),true,'opening a menu keeps the webpage visible');
    assert.ok(await js("document.activeElement.textContent.includes('终端')"));
    await js("document.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',bubbles:true}))");
    assert.equal(await js("document.activeElement===document.querySelector('#existing .workspace-open-split button:last-child')"),true);

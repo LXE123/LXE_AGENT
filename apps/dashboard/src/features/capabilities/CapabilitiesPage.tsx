@@ -22,6 +22,7 @@ type Props = Readonly<{
   skillsQuery: QueryView<DashboardRpcResult<"skills.list">>;
   commandsQuery: QueryView<DashboardRpcResult<"commands.list">>;
   toolsetsQuery: QueryView<DashboardRpcResult<"toolsets.list">>;
+  mcpServersQuery: QueryView<DashboardRpcResult<"mcp.servers.list">>;
   onOpenDetail: (target: DetailTarget) => void;
   startSkillConversation: ComponentProps<typeof SkillsCatalogView>["onConversation"];
   mcpSavingId: ComponentProps<typeof McpServicesView>["mcpSavingId"];
@@ -29,7 +30,7 @@ type Props = Readonly<{
 }>;
 
 export function CapabilitiesPage({ capabilityView, openCapabilityView, dashboardRuntimeReady,
-  modelsQuery, currentModelQuery, skillsQuery, commandsQuery, toolsetsQuery,
+  modelsQuery, currentModelQuery, skillsQuery, commandsQuery, toolsetsQuery, mcpServersQuery,
   onOpenDetail, startSkillConversation, mcpSavingId, toggleMcpServer }: Props) {
   const t = useUiText();
   const capabilityItems: Array<{ id: CapabilityView; label: string }> = [
@@ -39,7 +40,6 @@ export function CapabilitiesPage({ capabilityView, openCapabilityView, dashboard
     { id: "models", label: t.nav.models },
   ];
 
-  const mcpToolset = toolsetsQuery.data?.items.find((toolset) => toolset.name === "mcp");
   return (
     <WorkspaceView
       activeView={capabilityView}
@@ -81,11 +81,11 @@ export function CapabilitiesPage({ capabilityView, openCapabilityView, dashboard
       ) : null}
       {capabilityView === "connections" ? (
         !dashboardRuntimeReady ? <EmptyState label={t.conversation.unavailable} />
-          : toolsetsQuery.isPending ? <EmptyState label={t.common.loading} />
+          : mcpServersQuery.isPending ? <EmptyState label={t.common.loading} />
           : <McpServicesView
-              mcpError={!toolsetsQuery.data ? queryError(toolsetsQuery.error) : ""}
+              mcpError={!mcpServersQuery.data ? queryError(mcpServersQuery.error) : ""}
               mcpSavingId={mcpSavingId}
-              mcpToolset={mcpToolset}
+              mcpServers={mcpServersQuery.data?.items ?? []}
               onToggleMcpServer={toggleMcpServer}
             />
       ) : null}

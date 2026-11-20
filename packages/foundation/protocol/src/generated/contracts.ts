@@ -1,29 +1,8 @@
 /** Generated from protocol/schemas. DO NOT EDIT. Run bun run protocol:generate.
- * Schema SHA-256: db9fece7b9dc6fedbc3e8c8cb74ee01925547512e6ee5068b33c94031e832ee6
+ * Schema SHA-256: 86db2482288fc727a1e6a3c5f8db401824d511aa85472220bc2b37b426aee56e
  */
 
 export type ProtocolContracts = AgentJob | EmitRequest | DesktopStreamBatchRequest;
-export type AgentJob = {
-  job_id: string;
-  session_id: string;
-  session_key: string;
-  response_route_id: string;
-  user_id: string;
-  conversation_id: string;
-  is_group: boolean;
-  message_id: string;
-  user_input: string;
-  job_kind: string;
-  sender_nick: string;
-  workspace: WorkspaceContext;
-  source: JsonObject;
-  raw_data: JsonObject;
-  user_content_blocks: JsonObject[];
-  /**
-   * @maxItems 16
-   */
-  diagnostics: AgentDiagnostic[];
-};
 export type JsonValue = JsonPrimitive | JsonObject | JsonValue[];
 export type JsonPrimitive = boolean | number | string | null;
 export type AgentDiagnostic = {
@@ -125,6 +104,27 @@ export type DesktopStreamMutation =
       display_metrics: DisplayMetrics;
     };
 
+export type AgentJob = {
+  job_id: string;
+  session_id: string;
+  session_key: string;
+  response_route_id: string;
+  user_id: string;
+  conversation_id: string;
+  is_group: boolean;
+  message_id: string;
+  user_input: string;
+  job_kind: "turn";
+  sender_nick: string;
+  workspace: WorkspaceContext;
+  source: JsonObject;
+  raw_data: JsonObject;
+  user_content_blocks: JsonObject[];
+  /**
+   * @maxItems 16
+   */
+  diagnostics: AgentDiagnostic[];
+};
 export type WorkspaceContext = {
   directory: string;
   worktree: string;
@@ -137,6 +137,7 @@ export type ToolStep = {
   name: string;
   title: string;
   detail: string;
+  input_block?: ToolDisplayBlock;
   icon_token: string;
   status: ToolStepStatus;
   duration_ms: number;

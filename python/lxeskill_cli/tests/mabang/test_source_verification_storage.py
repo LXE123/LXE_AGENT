@@ -43,7 +43,7 @@ def test_large_metadata_roundtrip_and_report_propagation(tmp_path, monkeypatch):
         book.close()
 
     async def search(skus):
-        return None
+        return '', 'synthetic-search-token'
 
     async def warehouse(**kwargs):
         return tmp_path / 'mock-stock.xlsx'

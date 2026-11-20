@@ -93,7 +93,7 @@ export function WorkspacesIndex(props: WorkspaceIndexProps) {
     <div className="workspace-index-heading"><span>{t.workspaces.title}</span>
       <button type="button" className="workspace-icon-button" disabled={!props.enabled} title={t.workspaces.choose} aria-label={t.workspaces.choose} onClick={props.onChoose}><FolderPlus size={18} /></button>
     </div>
-    {props.searchOpen ? <SessionsIndex {...props} embedded onNew={() => props.onNew()} /> : <div className="workspace-index-scroll" onScroll={() => setMenu(null)}>
+    {props.searchOpen ? <SessionsIndex {...props} embedded onNew={() => props.onNew()} /> : <div className="workspace-index-scroll sidebar-scroll-area" onScroll={() => setMenu(null)}>
       {props.workspaceError ? <div className="workspace-error" role="alert">{props.workspaceError}<button type="button" onClick={props.onRetryWorkspaces}>{t.workspaces.retry}</button></div> : null}
       {props.workspacesLoading ? <div className="workspace-loading" role="status">{t.sessions.loading}</div> : null}
       {groups.map(group => <WorkspaceGroup key={group.workspace_id} workspace={group}
@@ -128,12 +128,8 @@ export function WorkspaceControl({ directory, workspaceId, workspaces, defaultDi
     try { await action(); } catch (cause) { setError(queryError(cause)); }
   };
   if (!editable) {
-    const name = current ? workspaceLabel(directory, groups, defaultDirectory, t.workspaces.defaultName) : directoryName(directory);
     return <div className="conversation-workspace is-readonly">
-      <span className="conversation-workspace-label" title={`${name}\n${directory}`}>
-        <FolderOpen size={15} aria-hidden="true" /><span className="conversation-workspace-name">{name}</span>
-        {current && directory === defaultDirectory ? <small className="workspace-default-badge">{t.workspaces.defaultBadge}</small> : null}
-      </span><WorkspaceOpenButton directory={directory} />
+      <WorkspaceOpenButton directory={directory} />
     </div>;
   }
   return <div className="conversation-workspace">

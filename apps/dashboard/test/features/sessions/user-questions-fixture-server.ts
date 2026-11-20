@@ -13,7 +13,7 @@ const dataRoot = mkdtempSync(join(tmpdir(), "lxe-questions-"));
 const workspace = { directory: root, worktree: root };
 const states = new Map<string, string>();
 const runtime = new ProcessAgentRuntime({
-  agentSoulPath: "/soul", skillsRoot: "/skills", userSkillsRoot: "/user-skills",
+  skillsRoot: "/skills", userSkillsRoot: "/user-skills",
   command: process.execPath, arguments: [resolve("apps/agent-cli/test/fixtures-user-questions.ts")], cwd: root,
   environment: { ...process.env, LOCAL_LOGS_ENABLED: "0", LOG_LEVEL: "ERROR" },
   llmConfigRoot: "/llm", dataRoot, legacyWorkspace: workspace,

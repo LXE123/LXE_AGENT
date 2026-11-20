@@ -25,7 +25,7 @@ const equal = (a: unknown, b: unknown): boolean => {
   const left = object(a), right = object(b);
   return Object.keys(left).length === Object.keys(right).length && Object.keys(left).every((k) => k in right && equal(left[k], right[k]));
 };
-export interface MessageOrigin { name: string; model: string; apiStyle: string; apiKey?: string }
+export interface MessageOrigin { name: string; model: string; apiStyle: string; apiKey?: string; providerThinkingLevel?: string }
 
 export class AssistantMessageAccumulator {
   readonly message: AssistantMessage;
@@ -40,6 +40,7 @@ export class AssistantMessageAccumulator {
     this.message = {
       id: randomUUID(), role: "assistant", timestamp: Date.now(), api: origin.apiStyle as LlmProviderApiStyle,
       provider: origin.name, model: origin.model, content: [],
+      ...(origin.providerThinkingLevel ? { providerThinkingLevel: origin.providerThinkingLevel } : {}),
       usage: { input_tokens: 0, output_tokens: 0, status: "unreported" }, stopReason: "pending",
     };
     this.emit({ type: "start", partial: this.message });

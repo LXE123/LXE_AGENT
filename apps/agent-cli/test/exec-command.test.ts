@@ -32,7 +32,6 @@ const pathsFor = (root: string): ExecRuntimePaths => ({
   resourceRoot: root,
   projectRoot: root,
   dataRoot: join(root, "var"),
-  agentSoulPath: join(root, "SOUL.md"),
   skillsRoot: join(root, "skills"),
   userSkillsRoot: join(root, "user-skills"),
   llmConfigRoot: join(root, "config", "llm"),
@@ -98,14 +97,13 @@ const fakeHostFactory = (fake: FakeHostOptions = {}): CreateHost =>
     const databasePath = String(options.environment.LXE_AGENT_SQLITE_DB_PATH ?? "");
     const store = new SqliteRuntimeStore(databasePath, { legacyWorkspace: options.legacyWorkspace });
     return {
+      syncMcpServerPresets: async () => ({ added: [], updated: [] }),
       start: async () => {
         if (fake.startError) throw fake.startError;
         await store.start();
       },
       stop: () => store.stop(),
       ensureSession: (request) => store.ensureSession(request),
-      appendPendingEvent: (sessionId, event) => store.appendPendingEvent(sessionId, event),
-      hasPendingEvents: (sessionId) => store.hasPendingEvents(sessionId),
       resolveArtifact: async () => undefined,
       resolveImageView: async () => undefined, resolveImagePreview: async () => undefined,
       resolveAttachment: async () => undefined,

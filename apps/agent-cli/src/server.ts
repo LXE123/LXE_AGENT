@@ -108,7 +108,7 @@ export class AgentProtocolServer {
       let notification = false;
       try {
         const envelope = parseJsonRpcEnvelope(input);
-        if (!("method" in envelope)) throw new JsonRpcError(-32600, "agent-cli accepts calls only");
+        if (!("method" in envelope)) return;
         notification = !("id" in envelope);
         id = envelope.id ?? null;
         const request = parseAgentCall(envelope);
@@ -138,6 +138,8 @@ export class AgentProtocolServer {
     switch (request.method) {
       case "initialize":
         return this.initialize(request.params);
+      case "sync_mcp_server_presets":
+        return this.readyHost().syncMcpServerPresets(request.params.servers);
       case "update_skill_permissions":
         this.readyHost().updateSkillPermissions(request.params.allowed_skill_types);
         return { updated: true };
@@ -165,20 +167,13 @@ export class AgentProtocolServer {
       case "steer_turn": {
         const handle = this.activeRuns.get(request.params.run_id);
         if (!handle || handle.cancelled) return { accepted: false };
-        handle.pushSteering(request.params);
+        const { run_id: _runId, ...message } = request.params;
+        handle.pushSteering(message);
         return { accepted: true };
       }
       case "ensure_session":
         await this.readyHost().ensureSession(request.params.request);
         return { ensured: true };
-      case "append_pending_event":
-        await this.readyHost().appendPendingEvent(
-          request.params.session_id,
-          request.params.event,
-        );
-        return { appended: true };
-      case "has_pending_events":
-        return { pending: await this.readyHost().hasPendingEvents(request.params.session_id) };
       case "resolve_workspace_directory": {
         const path = await this.readyHost().resolveWorkspaceDirectory?.(request.params.session_id);
         return path ? { found: true, path } : { found: false };
@@ -249,7 +244,6 @@ export class AgentProtocolServer {
     let host: AgentRuntimeHost | undefined;
     try {
       host = this.createHost({
-        agentSoulPath: payload.agent_soul_path,
         skillsRoot: payload.skills_root,
         userSkillsRoot: payload.user_skills_root,
         llmConfigRoot: payload.llm_config_root,

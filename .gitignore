@@ -37,6 +37,7 @@ env/
 .superpowers/
 /.workbuddy/
 .worktrees/
+/doc-fetch-resources/
 
 # Lint/Format cache
 .ruff_cache/
@@ -59,6 +60,7 @@ target/
 config/config.py
 config/connector-states.local.json
 config/mcp_servers.local.yaml
+config/mcp_servers.local.json
 config/desktop-version.local.json
 /debug_data/
 /artifacts/

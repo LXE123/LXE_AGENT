@@ -59,15 +59,16 @@ export function OpenFileButton({ file, label = false }: { file: SessionFileRef; 
       </button>
       {!missing && !(loaded && !error && !apps.length) ? <button ref={toggle} type="button" disabled={busy} aria-label={t.apps} aria-haspopup="menu" aria-expanded={menu} onClick={() => { setMenu(!menu); if (!menu) void load(); }}><ChevronDown size={12} /></button> : null}
     </div>
-    {menu ? createPortal(<div className="file-open-menu" role="menu" ref={menuRef} onBlur={e => { if (e.relatedTarget && !e.currentTarget.contains(e.relatedTarget) && !anchor.current?.contains(e.relatedTarget)) setMenu(false); }} style={{ position: "fixed", ...position }} onKeyDown={e => {
+    {menu ? createPortal(<div className="file-open-menu tool-sidebar-theme" role="menu" ref={menuRef} onBlur={e => { if (e.relatedTarget && !e.currentTarget.contains(e.relatedTarget) && !anchor.current?.contains(e.relatedTarget)) setMenu(false); }} style={{ position: "fixed", ...position }} onKeyDown={e => {
       if (e.key === "ArrowDown" || e.key === "ArrowUp") {
         e.preventDefault(); const items = [...e.currentTarget.querySelectorAll<HTMLElement>("button:not(:disabled), summary")].filter(item => item.getClientRects().length > 0);
         const index = items.indexOf(document.activeElement as HTMLElement); items[(index + (e.key === "ArrowDown" ? 1 : -1) + items.length) % items.length]?.focus();
       }
     }}>
-      {apps.map(app => <button type="button" role="menuitem" key={app.id} onClick={() => void act(app.id)}>{app.icon ? <img src={app.icon} alt="" /> : <ExternalLink size={15} />}<span>{app.name}{app.default ? ` · ${t.defaultApp}` : ""}</span></button>)}
+      {apps.map(app => <button type="button" role="menuitem" key={app.id} onClick={() => void act(app.id)}>{app.icon ? <img src={app.icon} alt="" /> : <ExternalLink size={15} />}<span className="file-open-app-name">{app.name}</span>{app.default ? <span className="file-open-app-default">{t.defaultApp}</span> : null}</button>)}
       {error ? <div className="file-apps-failure"><p>{t.appsFailed}</p><button onClick={() => void check(true).catch(() => {}).then(() => load(true))}>{t.retry}</button><ErrorDetails failure={error} /></div> : null}
-      <button type="button" role="menuitem" onClick={() => void act(undefined, true)}><FolderOpen size={15} />{t.reveal}</button>
+      <div className="file-open-menu-divider" role="separator" />
+      <button type="button" role="menuitem" onClick={() => void act(undefined, true)}><FolderOpen size={15} /><span className="file-open-app-name">{t.reveal}</span></button>
     </div>, document.body) : null}
     {actionError ? <FileActionNotice failure={actionError} close={dismiss} /> : null}
   </div>;
@@ -76,5 +77,5 @@ export function OpenFileButton({ file, label = false }: { file: SessionFileRef; 
 function FileActionNotice({ failure, close }: { failure: FileFailure; close(): void }) {
   const t = useUiText().filePreview, summary = useFailureSummary(failure), [paused, setPaused] = useState(false);
   useEffect(() => { if (paused) return; const timer = setTimeout(close, 6000); return () => clearTimeout(timer); }, [failure, paused, close]);
-  return createPortal(<div className="file-action-notice" role="status" onMouseEnter={() => setPaused(true)} onMouseLeave={() => setPaused(false)} onFocus={() => setPaused(true)} onBlur={e => { if (!e.currentTarget.contains(e.relatedTarget)) setPaused(false); }}><p>{summary}<button aria-label={t.close} onClick={close}>×</button></p><ErrorDetails failure={failure} /></div>, document.body);
+  return createPortal(<div className="file-action-notice tool-sidebar-theme" role="status" onMouseEnter={() => setPaused(true)} onMouseLeave={() => setPaused(false)} onFocus={() => setPaused(true)} onBlur={e => { if (!e.currentTarget.contains(e.relatedTarget)) setPaused(false); }}><p>{summary}<button aria-label={t.close} onClick={close}>×</button></p><ErrorDetails failure={failure} /></div>, document.body);
 }

@@ -46,7 +46,7 @@ export class PermissionApprovalService {
 
   async request(tool: PendingApproval["tool"], input: JsonObject, context: CallContext, policy: ExecutionPolicy, preview: JsonObject): Promise<void> {
     if (context.platform !== "desktop") throw failure("Single-operation approval is unavailable on this channel; this operation was not authorized");
-    const signal = context.handle.signal;
+    const signal = context.signal ? AbortSignal.any([context.handle.signal, context.signal]) : context.handle.signal;
     signal.throwIfAborted();
     if (this.closed || this.closedSessions.has(context.session_id) || !context.turn_id || !context.tool_call_id) throw failure("Approval requires a live session, turn and tool call");
     const request: PendingApproval = {

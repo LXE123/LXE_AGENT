@@ -1,5 +1,175 @@
 @import "../../shared/cds-theme.css";
 
+/* Tool chrome shares CDS surfaces and ink. Syntax colors belong to the shared
+   conversation code palette in styles.css, independent of these UI tokens. */
+.conversation-feed [data-tool-joins-next] .tool-op-list {
+  border-bottom-width: 0;
+  border-bottom-left-radius: 0;
+  border-bottom-right-radius: 0;
+}
+.conversation-feed [data-tool-joins-previous] .tool-op-list {
+  border-top-left-radius: 0;
+  border-top-right-radius: 0;
+}
+.tool-turn-group.conversation-chrome-theme .tool-op-name {
+  color: var(--cds-muted);
+}
+.tool-turn-group.conversation-chrome-theme .tool-op-argument {
+  color: var(--cds-secondary);
+}
+.tool-turn-group.conversation-chrome-theme .tool-op-summary:is(:hover, :focus-visible) {
+  background: transparent;
+}
+.tool-turn-group.conversation-chrome-theme .tool-op:not(.state-error) .tool-op-summary:not(:disabled):is(:hover, :focus-visible) .tool-op-name {
+  color: var(--cds-secondary);
+}
+.tool-turn-group.conversation-chrome-theme .tool-op-summary:not(:disabled):is(:hover, :focus-visible) .tool-op-argument {
+  color: var(--cds-ink);
+}
+.tool-turn-group.conversation-chrome-theme .tool-op.state-error .tool-op-name,
+.tool-turn-group.conversation-chrome-theme .result-block.error .block-title-main {
+  color: var(--danger);
+}
+.tool-turn-group.conversation-chrome-theme .tool-op-body {
+  background: var(--cds-surface-panel);
+}
+.tool-turn-group.conversation-chrome-theme .tool-result-button {
+  border-color: var(--cds-alpha-2);
+  color: var(--cds-secondary);
+}
+.tool-turn-group.conversation-chrome-theme .tool-result-button:is(:hover, :focus-visible) {
+  border-color: var(--cds-alpha-3);
+  background: var(--cds-alpha-1);
+  color: var(--cds-ink);
+}
+.tool-turn-group.conversation-chrome-theme :is(.tool-op-summary, .tool-result-button):focus-visible {
+  outline-color: var(--cds-accent);
+}
+
+/* Process disclosures use color feedback with the ordinary arrow cursor.
+   Keep error text semantic, including while the disclosure is hovered. */
+.live-progress-status.conversation-chrome-theme,
+.conversation-process-toggle.conversation-chrome-theme {
+  color: var(--cds-secondary);
+}
+.conversation-process-toggle.conversation-chrome-theme {
+  cursor: default;
+}
+.conversation-process-toggle.conversation-chrome-theme > .live-progress-status:not(.state-error) {
+  color: inherit;
+}
+.conversation-process-toggle.conversation-chrome-theme:is(:hover, :focus-visible) {
+  color: var(--cds-ink);
+}
+.conversation-process-toggle.conversation-chrome-theme:is(:hover, :focus-visible) .live-progress-elapsed {
+  color: inherit;
+}
+.conversation-process-toggle.conversation-chrome-theme:focus-visible {
+  outline: 2px solid var(--cds-accent);
+  outline-offset: 2px;
+}
+.live-progress-status.conversation-chrome-theme.state-error {
+  color: var(--danger);
+}
+
+/* Session and workspace deletion share this CDS confirmation style.
+   Rename and permission dialogs retain their own styles. */
+.session-delete-backdrop.session-delete-confirm-backdrop { padding: 16px; }
+.session-delete-dialog.session-delete-confirm-dialog {
+  width: min(440px, 100%);
+  max-height: calc(100dvh - 32px);
+  overflow: auto;
+  overscroll-behavior: contain;
+  padding: 24px;
+  border-color: var(--cds-alpha-2);
+  border-radius: 12px;
+  background: var(--cds-surface-popover);
+  color: var(--cds-ink);
+  box-shadow: 0 16px 48px var(--shadow-medium), 0 2px 8px var(--shadow-soft);
+}
+.session-delete-dialog.session-delete-confirm-dialog > h2 {
+  color: var(--cds-ink);
+  font-size: 1.125rem;
+  font-weight: 500;
+  line-height: 1.4;
+}
+.session-delete-dialog.session-delete-confirm-dialog > p {
+  margin: 8px 0 0;
+  color: var(--cds-ink);
+  font-size: .875rem;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+.session-delete-dialog.session-delete-confirm-dialog > .session-delete-note {
+  color: var(--cds-secondary);
+  font-size: .8125rem;
+}
+.session-delete-dialog.session-delete-confirm-dialog > .session-delete-error {
+  margin-top: 16px;
+  padding: 8px 12px;
+  border: 1px solid var(--danger-border);
+  border-radius: 8px;
+  background: var(--danger-soft);
+  color: var(--danger);
+  white-space: pre-wrap;
+}
+.session-delete-dialog.session-delete-confirm-dialog > footer {
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 24px;
+}
+.session-delete-dialog.session-delete-confirm-dialog > footer > button {
+  justify-content: center;
+  min-width: 64px;
+  min-height: 32px;
+  max-width: 100%;
+  padding: 5px 12px;
+  border-color: var(--cds-alpha-2);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--cds-ink);
+  font-size: .8125rem;
+  font-weight: 400;
+  line-height: 1.5;
+}
+.session-delete-dialog.session-delete-confirm-dialog > footer > button:hover:not(:disabled) { background: var(--cds-alpha-1); }
+.session-delete-dialog.session-delete-confirm-dialog > footer > button.danger {
+  border-color: transparent;
+  background: var(--cds-danger-action);
+  color: #fff;
+}
+.session-delete-dialog.session-delete-confirm-dialog > footer > button.danger:hover:not(:disabled) { background: var(--cds-danger-hover); }
+.session-delete-dialog.session-delete-confirm-dialog > footer > button:focus-visible { outline: 2px solid var(--cds-accent); outline-offset: 2px; }
+.session-delete-dialog.session-delete-confirm-dialog > footer > button:disabled {
+  opacity: 1;
+  border-color: var(--cds-alpha-1);
+  background: var(--cds-disabled-fill);
+  color: var(--cds-disabled-ink);
+}
+
+/* Page-level empty state: a quiet hint on the existing conversation canvas.
+   Layout is an LXE adaptation; do not inherit the generic empty-state card. */
+.conversation-empty-state.conversation-chrome-theme {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  flex-direction: column;
+  align-items: center;
+  justify-content: safe center;
+  padding: 32px 24px;
+  overflow: auto;
+  color: var(--cds-secondary);
+  font-size: 0.875rem;
+  line-height: 1.6;
+  text-align: center;
+}
+.conversation-empty-state > p {
+  max-width: 28ch;
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
 /* Colors only: retain the existing geometry, typography and behavior.
    CDS purpose tokens inform the palette; applying them here is an LXE adaptation. */
 .conversation-compose-box.conversation-chrome-theme {
@@ -15,27 +185,32 @@
   --composer-reference-color: var(--cds-accent);
   --composer-reference-hover: var(--cds-accent-tint);
 }
-.conversation-chrome-theme .conversation-send-button[data-mode="send"]:not(:disabled) {
-  background: var(--cds-primary); border-color: var(--cds-primary); color: var(--cds-primary-ink);
-}
-.conversation-chrome-theme .conversation-send-button[data-mode="send"]:not(:disabled):hover {
-  background: var(--cds-primary-hover); border-color: var(--cds-primary-hover);
-}
-.conversation-chrome-theme .conversation-send-button[data-mode="send"]:disabled {
-  background: var(--cds-alpha-2); border-color: transparent; color: var(--cds-muted);
-}
-:root .conversation-compose-box.conversation-chrome-theme :is(.conversation-model-trigger, .conversation-thinking-trigger):is(:hover:not(:disabled), :focus-visible) {
-  background: var(--cds-alpha-1);
-}
 .conversation-chrome-theme .input-attachment-chip { background: var(--cds-alpha-1); }
 .conversation-drop-hint.conversation-chrome-theme { color: var(--accent); }
 
 /* A quiet, flat user-message surface; references and metadata inherit the
    same semantic colors without changing assistant messages or bubble geometry. */
 .message-with-meta.role-user.conversation-chrome-theme { --focus-ring: var(--cds-accent); }
+.user-message-preview[data-truncated] {
+  overflow: clip;
+  mask-image: linear-gradient(to bottom, black calc(100% - 2.5em), transparent);
+}
+.user-message-toggle {
+  display: block;
+  margin-top: 6px;
+  padding: 3px 0;
+  border: 0;
+  border-radius: 3px;
+  background: transparent;
+  color: var(--cds-ink);
+  font: inherit;
+  font-size: .8125rem;
+  cursor: pointer;
+}
+.user-message-toggle:hover { text-decoration: underline; }
+.user-message-toggle:focus-visible { outline: 2px solid var(--cds-accent); outline-offset: 2px; }
 :root .conversation-feed .message-with-meta.role-user.conversation-chrome-theme > .message-card.role-user {
   background: color-mix(in srgb, var(--cds-surface-nav) 94%, var(--cds-ink));
-  border-color: var(--cds-alpha-1);
   color: var(--cds-ink);
 }
 .message-with-meta.role-user.conversation-chrome-theme button.message-reference:hover {
@@ -98,3 +273,53 @@
   --heatmap-level-3: color-mix(in srgb, var(--cds-accent) 76%, var(--cds-surface-panel));
   --heatmap-level-4: var(--cds-accent);
 }
+
+/* Portal menus carry their own theme because they live outside the sidebar. */
+.session-actions-menu.conversation-chrome-theme {
+  background: var(--cds-surface-popover);
+  box-shadow: 0 6px 24px var(--shadow-medium);
+}
+
+.workspace-actions-menu {
+  width: max-content;
+  min-width: min(180px, calc(100vw - 16px));
+  max-width: calc(100vw - 16px);
+}
+.workspace-actions-menu button > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.conversation-fork-menu[popover] {
+  position: fixed;
+  inset: auto;
+  position-area: bottom span-left;
+  justify-self: end;
+  position-try-fallbacks: flip-block, flip-inline, flip-block flip-inline;
+  margin: 4px 0;
+  width: max-content;
+  padding: 3px;
+  border: 1px solid var(--cds-alpha-2);
+  border-radius: 12px;
+  background: var(--cds-surface-popover);
+  color: var(--cds-ink);
+  box-shadow: 0 3px 12px var(--shadow-soft);
+}
+.conversation-fork-menu[popover]:not(:popover-open) { display: none; }
+.conversation-fork-menu--reply[popover] {
+  position-area: top span-right;
+  justify-self: start;
+}
+.conversation-fork-menu [role="menuitem"] { min-height: 30px; gap: 8px; padding-inline: 9px; border-radius: 9px; }
+.conversation-header .message-meta-action,
+.answer-footer .message-meta.role-assistant { color: var(--cds-muted); }
+.conversation-header .message-meta-action { flex: none; width: 28px; height: 28px; }
+:is(.conversation-header, .answer-footer) .message-meta-action:hover:not(:disabled) { background: var(--cds-alpha-1); color: var(--cds-ink); }
+:is(.conversation-header, .answer-footer) .message-meta-action:has(+ :popover-open) { background: var(--cds-selected); color: var(--cds-ink); }
+:is(.conversation-header, .answer-footer) .message-meta-action:focus-visible { outline: 2px solid var(--cds-accent); outline-offset: 1px; }
+:is(.conversation-header, .answer-footer) .message-meta-action:disabled { background: transparent; color: var(--cds-disabled-ink); cursor: default; }
+.answer-footer .message-meta.role-assistant { gap: 2px; min-height: 24px; }
+.answer-footer .message-meta.role-assistant .message-meta-action { width: 24px; height: 24px; border-radius: 7px; }
+.answer-footer .message-meta.role-assistant .message-meta-copy svg { width: 14px; height: 14px; }
+.answer-footer .message-meta time { margin-inline-start: 5px; }

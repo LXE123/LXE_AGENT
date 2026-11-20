@@ -2,6 +2,10 @@ import { AssistantMessageAccumulator, object, string } from "../../messages/accu
 import type { AssistantSuccessReason } from "../../messages/assistant-message";
 
 type ItemState = { id: string; type: string; text: Map<number, number>; thinking: Map<number, number>; tool?: number; summary: boolean };
+const terminalFailure = (response: Record<string, unknown>): Error => Object.assign(
+  new Error(`Responses terminal failure: ${JSON.stringify({ status: response.status, error: response.error, incomplete_details: response.incomplete_details })}`),
+  { error: response.error, response },
+);
 export const responsesUsage = (value: unknown) => {
   const raw = object(value), details = object(raw.input_tokens_details);
   const count = (v: unknown) => Math.max(0, Math.trunc(Number(v) || 0));
@@ -82,9 +86,10 @@ export class OpenAIResponsesStreamAdapter {
     if (["response.completed", "response.incomplete", "response.failed"].includes(type)) {
       this.terminalResponse = object(event.response);
       this.captureTerminal(this.terminalResponse);
+      if (type === "response.failed") throw terminalFailure(this.terminalResponse);
       return;
     }
-    if (type === "error") throw new Error(JSON.stringify({ code: event.code, message: event.message }));
+    if (type === "error") throw Object.assign(new Error(JSON.stringify({ code: event.code, message: event.message })), { error: event });
     if (type === "response.function_call_arguments.delta" || type === "response.function_call_arguments.done") {
       const state = this.eventItem(event, "function_call");
       if (state.tool === undefined) throw new Error("Responses tool arguments arrived before function_call identity");
@@ -153,7 +158,7 @@ export class OpenAIResponsesStreamAdapter {
     if (this.terminalResponse && final.status !== this.terminalResponse.status) throw new Error("Responses terminal payloads disagree on status");
     const status = string(final.status), incomplete = string(object(final.incomplete_details).reason);
     if (status !== "completed" && !(status === "incomplete" && incomplete === "max_output_tokens")) {
-      throw new Error(`Responses terminal failure: ${JSON.stringify({ status: final.status, error: final.error, incomplete_details: final.incomplete_details })}`);
+      throw terminalFailure(final);
     }
     for (const [index, item] of (Array.isArray(final.output) ? final.output : []).entries()) this.finishItem(object(item), index);
     const reason: AssistantSuccessReason = status === "incomplete" ? "length" : this.accumulator.message.content.some((b) => b.type === "tool_call") ? "toolUse" : "stop";

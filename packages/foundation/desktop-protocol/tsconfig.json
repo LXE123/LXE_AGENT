@@ -2,7 +2,7 @@
   "extends": "../../../tsconfig.json",
   "compilerOptions": {
     "lib": ["ES2022"],
-    "types": ["bun"]
+    "types": ["bun", "node"]
   },
   "include": ["src", "test"]
 }

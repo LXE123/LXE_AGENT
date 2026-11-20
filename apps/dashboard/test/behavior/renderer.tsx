@@ -7,7 +7,7 @@ import { MarkdownFixture, type MarkdownSurface } from "./markdown-fixture";
 import { createDashboardContractFixture } from "./dashboard-contract-fixture";
 import { activityFixture } from "./activity-fixture";
 import { createHomeFixture } from "./home-fixture";
-import { createWorkbenchDetailsFixture, workbenchMediaTask } from "./workbench-details-fixture";
+import { createWorkbenchDetailsFixture, createFbaCapacityFixture, workbenchMediaTask } from "./workbench-details-fixture";
 import type { DesktopVietnamSettingsState } from "@lxe/desktop-protocol";
 import { VietnamSettingsWorkbench } from "../../src/features/workbench/vietnam-settings-view";
 import { useApprovalsQuery } from "../../src/api/queries";
@@ -26,6 +26,7 @@ import { ConversationComposer } from "../../src/features/sessions/view";
 import { useDialogFocus } from "../../src/shared/ui/use-dialog-focus";
 import { MermaidBlock } from "../../src/shared/ui/markdown";
 import { I18nContext, LANGUAGE_STORAGE_KEY, UI_TEXT } from "../../src/shared/i18n";
+import { THEME_STORAGE_KEY } from "../../src/shared/appearance";
 import { setupState, cloudState } from "../desktop/settings-fixture-data";
 import { modelRow, modelOption } from "../features/models/source-fixtures";
 import "../../src/styles.css";
@@ -39,10 +40,13 @@ const homeMode = new URLSearchParams(location.search).has("home-fixture");
 const homeFixture = createHomeFixture(new URLSearchParams(location.search).get("home-state") ?? "ready");
 const workbenchDetailsMode = new URLSearchParams(location.search).has("workbench-fixture");
 const workbenchDetailsFixture = createWorkbenchDetailsFixture(calls);
+const fbaCapacityFixture = createFbaCapacityFixture(calls);
 const contractFixture = createDashboardContractFixture(calls);
 const updateRelease: DesktopUpdateRelease = {version:"0.2.0",build_id:"renderer-build",file_name:"fixture.exe",size:100,sha512:"fixture",notes:"Renderer update"};
 let updateState: DesktopUpdateState = {phase:"unsupported"};
 let releaseUpdateDownload: (()=>void) | undefined;
+const forkFixture = new URLSearchParams(location.search).has("forkFixture");
+const fileLinksFixture = new URLSearchParams(location.search).has("fileLinks");
 const workspaceMode = new URLSearchParams(location.search).has("workspaces");
 let referenceMode = false;
 let slowCandidates = false;
@@ -157,9 +161,34 @@ function workspaceRpc(call: { operation: string; input: Record<string, unknown> 
       const offset = Number(input.offset ?? 0), limit = Number(input.limit ?? 10);
       return { items: rows.slice(offset, offset + limit), total: rows.length, offset, limit };
     }
-    case "sessions.detail": return { session: workspaceSessions.find(row => row.session_id === input.session_id),
+    case "sessions.fork": {
+      const number = workspaceSessions.filter(s => s.source.fork).length + 1;
+      const child = workspaceSession("Branch " + number, "/fixture/default");
+      child.title = `Default chat(${number})`;
+      child.source.fork = { session_id: input.session_id, turn_id: input.turn_id ?? "two", entry_id: "end" };
+      workspaceSessions.push(child);
+      return child;
+    }
+    case "sessions.detail": {
+      const session = workspaceSessions.find(row => row.session_id === input.session_id);
+      if ((forkFixture || fileLinksFixture) && session) {
+        const origin = session.source.fork as { turn_id: string } | undefined;
+        const ids = origin?.turn_id === "one" ? ["one"] : ["one", "two"];
+        const messages = ids.flatMap((id, index) => ["user", "assistant"].map((role, block) => ({
+          role, content: fileLinksFixture && role === "assistant"
+            ? `[查看完整分析](./reports/测试%20report.md) [Missing](./missing.txt)\n\n| 文件 | 位置 |\n| --- | --- |\n| [源文件](${session.workspace.directory}/scripts/source.ts) | [起点](${session.workspace.directory}/scripts/source.ts:42) · [终点](${session.workspace.directory}/scripts/source.ts:50) |\n\n[远处](./scripts/source.ts:6500) [越界行](./scripts/source.ts:9999) [对照](file:///fixture/shared/reference.ts#L42-L50)` : role + " " + id,
+          display_id: id + role, display_group_id: id + block, created_at: index + 1,
+          turn: { turn_id: id, status: "completed", elapsed_ms: 1, forkable: block === 1 },
+        })));
+        const groups = messages.map(m => m.display_group_id);
+        return { session, has_forkable_turn: true, messages, messages_page: { group_cursors: groups, total: groups.length,
+          raw_message_total: groups.length, limit: 10, fetched_at: 1, oldest_cursor: groups[0], newest_cursor: groups.at(-1),
+          previous_cursor: null, next_cursor: null, has_previous: false, has_next: false } };
+      }
+      return { session,
       messages: [], messages_page: { group_cursors: [], total: 0, raw_message_total: 0, limit: 10, fetched_at: 1,
         oldest_cursor: null, newest_cursor: null, previous_cursor: null, next_cursor: null, has_previous: false, has_next: false } };
+    }
     case "sessions.activity": return { session_id: input.session_id,
       active: busySessions.has(String(input.session_id)) ? { turn_id: "active", message_id: "active-input", text: "Running task", state: "running", started_at: 1, user_persisted_at: 1, settled_at: 0 } : null,
       latest: null, queued: busySessions.has(String(input.session_id)) ? [{ turn_id: "queued", message_id: "queued-input", text: "Next task", state: "queued", started_at: 0, user_persisted_at: 0, settled_at: 0 }] : [] };
@@ -212,13 +241,18 @@ const health: DesktopHealth = {
 };
 const currentModel = modelRow("deepseek", "local", "DeepSeek", [modelOption("fixture-model")]);
 const subscribe = () => () => {};
+const platformOverride = new URLSearchParams(location.search).get("platform");
+const fixturePlatform = platformOverride === "win32" || platformOverride === "darwin"
+  ? platformOverride
+  : navigator.userAgent.includes("Windows") ? "win32" : "darwin";
 const desktop = {
   selectWorkspace: async () => { calls.push({ operation: "chooseWorkspace" }); return chosenDirectory; },
   getWorkspaceApplications: async () => [{ id: "finder", name: "Finder", icon: null }],
   openWorkspace: async (directory: string) => { calls.push({ operation: "openWorkspace", input: directory }); },
-  platform: (new URLSearchParams(location.search).get("platform") === "win32" || navigator.userAgent.includes("Windows")) ? "win32" as const : "darwin" as const,
+  platform: fixturePlatform,
   getSetupState: async () => setupState({ complete }),
   getHealth: async () => ({ ...health }),
+  restartAgent: async () => { await contractFixture.controls.restartAgent(); return { ...health }; },
   getCloudState: async () => cloudState(),
   getUpdateState: async () => updateState,
   checkForUpdate: async () => { calls.push({operation:"update.check"}); return updateState={phase:"available",release:updateRelease}; },
@@ -286,6 +320,11 @@ let composerLanguage: "en" | "zh" = "en";
 const dashboard = {
   async call(call: { operation: string; input: Record<string, unknown> }) {
     calls.push(structuredClone(call));
+    if (workbenchDetailsMode) {
+      const result = fbaCapacityFixture.rpc(call);
+      if (result !== undefined) return result;
+    }
+    if (call.operation === "automations.list" || call.operation === "skills.user.list") return { items: [], total: 0 };
     if (homeMode) {
       const result = homeFixture.rpc(call.operation, call.input, workspaceSessions);
       if (result !== undefined) return result;
@@ -335,7 +374,9 @@ const dashboard = {
           await new Promise<void>(resolve => pendingWorkspaceResponses.push(resolve));
           return snapshot;
         }
-        return result;
+        // Match Electron IPC: later fixture mutations cannot change an earlier
+        // response already held by the query cache.
+        return structuredClone(await result);
       }
     }
     switch (call.operation) {
@@ -358,21 +399,34 @@ const dashboard = {
 const files = {
   async call(call: { operation: string; input: any }) {
     if (["focus-preview", "release"].includes(call.operation)) return { ok: true, value: undefined };
-    if (!referenceMode) throw new Error(`Unexpected fixture file operation: ${call.operation}`);
+    if (workbenchDetailsMode) {
+      const result = fbaCapacityFixture.file(call);
+      if (result !== undefined) return result;
+    }
+    if (!referenceMode && !fileLinksFixture) throw new Error(`Unexpected fixture file operation: ${call.operation}`);
     calls.push(structuredClone(call));
     const ref = call.input.ref;
     if (ref?.path === "missing.txt") return { ok: false, error: { kind: "not_found", operation: call.operation, diagnostic: "ENOENT: fixture missing.txt" } };
     const metadata = { key: ref?.id ?? ref?.path, name: ref?.kind === "skill" ? "SKILL.md" : ref?.path, displayPath: "/fixture/" + (ref?.id ?? ref?.path), size: 20, version: "1", kind: "markdown", extension: ".md", source: "current_file" };
+    const sourceFile = ref?.path === "scripts/source.ts" || ref?.path === "/fixture/shared/reference.ts";
+    if (sourceFile) Object.assign(metadata, { kind: "text", extension: ".ts" });
     if (call.operation === "stat") return { ok: true, value: metadata };
     if (call.operation === "applications") return { ok: true, value: [] };
-    if (call.operation === "prepare") return { ok: true, value: { handle: "fixture-handle", metadata, missingFonts: [] } };
+    if (call.operation === "prepare") return { ok: true, value: { handle: sourceFile ? "fixture-source" : fileLinksFixture ? ref.session_id : "fixture-handle", metadata, missingFonts: [] } };
     throw new Error(`Unexpected fixture file operation: ${call.operation}`);
   },
-  async readText() { return { ok: true, value: { text: "# Reference preview content\n", page: 1, offset: 1, lines: 1, next: 2, eof: true, version: "1" } }; },
+  async readText(handle: string, { offset = 1 } = {}) {
+    if (handle === "fixture-source") {
+      const count = Math.max(0, Math.min(150, 7001 - offset));
+      const text = Array.from({ length: count }, (_, i) => `// source line ${offset + i}\n`).join("");
+      return { ok: true, value: { text, page: 1, offset, lines: count, next: offset + count, eof: offset + count > 7000, version: "1" } };
+    }
+    return { ok: true, value: { text: fileLinksFixture ? `# Report from ${handle}\n` : "# Reference preview content\n", page: 1, offset: 1, lines: 1, next: 2, eof: true, version: "1" } };
+  },
 };
 window.lxe = { desktop, dashboard, files } as unknown as LxeDesktopBridge;
 
-type ComposerOptions = { runtimeReady?: boolean; modelSaving?: boolean; thinkingSaving?: boolean; running?: boolean; holdSend?: boolean };
+type ComposerOptions = { runtimeReady?: boolean; modelSaving?: boolean; thinkingSaving?: boolean; running?: boolean; stopping?: boolean; holdSend?: boolean };
 let composerOptions: ComposerOptions = {};
 let conversationKey = "";
 function composer() { return <ComposerFixture />; }
@@ -381,9 +435,9 @@ function ComposerFixture() {
   return <ConversationComposer
     approvals={query.data?.items.filter(request => request.session_id === conversationKey) ?? []}
     onApprovalChanged={() => { void query.refetch(); }} question={fixtureQuestion}
-    contextDetail={null} activity={composerOptions.running ? { session_id: "fixture", active: null,
-      latest: null, queued: [{ turn_id: "queued", message_id: "queued-message", text: "queued",
-        state: "queued", started_at: 0, user_persisted_at: 0, settled_at: 0 }] } : null}
+    contextDetail={null} activity={composerOptions.running ? { session_id: "fixture", latest: null, queued: [],
+      active: { turn_id: "running", message_id: "running-message", text: "running",
+        state: composerOptions.stopping ? "stopping" : "running", started_at: 1, user_persisted_at: 1, settled_at: 0 } } : null}
     conversationKey={conversationKey} currentModel={currentModel} modelLoading={false} models={[currentModel]}
     modelSaving={composerOptions.modelSaving ?? false} thinkingSaving={composerOptions.thinkingSaving ?? false}
     runtimeReady={composerOptions.runtimeReady ?? true} runtimeUnavailableMessage="Fixture runtime unavailable"
@@ -443,6 +497,11 @@ const fixture = {
       <MarkdownFixture surface={surface} content={content} />
     </I18nContext.Provider>));
   },
+  updateMarkdown(surface: MarkdownSurface, content: string, status?: string) {
+    flushSync(() => root!.render(<I18nContext.Provider value={UI_TEXT.en}>
+      <MarkdownFixture surface={surface} content={content} status={status} />
+    </I18nContext.Provider>));
+  },
   session: sessionFixture,
   mountSessionWorkspace() {
     reset(); history.replaceState({ section: "sessions" }, "");
@@ -487,6 +546,7 @@ const fixture = {
   },
   vietnamUploadFailure(value: boolean | string) { vietnamUploadError = value; },
   assets: workbenchDetailsFixture.controls,
+  fba: fbaCapacityFixture.controls,
   homeReady() { homeFixture.ready(); },
   workbenchMedia(mode: "scan" | "running" | "apply") { contractFixture.controls.task(workbenchMediaTask(mode)); },
   vietnamExportMode(value: typeof vietnamExportMode) { vietnamExportMode = value; },
@@ -567,8 +627,10 @@ if (!workspaceMode || !sessionStorage.getItem("workspaceFixtureInitialized")) lo
 if (workspaceMode) sessionStorage.setItem("workspaceFixtureInitialized", "true");
 localStorage.setItem(LANGUAGE_STORAGE_KEY, new URLSearchParams(location.search).get("language") || "en");
 const params = new URLSearchParams(location.search);
+if (params.has("theme")) localStorage.setItem(THEME_STORAGE_KEY, params.get("theme")!);
 if (params.has("app")) {
-  if (workspaceMode) Object.assign(health, { gateway: "ready", agent_cli: "ready", workspace_root: "/fixture/default" });
+  if (workspaceMode) Object.assign(health, { gateway: params.get("runtime") === "offline" ? "starting" : "ready",
+    agent_cli: params.get("runtime") === "offline" ? "starting" : "ready", workspace_root: "/fixture/default" });
   complete = params.get("complete") !== "false";
   history.replaceState({ section: params.get("section") || "home" }, "");
   await import("../../src/main");

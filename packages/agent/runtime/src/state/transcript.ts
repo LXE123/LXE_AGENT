@@ -1,10 +1,36 @@
 import { validContextAnchor } from "../engine/context-meter";
-import type { JsonObject } from "@lxe/protocol";
+import type { JsonObject, JsonValue } from "@lxe/protocol";
 import type { RuntimeConversationMessage, RuntimeMessage } from "../engine/types";
 
 import { environmentMetadata } from "../engine/environment-context";
+import { toolReferenceKey, type ToolReference } from "../tooling/tool-reference";
 
-export const TRANSCRIPT_VERSION = 2;
+export const TRANSCRIPT_VERSION = 3;
+
+export function applyToolsLoadedEvent(loaded: Map<string, ToolReference>, event: JsonObject): void {
+  if (event.kind !== "tools_loaded") return;
+  if (!Array.isArray(event.tools)) throw new Error("Invalid tools_loaded transcript entry");
+  for (const ref of event.tools) {
+    if (!ref || typeof ref !== "object" || Array.isArray(ref) || typeof ref.name !== "string" ||
+        !ref.name || (ref.server !== undefined && typeof ref.server !== "string")) {
+      throw new Error("Invalid tools_loaded tool reference");
+    }
+    const tool = ref.server === undefined ? { name: ref.name } : { server: ref.server, name: ref.name };
+    loaded.set(toolReferenceKey(tool), tool);
+  }
+}
+
+/** Codemode state follows the transcript branch, independently of model context patches. */
+export function applyCodemodeStoreEvent(store: Map<string, JsonValue>, event: JsonObject): void {
+  if (event.kind !== "codemode_store") return;
+  const { set, delete: deleted } = event;
+  if (!set || typeof set !== "object" || Array.isArray(set) ||
+      !Array.isArray(deleted) || !deleted.every(key => typeof key === "string")) {
+    throw new Error("Invalid codemode_store transcript entry");
+  }
+  for (const key of deleted) store.delete(key);
+  for (const [key, value] of Object.entries(set)) store.set(key, value);
+}
 
 export const replacementKinds = new Set([
   "compaction",
@@ -51,6 +77,26 @@ const anchorMetadata = (value: unknown) => {
   return (source.role === "assistant" || source.role === "compactionSummary") && validContextAnchor(source.contextTokenAnchor)
     ? { contextTokenAnchor: source.contextTokenAnchor } : {};
 };
+function promptStateMetadata(value: unknown): Pick<RuntimeConversationMessage, "promptState"> {
+  const message = object(value);
+  const state = object(message.promptState);
+  const result: NonNullable<RuntimeConversationMessage["promptState"]> = {};
+  if ((message.role === "user" || message.role === "assistant" || message.role === "compactionSummary") && typeof state.mcpDirectory === "string") {
+    result.mcpDirectory = state.mcpDirectory;
+  }
+  if ((message.role === "assistant" || message.role === "compactionSummary") && Array.isArray(state.tools)) {
+    result.tools = state.tools.map(value => {
+      const tool = object(value);
+      if (typeof tool.name !== "string" || typeof tool.description !== "string" ||
+          !tool.input_schema || typeof tool.input_schema !== "object" || Array.isArray(tool.input_schema)) {
+        throw new Error("Invalid transcript tool definition");
+      }
+      return { name: tool.name, description: tool.description, input_schema: tool.input_schema };
+    });
+  }
+  return Object.keys(result).length ? { promptState: result } : {};
+}
+
 const runtimeContextMetadata = (value: unknown) => {
   const source = value as { role?: unknown; runtimeContextKind?: unknown; message_id?: unknown; client_message_id?: unknown };
   return source.role === "user" && source.runtimeContextKind === "turn_aborted"
@@ -72,12 +118,17 @@ export const normalizeTranscriptMessage = (value: unknown): RuntimeMessage | und
     const modifiedFiles = [...new Set(details.modifiedFiles.map((path) => path.trim()).filter(Boolean))].sort();
     const modified = new Set(modifiedFiles);
     const readFiles = [...new Set(details.readFiles.map((path) => path.trim()).filter((path) => path && !modified.has(path)))].sort();
-    return { ...anchorMetadata(value), role: "compactionSummary", summary, tokensBefore, details: { readFiles, modifiedFiles } };
+    return { ...anchorMetadata(value), ...promptStateMetadata(value), role: "compactionSummary", summary, tokensBefore, details: { readFiles, modifiedFiles } };
   }
   if (!new Set(["user", "assistant", "tool", "system"]).has(legacyRole)) return undefined;
   let role = legacyRole as RuntimeConversationMessage["role"];
   const identity = Object.fromEntries(["message_id", "client_message_id"].flatMap((key) => typeof (value as Record<string, unknown>)[key] === "string" ? [[key, (value as Record<string, unknown>)[key]]] : []));
-  if (!Array.isArray(candidate.content)) return { ...identity, ...environmentMetadata(value), ...runtimeContextMetadata(value), ...anchorMetadata(value), role, content: String(candidate.content ?? "") };
+  if (!Array.isArray(candidate.content)) {
+    const stop = (value as Record<string, unknown>).stopReason;
+    return { ...identity, ...environmentMetadata(value), ...runtimeContextMetadata(value), ...anchorMetadata(value), ...promptStateMetadata(value),
+      ...(role === "assistant" && (stop === "aborted" || stop === "error") ? { stopReason: stop } : {}),
+      role, content: String(candidate.content ?? "") };
+  }
   const content = candidate.content.map(normalizeLegacyBlock)
     .filter((block): block is JsonObject => Boolean(block));
   // Early Bun transcripts persisted Anthropic wire messages directly. Recover
@@ -91,8 +142,9 @@ export const normalizeTranscriptMessage = (value: unknown): RuntimeMessage | und
     for (const key of ["id", "timestamp", "api", "provider", "model", "responseId", "responseModel", "usage", "stopReason", "rawStopReason", "error"]) {
       if (source[key] !== undefined) metadata[key] = source[key];
     }
+    if (typeof source.providerThinkingLevel === "string") metadata.providerThinkingLevel = source.providerThinkingLevel;
   }
-  return { ...identity, ...environmentMetadata(value), ...runtimeContextMetadata(value), ...anchorMetadata(value), ...metadata, role, content } as RuntimeMessage;
+  return { ...identity, ...environmentMetadata(value), ...runtimeContextMetadata(value), ...anchorMetadata(value), ...promptStateMetadata(value), ...metadata, role, content } as RuntimeMessage;
 };
 
 export const normalizeTranscriptMessages = (values: unknown[]): RuntimeMessage[] =>

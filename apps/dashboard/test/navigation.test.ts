@@ -5,6 +5,8 @@ import {
   dashboardRouteFromHistory,
   readStoredCapabilityView,
   storeCapabilityView,
+  workbenchParent,
+  workbenchTools,
 } from "../src/shared/navigation";
 
 describe("Dashboard information architecture", () => {
@@ -13,7 +15,7 @@ describe("Dashboard information architecture", () => {
       section: "capabilities",
       capabilityView: "models",
       activityView: "stats",
-      workbenchView: "index",
+      workbenchView: "tasks",
     });
     expect(dashboardRouteFromHistory({ tab: "mcp" }, "models").capabilityView).toBe("connections");
     expect(dashboardRouteFromHistory({ tab: "connectors" }, "models").capabilityView).toBe("connections");
@@ -21,7 +23,7 @@ describe("Dashboard information architecture", () => {
       section: "activity",
       capabilityView: "tools",
       activityView: "stats",
-      workbenchView: "index",
+      workbenchView: "tasks",
     });
     expect(dashboardRouteFromHistory({ tab: "stats" }, "tools").activityView).toBe("stats");
   });
@@ -31,7 +33,7 @@ describe("Dashboard information architecture", () => {
       section: "workbench",
       capabilityView: "skills",
       activityView: "stats",
-      workbenchView: "index",
+      workbenchView: "tasks",
     });
     expect(dashboardRouteFromHistory({
       section: "capabilities",
@@ -41,7 +43,7 @@ describe("Dashboard information architecture", () => {
       section: "capabilities",
       capabilityView: "connections",
       activityView: "stats",
-      workbenchView: "index",
+      workbenchView: "tasks",
     });
     expect(dashboardRouteFromHistory({
       section: "capabilities",
@@ -51,6 +53,14 @@ describe("Dashboard information architecture", () => {
       section: "activity",
       activityView: "unknown",
     }, "tools").activityView).toBe("stats");
+  });
+
+  test("opens the catalog as a standalone page from both current and old history entries", () => {
+    for (const entry of [{ section: "team-skills" }, { section: "workbench", workbenchView: "team-skills" }]) {
+      expect(dashboardRouteFromHistory(entry, "tools")).toEqual({
+        section: "team-skills", capabilityView: "tools", activityView: "stats", workbenchView: "tasks",
+      });
+    }
   });
 
   test("persists only valid capability views and fails safely without storage", () => {
@@ -82,5 +92,16 @@ describe("Dashboard information architecture", () => {
     };
     expect(readStoredCapabilityView(storage)).toBe("skills");
     expect(values.get(CAPABILITY_VIEW_STORAGE_KEY)).toBe("skills");
+  });
+
+  test("workbench opens on skill tasks and each tool returns to its own sub-page", () => {
+    expect(dashboardRouteFromHistory({ section: "workbench" }, "skills").workbenchView).toBe("tasks");
+    expect(dashboardRouteFromHistory({ section: "workbench", workbenchView: "tools" }, "skills").workbenchView).toBe("tools");
+    expect(dashboardRouteFromHistory({ section: "workbench", workbenchView: "index" }, "skills").workbenchView).toBe("tasks");
+    expect(workbenchTools("tasks")).toEqual(["fba-capacity"]);
+    expect(workbenchTools("tools")).toEqual(["vietnam-settings", "amazon-v2-settings", "synthetic-performer", "input-assets"]);
+    expect(workbenchParent("fba-capacity")).toBe("tasks");
+    expect(workbenchParent("input-assets")).toBe("tools");
+    expect(workbenchParent("tools")).toBe("tools");
   });
 });

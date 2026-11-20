@@ -16,6 +16,7 @@ import { AgentProtocolServer, type AgentProtocolServerOptions } from "../src/ser
 
 const collect = (output: Array<AgentResponse | AgentEvent>, message: AgentServerOutput): void => {
   for (const item of Array.isArray(message) ? message : [message]) {
+    if ("method" in item && "id" in item) throw new Error("Unexpected reverse RPC");
     output.push("method" in item ? decodeAgentEvent(item) : item);
   }
 };
@@ -29,7 +30,6 @@ const workspace = (root: string) => ({
 
 const initializePayload = (root: string) => ({
   protocol_version: AGENT_PROTOCOL_VERSION,
-  agent_soul_path: join(root, "SOUL.md"),
   skills_root: join(root, "skills"),
   user_skills_root: join(root, "user-skills"),
   llm_config_root: join(root, "config", "llm"),
@@ -107,6 +107,7 @@ describe("AgentProtocolServer", () => {
       truncated: false,
       output_tail: "ok",
     };
+    const beforeUpdate = output.length;
     await notify?.({ ...snapshot, revision: 1, status: "running", ended_at: null, exit_code: null, output_tail: "first" });
     await notify?.(snapshot);
     expect(output).toContainEqual(expect.objectContaining({
@@ -115,7 +116,8 @@ describe("AgentProtocolServer", () => {
       turn_id: "turn-1",
       payload: expect.objectContaining({ tool_call_id: "tool-1" }),
     }));
-    expect(output.some((message) => "type" in message && message.type === "agent.wake")).toBe(false);
+    expect(output.slice(beforeUpdate).map(message => "type" in message && message.type))
+      .toEqual(["background_task.changed", "background_task.changed"]);
     const events = output.filter((message): message is Extract<AgentEvent, { type: "background_task.changed" }> =>
       "type" in message && message.type === "background_task.changed");
     expect(events.map(event => event.payload.task.revision)).toEqual([1, 2]);
@@ -419,22 +421,6 @@ describe("AgentProtocolServer", () => {
     expect(output[0]).toMatchObject({ id: "health-1", error: { code: -32001 } });
   });
 
-  test("rejects the removed pop_pending_events command", async () => {
-    const output: Array<AgentResponse | AgentEvent> = [];
-    const server = new AgentProtocolServer({ write: (message) => { collect(output, message); } });
-    await server.accept(JSON.stringify({
-      jsonrpc: "2.0",
-      id: "pop-1",
-      method: "pop_pending_events",
-      params: { session_id: "session-1" },
-    }));
-    expect(output).toHaveLength(1);
-    const response = output[0];
-    expect(response && !("type" in response) && "error" in response).toBe(true);
-    expect(response && !("type" in response) && "error" in response ? response.error.message : "")
-      .toContain("Unknown method:");
-  });
-
   test("run_turn returns steering the runtime never consumed", async () => {
     const output: Array<AgentResponse | AgentEvent> = [];
     const root = process.cwd();
@@ -524,20 +510,17 @@ describe("AgentProtocolServer", () => {
     await server.shutdown();
   });
 
-  test("rejects the removed health command", async () => {
+  test("rejects unknown methods", async () => {
     const output: Array<AgentResponse | AgentEvent> = [];
     const server = new AgentProtocolServer({ write: (message) => { collect(output, message); } });
     await server.accept(JSON.stringify({
       jsonrpc: "2.0",
-      id: "health-1",
-      method: "health",
+      id: "unknown-1",
+      method: "unknown_method",
       params: {},
     }));
     expect(output).toHaveLength(1);
-    const response = output[0];
-    expect(response && !("type" in response) && "error" in response).toBe(true);
-    expect(response && !("type" in response) && "error" in response ? response.error.message : "")
-      .toContain("Unknown method:");
+    expect(output[0]).toMatchObject({ id: "unknown-1", error: { code: -32601 } });
   });
 
   test("propagates Dashboard RPC errors through the agent error envelope", async () => {

@@ -2,8 +2,9 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { useSessionConversationQuery } from "../../../src/api/queries";
 import { setDashboardTransportForTests } from "../../../src/api/client";
-import React, { useCallback, useRef, useState, useEffect } from "react";
+import React, { useCallback, useRef, useState, useEffect, useSyncExternalStore } from "react";
 import { createRoot } from "react-dom/client";
+import { ConversationDisplayController } from "../../../src/features/sessions/display-controller";
 import { ConversationWindow } from "../../../src/features/sessions/virtual-window";
 import { UnifiedConversationRow } from "../../../src/features/sessions/view";
 import { conversationRows } from "../../../src/features/sessions/presentation";
@@ -117,6 +118,66 @@ function CompactionFixture() {
       hasOlder={false} hasNewer={false} loadOlder={noop} loadNewer={noop} jumpToLatest={() => {}} onVisibleGroups={setVisible} pageError="" />
   </div>;
 }
+function RunHistoryFixture() {
+  const [controller] = useState(() => { const value = new ConversationDisplayController(); value.select("fixture"); return value; });
+  const display = useSyncExternalStore(controller.subscribe, controller.getSnapshot);
+  const [loads, setLoads] = useState({ older: 0, newer: 0, staleAccepted: false });
+  const runPage = (start: number, end: number) => ({ ...page(start, end), messages: all.slice(start, end).map((message, i) => ({
+    ...message, role: "user", content: `Run ${start + i}`, turn: { turn_id: `turn-${start + i}`, status: "completed" },
+  })) });
+  const open = (long: boolean) => {
+    const stale = controller.beginHistory();
+    const ticket = controller.beginTargetHistory();
+    controller.openHistory(runPage(100, long ? 120 : 103), long ? "turn-105" : "turn-100", ticket);
+    setTimeout(() => setLoads(value => ({ ...value, staleAccepted: controller.completeHistory(stale, runPage(990, 1000), "latest") })), 30);
+  };
+  const load = async (direction: "older" | "newer") => {
+    setLoads(value => ({ ...value, [direction]: value[direction] + 1 }));
+    const data = controller.getSnapshot().detail!;
+    const start = Number(data.messages_page.oldest_cursor!.slice(1)), end = Number(data.messages_page.newest_cursor!.slice(1)) + 1;
+    controller.receiveHistory(direction === "older" ? runPage(Math.max(0, start - 10), start) : runPage(end, Math.min(1000, end + 10)), direction);
+  };
+  return <div style={{ height: "100vh", display: "flex", flexDirection: "column" }}>
+    <div><button onClick={() => open(false)}>Open short run</button><button onClick={() => open(true)}>Open long run</button>
+      <button onClick={() => controller.receiveHistory(runPage(990, 1000), "latest")}>Refresh latest</button>
+      <span id="run-state">{JSON.stringify({ ...loads, following: display.following, connection: display.connection })}</span></div>
+    <ConversationWindow rows={display.rows} renderRow={row => <div style={{ height: display.historyTarget?.turnId === "turn-100" ? 36 : 160 }}>{row.turnId}</div>}
+      connection={display.connection} followingIntent={display.following} historyTarget={display.historyTarget} jumpVersion={display.jump}
+      onFollowingChange={controller.setFollowing} onVisibleGroups={controller.setVisibleGroups}
+      hasOlder={!!display.detail?.messages_page.has_previous} hasNewer={!!display.detail?.messages_page.has_next}
+      loadOlder={() => load("older")} loadNewer={() => load("newer")} pageError="" jumpToLatest={controller.jumpToLatest} />
+  </div>;
+}
+// Tall rows keep the overscan range unchanged across a paging boundary.
+function PaginationFixture() {
+  const direction = new URLSearchParams(location.search).get("pagination");
+  const makeMessage = (index: number): SessionMessage => ({
+    display_group_id: `page-${index}`, display_id: `page-${index}:0`,
+    role: "assistant", created_at: index + 1,
+    content: `History ${index}\n\n${"A long paragraph keeps this message taller than the viewport.\n\n".repeat(40)}`,
+  });
+  const [messages, setMessages] = useState(() => [makeMessage(2), makeMessage(3)]);
+  const [requests, setRequests] = useState(0);
+  const [loaded, setLoaded] = useState(false);
+  const [ready, setReady] = useState(false);
+  const loadPage = useCallback(async () => {
+    setRequests(count => count + 1);
+    await new Promise(resolve => setTimeout(resolve, 80));
+    setMessages(current => direction === "older" ? [makeMessage(1), ...current] : [...current, makeMessage(4)]);
+    setLoaded(true);
+  }, [direction]);
+  const setVisible = useCallback(() => {}, []);
+  return <div style={{ height: "100vh", display: "flex", flexDirection: "column" }}>
+    <button onClick={() => setReady(true)}>Enable paging</button>
+    <span id="pagination-metrics">{JSON.stringify({ requests, loaded })}</span>
+    <ConversationWindow rows={conversationRows(messages, [], [])}
+      renderRow={row => <UnifiedConversationRow row={row} expanded={false} onToggle={() => {}} onOpenFile={noop} onRevealFile={noop} onOpenAttachment={noop} />}
+      hasOlder={ready && direction === "older" && !loaded} hasNewer={ready && direction === "newer" && !loaded}
+      loadOlder={loadPage} loadNewer={loadPage} onVisibleGroups={setVisible} jumpToLatest={() => {}}
+      connection={direction === "newer" ? "detached" : "attached"} pageError="" />
+  </div>;
+}
 const fixtureRoot=createRoot(document.getElementById("root")!);
-fixtureRoot.render(<QueryClientProvider client={queryClient}>{new URLSearchParams(location.search).has("compaction") ? <CompactionFixture /> : <Fixture/>}</QueryClientProvider>);
+const fixtureParams = new URLSearchParams(location.search);
+fixtureRoot.render(<QueryClientProvider client={queryClient}>{fixtureParams.has("run-history") ? <RunHistoryFixture /> : fixtureParams.has("pagination") ? <PaginationFixture /> : fixtureParams.has("compaction") ? <CompactionFixture /> : <Fixture/>}</QueryClientProvider>);
 if (import.meta.hot) import.meta.hot.dispose(()=>fixtureRoot.unmount());

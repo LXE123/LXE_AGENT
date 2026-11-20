@@ -1,68 +1,13 @@
 import React, { useEffect, useId, useMemo, useState } from "react";
 import rehypeKatex from "rehype-katex";
-import remarkGfm from "remark-gfm";
-import remarkMath from "remark-math";
 import type { Components, Options } from "react-markdown";
 
 import "katex/dist/katex.min.css";
 import { useUiText } from "../i18n";
+import { workspaceFileLink, type WorkspaceFileLink } from "../markdown";
 import { CodeBlock } from "./code-block";
 
-/**
- * `$$…$$` is typeset; a lone `$` is left alone.
- *
- * Single-dollar math cannot be told apart from money, and money is most of what
- * this agent writes about: "单价 $4.50，运费 $12.80" would have everything
- * between the two amounts swallowed and set as an equation. A formula is rare
- * here and a price is not, so the ambiguous delimiter goes to the price.
- */
-type MarkdownNode = { type: string; value?: string; children?: MarkdownNode[] };
-
-const isBlank = (node: MarkdownNode): boolean =>
-  node.type === "text" && (node.value ?? "").trim() === "";
-
-/**
- * Sets a formula written on one line as a centred block.
- *
- * remark-math only opens display math when `$$` stands alone on its own line;
- * written as `$$ … $$` the formula falls back to text math and ends up running
- * inline with the sentence. Models write it on one line all the time. Since
- * single-`$` math is off, every text-math node here necessarily came from `$$`,
- * so a paragraph holding nothing else is the block form on one line.
- */
-function liftSingleLineDisplayMath() {
-  const lift = (node: MarkdownNode): MarkdownNode => {
-    if (!node.children) return node;
-    node.children = node.children.map(lift).map((child) => {
-      if (child.type !== "paragraph" || !child.children) return child;
-      const content = child.children.filter((item) => !isBlank(item));
-      const [only] = content;
-      if (content.length !== 1 || only?.type !== "inlineMath") return child;
-      const value = only.value ?? "";
-      // The hast shape has to be spelled out: a bare `math` node carries its
-      // formula in `value`, and the mdast-to-hast fallback drops the value of a
-      // node type it does not know, which would delete the equation outright.
-      // `math-display` is also the hook rehype-katex reads to centre it.
-      return {
-        type: "math",
-        value,
-        data: {
-          hName: "div",
-          hProperties: { className: ["math", "math-display"] },
-          hChildren: [{ type: "text", value }],
-        },
-      };
-    });
-    return node;
-  };
-  return lift;
-}
-
-export const markdownRemarkPlugins: NonNullable<Options["remarkPlugins"]> = [
-  remarkGfm,
-  [remarkMath, { singleDollarTextMath: false }],
-  liftSingleLineDisplayMath,
-];
+export { markdownRemarkPlugins } from "../markdown-plugins";
 
 export const markdownRehypePlugins: NonNullable<Options["rehypePlugins"]> = [rehypeKatex];
 
@@ -125,28 +70,28 @@ function renderMermaidChart(id: string, chart: string) {
 }
 
 const EXTERNAL_LINK_PATTERN = /^https?:\/\//i;
+export const OpenMarkdownFileContext = React.createContext<{
+  sessionId: string;
+  directory?: string;
+  open(link: WorkspaceFileLink): void;
+} | null>(null);
 
-export const markdownComponents: Components = {
-  // Only a plain web link is a link. It opens in the system browser, which the
-  // Main process arranges when it denies the window this target asks for.
-  //
-  // Everything else renders as text. An in-page anchor — a footnote marker, its
-  // back-reference — would otherwise navigate the single-page shell to a route
-  // it has no entry for, which drops the reader back on the home screen; and a
-  // link on any other scheme has nowhere to go that is worth going.
-  a({ href, children, ...props }) {
+export const markdownComponents = {
+  a: function MarkdownLink({ href, children, node: _node, ...props }) {
+    const openFile = React.useContext(OpenMarkdownFileContext);
     const target = String(href ?? "");
-    if (!EXTERNAL_LINK_PATTERN.test(target)) {
-      // The back-reference arrow is a navigation control and nothing else, so
-      // without the navigation there is nothing left of it to show.
-      if ("data-footnote-backref" in props) return null;
-      return <span className="markdown-inert-link">{children}</span>;
+    if (EXTERNAL_LINK_PATTERN.test(target)) {
+      return <a {...props} href={target} rel="noreferrer noopener" target="_blank">{children}</a>;
     }
-    return (
-      <a {...props} href={target} rel="noreferrer noopener" target="_blank">
-        {children}
-      </a>
-    );
+    const link = openFile && workspaceFileLink(target, openFile.directory);
+    if (openFile && link) return <button type="button" role="link" className="markdown-file-link" title={props.title ?? link.path + (link.line ? ":" + link.line : "") + (link.endLine ? "-" + link.endLine : "")}
+      data-linked-session={link.kind === "linked" ? openFile.sessionId : undefined} data-linked-path={link.kind === "linked" ? link.path : undefined}
+      onClick={event => {
+        if (event.detail > 0 && window.getSelection()?.isCollapsed === false) return;
+        openFile.open(link);
+      }}>{children}</button>;
+    if ("data-footnote-backref" in props) return null;
+    return <span className="markdown-inert-link">{children}</span>;
   },
   pre({ children, ...props }) {
     const child = React.Children.count(children) === 1 ? React.Children.only(children) : null;
@@ -178,7 +123,7 @@ export const markdownComponents: Components = {
       </div>
     );
   }
-};
+} satisfies Components;
 
 
 export function MermaidBlock({ chart }: { chart: string }) {

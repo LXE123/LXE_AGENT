@@ -58,10 +58,6 @@ class SourceRow(Protocol):
     local_sku: str
 
 
-def source_row_key(row: SourceRow) -> tuple[str, str, str]:
-    return normalize_sku_key(row.msku), clean_text(row.asin), normalize_sku_key(row.local_sku)
-
-
 def _integer(value: Any, context: str, payload: Any, *, minimum: int = 0) -> int:
     if isinstance(value, bool) or not re.fullmatch(r"\d+", str(value)) or int(value) < minimum:
         invalid(context, f"无效整数: {value!r}", payload)

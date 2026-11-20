@@ -1,0 +1,10 @@
+{
+    "apps/dashboard/src/main.tsx":  "9614c6edb27adf2b13ff8c3626c70c45dfa3ad195aae060943f4760127f57881",
+    "apps/dashboard/test/behavior/renderer.tsx":  "62ce2a1e5e60f03275feb859f85af8daac1882d9a14275124d84e0c76b4fd51a",
+    "apps/dashboard/test/behavior/navigation-rail.cjs":  "ea227cb16edcba3639d918d84515e2295bc7ed7b6a73636617d7119c7c359d07",
+    "apps/dashboard/src/shared/navigation-rail.tsx":  "8393edc6b7353f5f29a04ce15eea443c8609243871e16dd7e176d11810bd098e",
+    "apps/dashboard/src/shared/navigation-icons.tsx":  "8329a277db374ef9d8904339be79bcd928d612c76799b111ca3fe9b2447a531d",
+    "apps/dashboard/src/shared/navigation-rail.css":  "b41fb95ea7a49d8883929aaccb2bcc1e845f5498912be090dd488061d6e6b5ae",
+    "apps/dashboard/test/behavior/renderer.test.ts":  "c44d2122a21c42b5829a8cb7d11f7d107a5dc296d94c40a0681b3af71b367583",
+    "apps/dashboard/test/behavior/runner.cjs":  "a09a2eef9a3b9d91ae49f8fd3572bc8c15eb98af621f7692de14775bede1c0b9"
+}

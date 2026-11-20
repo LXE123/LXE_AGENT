@@ -9,7 +9,7 @@ if (process.env.FAKE_OWNED_CHILD_PID) {
 
 const input = createInterface({ input: process.stdin, crlfDelay: Infinity });
 const write = (message) => process.stdout.write(`${JSON.stringify(message)}\n`);
-const protocolVersion = 25;
+const protocolVersion = 32;
 const event = ({ type, ...params }) => write({ jsonrpc: "2.0", method: type, params });
 let activeRunRequest;
 let steered = [];
@@ -177,6 +177,8 @@ for await (const line of input) {
     if (activeRunRequest) {
       steered.push({
         text: request.params.text,
+        ...(request.params.user_content_blocks ? { user_content_blocks: request.params.user_content_blocks } : {}),
+        ...(request.params.client_message_id ? { client_message_id: request.params.client_message_id } : {}),
         response_route_id: request.params.response_route_id,
         message_id: request.params.message_id,
       });

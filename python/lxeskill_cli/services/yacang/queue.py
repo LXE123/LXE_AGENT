@@ -8,6 +8,16 @@ from zoneinfo import ZoneInfo
 from .contracts import REPORTS, WAREHOUSES
 from .errors import YacangError
 
+FILTER_FIELDS = frozenset({
+    'warehouse_id', 'create_time', 'user_id', 'sku_condition', 'goods_sku_condition', 'status',
+})
+METADATA_VALUES = {
+    'inventory-sales': {'order_name': 'three_data', 'order_by': 'desc'},
+    'inventory-current-snapshot': {
+        'order_field': 'create_time', 'order_type': 'desc', 'stock_warehouse_list': '1',
+    },
+}
+
 
 def conditions(value):
     if isinstance(value, list):
@@ -36,8 +46,13 @@ def matches(row, task):
     if not isinstance(where, (dict, list)):
         return False
     terms = list(conditions(where))
-    # Refuse unrequested product/search filters instead of silently exporting a subset.
-    if any(t[0] not in {'warehouse_id', 'create_time', 'user_id', 'sku_condition', 'goods_sku_condition', 'status'} for t in terms):
+    # Keep known platform defaults separate from user-selected data filters.
+    metadata = METADATA_VALUES.get(task['report'], {})
+    if any(t[0] not in FILTER_FIELDS | frozenset(metadata) for t in terms):
+        return False
+    if any(op != '=' or str(value) != metadata[field]
+           for field in metadata
+           for name, op, value in terms if name == field):
         return False
     def exact(field, expected, required=False):
         values = [t for t in terms if t[0] == field]

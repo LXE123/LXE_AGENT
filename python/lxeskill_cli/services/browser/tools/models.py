@@ -10,12 +10,9 @@ class ExecuteToolResult:
     success: bool
     summary: str = ""
     verification: dict[str, Any] = field(default_factory=dict)
-    after_snapshot: dict[str, Any] = field(default_factory=dict)
-    screenshot_path: str = ""
     payload: dict[str, Any] = field(default_factory=dict)
     failure_reason: str = ""
     error_code: str = ""
-    clicked_element: dict[str, Any] = field(default_factory=dict)
     latency_ms: int = 0
 
 @dataclass(frozen=True)

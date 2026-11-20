@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, fsyncSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -45,7 +45,7 @@ describe("DesktopConfigRepository", () => {
       migration_version: 0,
       llm: {
         provider: "deepseek",
-        profiles: { deepseek: { model: "deepseek-v4-flash", thinking_level: "low" } },
+        profiles: { deepseek: { model: "deepseek-flash", thinking_level: "low" } },
       },
       logging: { profile: "standard", retention_days: 7 },
       cloud: { tunnel_name: "lxe-agent", switch_in_progress: false },
@@ -66,7 +66,7 @@ describe("DesktopConfigRepository", () => {
       migration_version: 0,
       llm: {
         provider: "deepseek",
-        profiles: { deepseek: { model: "deepseek-v4-flash", thinking_level: "low" } },
+        profiles: { deepseek: { model: "deepseek-flash", thinking_level: "low" } },
       },
       integrations: { feishu: { managed: true, app_id: "legacy-app-id" } },
       logging: { profile: "standard", retention_days: 7 },
@@ -179,16 +179,26 @@ describe("DesktopConfigRepository", () => {
     expect(() => unavailable.commit(cloneConfig(), cloneSecrets())).toThrow("Secure credential storage is unavailable");
   });
 
-  test("restores both files when secret or public configuration persistence fails", () => {
+  test("preserves the previous pair when secret or public configuration persistence fails", () => {
     const root = createRoot();
     let encryptionFails = false;
+    let settingsRenameFails = false;
     const repository = new DesktopConfigRepository(root, {
       ...safeStorage,
       encryptString: (value) => {
         if (encryptionFails) throw new Error("encryption failed");
         return safeStorage.encryptString(value);
       },
-    }, "win32");
+    }, "win32", undefined, {
+      write: writeFileSync,
+      sync: fsyncSync,
+      rename: (source, target) => {
+        if (settingsRenameFails && target === join(root, "config", "settings.json")) {
+          throw new Error("settings rename failed");
+        }
+        renameSync(source, target);
+      },
+    });
     const originalConfig = cloneConfig();
     const originalSecrets = cloneSecrets();
     originalSecrets.managed_llm_credential = managedCredential("original-secret");
@@ -208,8 +218,8 @@ describe("DesktopConfigRepository", () => {
     expect(readFileSync(secretsPath)).toEqual(beforeSecrets);
 
     encryptionFails = false;
-    mkdirSync(`${configPath}.${process.pid}.tmp`);
-    expect(() => repository.commit(changedConfig, changedSecrets)).toThrow();
+    settingsRenameFails = true;
+    expect(() => repository.commit(changedConfig, changedSecrets)).toThrow("settings rename failed");
     expect(readFileSync(configPath)).toEqual(beforeConfig);
     expect(readFileSync(secretsPath)).toEqual(beforeSecrets);
     expect(existsSync(configPath)).toBeTrue();

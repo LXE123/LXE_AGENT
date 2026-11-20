@@ -7,16 +7,18 @@ import { compactionBoundaries, restoreCompactionRows, type CompactionBoundary } 
 export interface PendingMessage {
   pendingId: string; sessionId: string; text: string; createdAt: number;
   attachments: NonNullable<SessionMessage["attachments"]>;
-  turnId?: string; messageId?: string; error?: string; draftKey?: string;
+  turnId?: string; messageId?: string; steering?: boolean; error?: string; draftKey?: string;
 }
 export interface ConversationRow {
   id: string; groupId: string; turnId: string; kind: "image_views" | "message" | "tool" | "status" | "artifacts" | "process" | "answer_meta" | "compaction";
   presentation?: "process" | "final";
-  answerMeta?: { text: string; createdAt: number };
+  answerMeta?: { text: string; createdAt: number; forkable?: boolean };
   message?: SessionMessage; operation?: ToolOperation;
   imageRows?: ConversationRow[];
   liveTool?: NonNullable<DesktopConversationTurnPayload["stream"]>["tool_steps"][number];
+  liveCall?: ToolOperation["call"];
   phase?: string; startedAt?: number; elapsedMs?: number;
+  forkable?: boolean;
   status?: string; error?: string; createdAt: number; artifacts?: SessionArtifactPayload[];
 }
 export const userDisplayId = (message: { client_message_id?: string; message_id?: string; display_id?: string }): string =>
@@ -116,15 +118,18 @@ export function projectConversationHistory(source: readonly SessionMessage[]): C
           }
           return;
         }
-        add({ ...base, id: `${messageId}:${index}`, kind: "message", presentation: message.role === "assistant" ? (finalMessages.has(message) && block.type === "text" ? "final" : "process") : undefined, status: "completed", message: { ...message, content: [block], attachments: index === blocks.length - 1 ? message.attachments : undefined, artifacts: undefined } });
+        const partIndex = message.source_reason === "assistant_partial" && typeof block.contentIndex === "number"
+          ? block.contentIndex : index;
+        const incomplete = message.role === "assistant" && (message.stopReason === "error" || message.stopReason === "aborted");
+        add({ ...base, id: `${messageId}:${partIndex}`, kind: "message", presentation: message.role === "assistant" ? (finalMessages.has(message) && block.type === "text" ? "final" : "process") : undefined, status: incomplete ? "error" : "completed", message: { ...message, content: [block], attachments: index === blocks.length - 1 ? message.attachments : undefined, artifacts: undefined } });
       });
     }
   }
   const compactions = compactionBoundaries(rows);
   const baseRows = rows.filter(row => row.kind !== "compaction");
-  const turnStatus = new Map(messages.flatMap((message) => message.turn?.status && !isInternalMessage(message) ? [[message.turn.turn_id, message] as const] : []));
+  const turnStatus = new Map(source.flatMap((message) => message.turn?.status && (!isInternalMessage(message) || message.turn.forkable) ? [[message.turn.turn_id, message] as const] : []));
   for (const [id, message] of turnStatus) {
-    baseRows.push({id:`status:${id}`,turnId:id,groupId:message.display_group_id,createdAt:(message.created_at??0)*1000,kind:"status",status:message.turn!.status!,elapsedMs:message.turn!.elapsed_ms ?? undefined});
+    baseRows.push({id:`status:${id}`,turnId:id,groupId:message.display_group_id,createdAt:(message.created_at??0)*1000,kind:"status",forkable:message.turn!.forkable,status:message.turn!.status!,elapsedMs:message.turn!.elapsed_ms ?? undefined});
   }
   const artifacts = collectTurnArtifacts(messages);
   const ordered = restoreCompactionRows(appendAnswerMetadata(appendTurnArtifacts(orderRows(baseRows), artifacts)), compactions);
@@ -153,14 +158,18 @@ export function composeConversationRows(projection: ConversationHistoryProjectio
     const groupId = history.find((row) => row.message?.role === "assistant" || row.kind === "tool")?.groupId ?? `live:${turn.turn_id}`;
     const base = { groupId, turnId: turn.turn_id, createdAt: turn.created_at ?? turn.started_at };
     const userId = userDisplayId(turn);
-    if (!rows.some((row) => row.id === userId || (row.turnId === turn.turn_id && row.message?.role === "user"))) {
+    const userIndex = rows.findIndex((row) => row.id === userId || (row.turnId === turn.turn_id && row.message?.role === "user" && row.message.source_reason !== "steering"));
+    if (userIndex < 0) {
       rows.push({ ...base, id: userId, kind: "message", status: turn.state, message: { display_group_id: groupId, role: "user", content: turn.text, attachments: turn.attachments, created_at: base.createdAt / 1000 } });
+    } else if (turn.state === "queued") {
+      rows[userIndex] = { ...rows[userIndex]!, status: "queued" };
     }
+    if (turn.state === "queued") continue;
     const parts: ConversationRow[] = (turn.stream?.process_parts ?? []).map((part) => part.type === "tool"
       ? { ...base, id: toolDisplayId(turn.turn_id, groupId, part.tool_step.id), kind: "tool", presentation: "process", liveTool: part.tool_step }
       : { ...base, id: part.part_id, kind: "message", presentation: part.type === "text" && part.presentation === "final" ? "final" : "process", status: part.status, message: { display_group_id: groupId, role: "assistant", content: [part.type === "thinking" ? { type: "thinking", thinking: part.text, redacted: part.redacted_count > 0 } : { type: "text", text: part.text }] } });
     // Stored data confirms an item; the live order remains authoritative during the handoff,
-    // including failed-attempt rows that deliberately have no persisted counterpart.
+    // including reasoning that was only delivered live during a failed attempt.
     const existing = new Map(rows.map((row) => [row.id, row]));
     const merged = parts.map((part) => {
       const saved = existing.get(part.id);
@@ -169,18 +178,42 @@ export function composeConversationRows(projection: ConversationHistoryProjectio
       if ((preferLive === true || preferLive && preferLive.has(turn.turn_id)) && part.message) return { ...saved, ...part, groupId: saved.groupId, message: { ...saved.message!, content: part.message.content } };
       // A transcript call (or a yielded command result) is not an execution end.
       // Tool lifecycle state is authoritative independently of text refresh revisions.
-      if (part.liveTool) return { ...saved, ...part, groupId: saved.groupId,
+      if (part.liveTool) return { ...saved, ...part, groupId: saved.groupId, liveCall: saved.operation?.call,
         // Live previews may omit question arguments; accepted transcript answers
         // can already render while the rest of the turn is still streaming.
         operation: part.liveTool.name === "ask_user_question" && part.liveTool.status === "success" && saved.operation?.status === "success"
           ? saved.operation : undefined };
       return { ...saved, presentation: part.presentation };
     });
-    const partIds = new Set(parts.map((part) => part.id));
-    const insertion = rows.findIndex((row) => row.turnId === turn.turn_id && row.message?.role !== "user");
-    for (let i = rows.length - 1; i >= 0; i--) if (partIds.has(rows[i]!.id)) rows.splice(i, 1);
-    if (insertion >= 0) rows.splice(Math.min(insertion, rows.length), 0, ...merged); else rows.push(...merged);
-    rows.push({ ...base, id: `status:${turn.turn_id}`, kind: "status", status: turn.state, phase: turn.stream?.display_metrics.phase, startedAt: turn.started_at, elapsedMs: turn.started_at > 0 && turn.settled_at > 0 ? turn.settled_at - turn.started_at : undefined });
+    if (history.some(row => row.message?.source_reason === "steering")) {
+      // Transcript rows anchor consumed input between model steps. Overlay known stream parts
+      // in place and insert live-only parts up to the next matching transcript row.
+      const positions = new Map(merged.map((part, index) => [part.id, index]));
+      let next = 0;
+      for (let i = 0; i < rows.length; i++) {
+        const index = positions.get(rows[i]!.id);
+        if (index === undefined || index < next) continue;
+        rows.splice(i, 1, ...merged.slice(next, index + 1));
+        i += index - next;
+        next = index + 1;
+      }
+      rows.push(...merged.slice(next));
+    } else {
+      const partIds = new Set(parts.map(part => part.id));
+      const insertion = rows.findIndex(row => row.turnId === turn.turn_id && row.message?.role !== "user");
+      for (let i = rows.length - 1; i >= 0; i--) if (partIds.has(rows[i]!.id)) rows.splice(i, 1);
+      if (insertion >= 0) rows.splice(Math.min(insertion, rows.length), 0, ...merged); else rows.push(...merged);
+    }
+    for (const input of turn.steering ?? []) {
+      const id = userDisplayId(input);
+      if (projection.byId.has(id) || turns.some(other => other.client_message_id === input.client_message_id)) continue;
+      if (turn.state === "completed") continue;
+      rows.push({ ...base, id, kind: "message", createdAt: input.created_at,
+        status: turn.state === "cancelled" ? "cancelled" : turn.state === "error" ? "error" : "steering",
+        message: { role: "user", source_reason: "steering", content: input.text,
+          display_group_id: groupId, attachments: input.attachments, created_at: input.created_at / 1000 } });
+    }
+    rows.push({ ...base, id: `status:${turn.turn_id}`, kind: "status", forkable: projection.byId.get(`status:${turn.turn_id}`)?.forkable, status: turn.state, phase: turn.stream?.display_metrics.phase, startedAt: turn.started_at, elapsedMs: turn.started_at > 0 && turn.settled_at > 0 ? turn.settled_at - turn.started_at : undefined });
   }
   for (const item of pending) {
     const id = `user:${item.pendingId}`;
@@ -194,7 +227,7 @@ export function composeConversationRows(projection: ConversationHistoryProjectio
       changedAnswers.add(answerRowId(existing));
       continue;
     }
-    rows.push({ id, groupId: `pending:${item.pendingId}`, turnId: item.turnId ?? "", createdAt: item.createdAt, kind: "message", status: item.error ? "error" : item.turnId ? "accepted" : "sending", error: item.error, message: { display_group_id: id, role: "user", content: item.text, attachments: item.attachments, created_at: item.createdAt / 1000 } });
+    rows.push({ id, groupId: `pending:${item.pendingId}`, turnId: item.turnId ?? "", createdAt: item.createdAt, kind: "message", status: item.error ? "error" : item.steering ? "steering" : item.turnId ? "accepted" : "sending", error: item.error, message: { display_group_id: id, role: "user", ...(item.steering ? { source_reason: "steering" } : {}), content: item.text, attachments: item.attachments, created_at: item.createdAt / 1000 } });
   }
   return restoreCompactionRows(appendAnswerMetadata(appendTurnArtifacts(orderRows(rows), projection.artifacts, projection.artifactRows), projection.answerRows, changedAnswers), projection.compactions);
 }
@@ -214,10 +247,12 @@ function orderRows(rows: ConversationRow[]): ConversationRow[] {
     const time = (starts.get(a.turnId || a.groupId) ?? 0) - (starts.get(b.turnId || b.groupId) ?? 0);
     if (time) return time;
     if (a.turnId && a.turnId === b.turnId) {
-      if (a.message?.role === "user" && b.message?.role !== "user") return -1;
-      if (b.message?.role === "user" && a.message?.role !== "user") return 1;
-      if (a.kind === "status") return 1;
-      if (b.kind === "status") return -1;
+      const aInput = a.message?.role === "user" && a.message.source_reason !== "steering";
+      const bInput = b.message?.role === "user" && b.message.source_reason !== "steering";
+      if (aInput !== bInput) return aInput ? -1 : 1;
+      // Process headers consume this row; direct answers keep it above the body.
+      if (a.kind === "status" && b.kind !== "status") return -1;
+      if (b.kind === "status" && a.kind !== "status") return 1;
     }
     return 0;
   });
@@ -263,6 +298,7 @@ function appendTurnArtifacts(rows: ConversationRow[], owners: ReadonlyMap<string
 /** Final text and files stay independent virtual rows; one stable footer follows both. */
 function appendAnswerMetadata(rows: ConversationRow[], cached?: ReadonlyMap<string, ConversationRow | undefined>, changed?: ReadonlySet<string>): ConversationRow[] {
   const answers = new Map<string, ConversationRow[]>();
+  const forkable = new Map(rows.filter(row => row.forkable && row.turnId).map(row => [`turn:${row.turnId}`, row]));
   const byTurn = new Map<string, number>(), byGroup = new Map<string, number>();
   rows.forEach((row, index) => {
     if (row.turnId) byTurn.set(row.turnId, index);
@@ -274,9 +310,10 @@ function appendAnswerMetadata(rows: ConversationRow[], cached?: ReadonlyMap<stri
     const parts = answers.get(key) ?? [];
     parts.push(row); answers.set(key, parts);
   }
+  for (const key of forkable.keys()) if (!answers.has(key)) answers.set(key, []);
   const after = new Map<number, ConversationRow[]>();
   for (const [key, parts] of answers) {
-    const tail = parts.at(-1)!;
+    const tail = parts.at(-1) ?? forkable.get(key)!;
     const last = (tail.turnId ? byTurn.get(tail.turnId) : byGroup.get(tail.groupId))!;
     const entries = after.get(last) ?? [];
     const id = `answer-meta:${key}`;
@@ -286,10 +323,10 @@ function appendAnswerMetadata(rows: ConversationRow[], cached?: ReadonlyMap<stri
       continue;
     }
     const text = parts.map(part => readerFacingMessageText(part.message!)).filter(value => value.trim()).join("\n\n");
-    if (!text.trim()) continue;
+    if (!text.trim() && !forkable.has(key)) continue;
     entries.push({ id: `answer-meta:${key}`, kind: "answer_meta", groupId: tail.groupId,
       turnId: tail.turnId, createdAt: tail.createdAt,
-      answerMeta: { text, createdAt: Number(tail.message!.created_at ?? tail.createdAt / 1000) } });
+      answerMeta: { text, createdAt: Number(tail.message?.created_at ?? tail.createdAt / 1000), ...(forkable.has(key) ? { forkable: true } : {}) } });
     after.set(last, entries);
   }
   return rows.flatMap((row, index) => [row, ...(after.get(index) ?? [])]);
@@ -297,6 +334,7 @@ function appendAnswerMetadata(rows: ConversationRow[], cached?: ReadonlyMap<stri
 
 export function acknowledgeConversationSend(current: DesktopConversationActivityPayload | undefined, result: DesktopConversationSendPayload, pendingMessage: PendingMessage): DesktopConversationActivityPayload {
 
+  if (result.state === "steered") return current ?? { session_id: result.session_id, active: null, latest: null, queued: [] };
   const optimisticTurn: DesktopConversationTurnPayload = {
     turn_id: result.turn_id,
     message_id: result.message_id,

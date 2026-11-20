@@ -2,7 +2,6 @@ import { describe, expect, test } from "bun:test";
 import type { AgentJob, JsonObject } from "@lxe/protocol";
 import { validateAgentJob } from "@lxe/protocol";
 import {
-  HeartbeatWakeQueue,
   RuntimeRequestError,
   RunHandle,
   SessionScheduler,
@@ -380,200 +379,6 @@ describe("SessionScheduler", () => {
   });
 });
 
-describe("HeartbeatWakeQueue", () => {
-  test("coalesces by session and creates scheduler jobs with compatible fields", async () => {
-    const runtime = new RecordingRuntime();
-    const scheduler = new SessionScheduler({ runtime });
-    const wakes = new HeartbeatWakeQueue({
-      scheduler,
-      hasPendingEvents: async () => true,
-      loadSession: async () => ({
-        session_id: "s1",
-        workspace: testWorkspace,
-        source: {
-          platform: "feishu",
-          chat_id: "chat",
-          chat_type: "group",
-          user_id: "open",
-          user_id_alt: "union",
-          user_name: "Tester",
-        },
-      }),
-      isSuspended: () => false,
-      id: () => "heartbeat-id",
-    });
-    wakes.request({ session_id: "s1", reason: "retry", response_route_id: "route-old" });
-    wakes.request({ session_id: "s1", reason: "pending-event", response_route_id: "" });
-    expect(wakes.pendingCount).toBe(1);
-    await wakes.flush();
-    await tick();
-
-    expect(runtime.started).toEqual([
-      {
-        job_id: "heartbeat-id",
-        session_id: "s1",
-        session_key: "agent:main:feishu:group:chat:union",
-        response_route_id: "route-old",
-        user_id: "union",
-        conversation_id: "chat",
-        is_group: true,
-        message_id: "",
-        user_input: "",
-        job_kind: "heartbeat",
-        sender_nick: "Tester",
-        source: {
-          platform: "feishu",
-          chat_id: "chat",
-          chat_type: "group",
-          user_id: "open",
-          user_id_alt: "union",
-          user_name: "Tester",
-        },
-        raw_data: {
-          heartbeat_reason: "pending-event",
-          session_key: "agent:main:feishu:group:chat:union",
-          source: {
-            platform: "feishu",
-            chat_id: "chat",
-            chat_type: "group",
-            user_id: "open",
-            user_id_alt: "union",
-            user_name: "Tester",
-          },
-        },
-        user_content_blocks: [],
-        diagnostics: [],
-        workspace: testWorkspace,
-      },
-    ]);
-    expect(validateAgentJob(runtime.started[0])).toBe(true);
-  });
-
-  test("drops suspended/no-event sessions and defers busy sessions as retry", async () => {
-    const runtime = new RecordingRuntime();
-    const scheduler = new SessionScheduler({ runtime });
-    await scheduler.enqueue(job("busy", "active"));
-    await tick();
-    const wakes = new HeartbeatWakeQueue({
-      scheduler,
-      hasPendingEvents: async (sessionId) => sessionId !== "empty",
-      loadSession: async (sessionId) => ({
-        session_id: sessionId,
-        workspace: testWorkspace,
-        source: { platform: "feishu", chat_id: sessionId, chat_type: "dm", user_id: "user" },
-      }),
-      isSuspended: (sessionId) => sessionId === "suspended",
-      id: () => "heartbeat",
-    });
-    wakes.request({ session_id: "suspended", reason: "pending-event" });
-    wakes.request({ session_id: "empty", reason: "pending-event" });
-    wakes.request({ session_id: "busy", reason: "pending-event" });
-    await wakes.flush();
-    expect(wakes.pendingCount).toBe(1);
-    expect(wakes.peek("busy")?.reason).toBe("retry");
-    expect(runtime.started.map((item) => item.job_id)).toEqual(["active"]);
-  });
-
-  test("drops a deferred heartbeat after the active turn consumes its last event", async () => {
-    const runtime = new RecordingRuntime();
-    const scheduler = new SessionScheduler({ runtime });
-    await scheduler.enqueue(job("busy", "active"));
-    await tick();
-    let hasPendingEvent = true;
-    const wakes = new HeartbeatWakeQueue({
-      scheduler,
-      hasPendingEvents: async () => hasPendingEvent,
-      loadSession: async () => ({
-        session_id: "busy",
-        source: { platform: "feishu", chat_id: "busy", chat_type: "dm", user_id: "user" },
-        workspace: testWorkspace,
-      }),
-      isSuspended: () => false,
-      id: () => "unexpected-heartbeat",
-    });
-    wakes.request({ session_id: "busy", reason: "pending-event" });
-    await wakes.flush();
-    expect(wakes.peek("busy")?.reason).toBe("retry");
-
-    hasPendingEvent = false;
-    expect(scheduler.handleRuntimeEvent(completion("active", "busy"))).toBe(true);
-    await wakes.flush();
-    await tick();
-
-    expect(wakes.pendingCount).toBe(0);
-    expect(runtime.started.map((item) => item.job_id)).toEqual(["active"]);
-  });
-
-  test("drops an invalid source without aborting other wakes in the batch", async () => {
-    const runtime = new RecordingRuntime();
-    const scheduler = new SessionScheduler({ runtime });
-    const wakes = new HeartbeatWakeQueue({
-      scheduler,
-      hasPendingEvents: async () => true,
-      loadSession: async (sessionId) => ({
-        session_id: sessionId,
-        workspace: testWorkspace,
-        source:
-          sessionId === "invalid"
-            ? { platform: "feishu", chat_type: "dm", user_id: "user" }
-            : { platform: "feishu", chat_id: "valid", chat_type: "dm", user_id: "user" },
-      }),
-      isSuspended: () => false,
-      id: () => "heartbeat-valid",
-    });
-    wakes.request({ session_id: "invalid" });
-    wakes.request({ session_id: "valid" });
-    await expect(wakes.flush()).resolves.toBe("none");
-    await tick();
-    expect(runtime.started.map((item) => item.session_id)).toEqual(["valid"]);
-  });
-
-  test("signals reschedule when a wake arrives during a running batch", async () => {
-    const runtime = new RecordingRuntime();
-    const scheduler = new SessionScheduler({ runtime });
-    let releaseFirst!: () => void;
-    const firstBlocked = new Promise<void>((resolve) => {
-      releaseFirst = resolve;
-    });
-    let firstEntered!: () => void;
-    const entered = new Promise<void>((resolve) => {
-      firstEntered = resolve;
-    });
-    const wakes = new HeartbeatWakeQueue({
-      scheduler,
-      hasPendingEvents: async (sessionId) => {
-        if (sessionId === "first") {
-          firstEntered();
-          await firstBlocked;
-        }
-        return true;
-      },
-      loadSession: async (sessionId) => ({
-        session_id: sessionId,
-        workspace: testWorkspace,
-        source: { platform: "feishu", chat_id: sessionId, chat_type: "dm", user_id: "user" },
-      }),
-      isSuspended: () => false,
-      id: () => `heartbeat-${runtime.started.length + 1}`,
-    });
-
-    wakes.request({ session_id: "first" });
-    const firstFlush = wakes.flush();
-    await entered;
-    wakes.request({ session_id: "second" });
-    expect(await wakes.flush()).toBe("normal");
-    expect(wakes.pendingCount).toBe(1);
-
-    releaseFirst();
-    expect(await firstFlush).toBe("normal");
-    expect(wakes.pendingCount).toBe(1);
-    expect(await wakes.flush()).toBe("none");
-    await tick();
-    expect(runtime.started.map((item) => item.session_id)).toEqual(["first", "second"]);
-  });
-});
-
-
 test("update admission fence atomically rejects queued and incoming work", async () => {
   const runtime = new RecordingRuntime();
   const scheduler = new SessionScheduler({ runtime });
@@ -626,4 +431,25 @@ test("recovery after a cancellation timeout never replays previously discarded s
  scheduler.handleRuntimeEvent(completion("active","s1",{status:"completed",session_id:"s1",job_id:"active",remaining_steering:[{text:"discarded at update consent",message_id:"old-input",response_route_id:"route"}]}));
  expect(runtime.started.map(row=>row.job_id)).toEqual(["active"]);
  await scheduler.enqueue(job("s1","explicit-new-task"));expect(runtime.started.at(-1)?.job_id).toBe("explicit-new-task");
+});
+
+test("automatic admission loses to a user message arriving during preparation", async () => {
+  const runtime = new RecordingRuntime(); const scheduler = new SessionScheduler({ runtime });
+  let release!: () => void;
+  const barrier = new Promise<void>(resolve => { release = resolve; });
+  const pending = scheduler.enqueue(job("same", "automatic"), { onlyIfIdle: true, beforeAccept: () => barrier });
+  const outcome = pending.then(() => null, error => error);
+  await tick(); await scheduler.enqueue(job("same", "user")); release();
+  expect(String(await outcome)).toMatch(/busy|occupied|空闲|使用/);
+  await tick(); expect(runtime.started.map(item => item.job_id)).toEqual(["user"]);
+  expect(scheduler.runStatuses().filter(item => item.turn_id === "automatic")).toHaveLength(0);
+});
+
+test("configuration cancellation is checked after asynchronous preparation", async () => {
+  const runtime = new RecordingRuntime(); const scheduler = new SessionScheduler({ runtime });
+  let cancelled = false;
+  await expect(scheduler.enqueue(job("same", "automatic"), { onlyIfIdle: true,
+    beforeAccept: async () => { cancelled = true; }, assertCurrent: () => { if (cancelled) throw new Error("task paused"); },
+  })).rejects.toThrow("task paused");
+  expect(runtime.started).toHaveLength(0);
 });

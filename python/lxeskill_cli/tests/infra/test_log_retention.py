@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import os
+import subprocess
 from datetime import date
 from pathlib import Path
 
@@ -34,6 +36,8 @@ def test_cleanup_local_logs_removes_only_expired_strict_date_entries(tmp_path, m
         "logs/sse_wire_traces",
         "logs/feishu_msg",
         "logs/runtime",
+        "logs/browser_auth_service",
+        "logs/ziniao_traces",
     ):
         root = tmp_path / relative_root
         _mkdir(root / old_date)
@@ -64,6 +68,8 @@ def test_cleanup_local_logs_removes_only_expired_strict_date_entries(tmp_path, m
     assert not (tmp_path / "logs" / "sse_wire_traces" / old_date).exists()
     assert not (tmp_path / "logs" / "feishu_msg" / old_date).exists()
     assert not (tmp_path / "logs" / "runtime" / old_date).exists()
+    assert not (tmp_path / "logs" / "browser_auth_service" / old_date).exists()
+    assert not (tmp_path / "logs" / "ziniao_traces" / old_date).exists()
     assert not (raw_root / f"{old_date}.jsonl").exists()
 
     for relative_root in (
@@ -71,6 +77,8 @@ def test_cleanup_local_logs_removes_only_expired_strict_date_entries(tmp_path, m
         "logs/sse_wire_traces",
         "logs/feishu_msg",
         "logs/runtime",
+        "logs/browser_auth_service",
+        "logs/ziniao_traces",
     ):
         root = tmp_path / relative_root
         assert (root / cutoff_date).exists()
@@ -121,3 +129,45 @@ def test_local_log_retention_days_clamps_to_at_least_one(monkeypatch) -> None:
     monkeypatch.setenv("LOCAL_LOG_RETENTION_DAYS", "0")
 
     assert local_log_retention_days() == 1
+
+
+
+def test_cleanup_local_logs_does_not_follow_linked_roots_or_entries(tmp_path) -> None:
+    outside = tmp_path / "outside"
+    outside_old = _mkdir(outside / "20260601")
+    state = tmp_path / "state"
+    (state / "logs").mkdir(parents=True)
+    (state / "logs" / "ziniao_traces").symlink_to(outside, target_is_directory=True)
+    runtime_root = state / "logs" / "runtime"
+    runtime_root.mkdir()
+    (runtime_root / "20260602").symlink_to(outside_old, target_is_directory=True)
+    raw_root = state / "logs" / "feishu_raw_events"
+    raw_root.mkdir()
+    outside_raw = _touch(outside / "20260603.jsonl")
+    (raw_root / "20260603.jsonl").symlink_to(outside_raw)
+
+    result = cleanup_local_logs(retention_days=7, today=date(2026, 7, 4), state_root_path=state)
+
+    assert result.deleted_paths == ()
+    assert result.failed_paths == ()
+    assert (outside_old / "entry.txt").exists()
+    assert outside_raw.exists()
+
+
+def test_cleanup_local_logs_does_not_follow_linked_logs_parent(tmp_path) -> None:
+    outside = tmp_path / "outside"
+    outside_old = _mkdir(outside / "ziniao_traces" / "20260601")
+    state = tmp_path / "state"
+    state.mkdir()
+    link = state / "logs"
+    if os.name == "nt":
+        subprocess.run(["cmd.exe", "/d", "/c", "mklink", "/J", str(link), str(outside)], check=True)
+        assert link.is_junction()
+    else:
+        link.symlink_to(outside, target_is_directory=True)
+
+    result = cleanup_local_logs(retention_days=7, today=date(2026, 7, 4), state_root_path=state)
+
+    assert result.deleted_paths == ()
+    assert result.failed_paths == ()
+    assert (outside_old / "entry.txt").read_text(encoding="utf-8") == "x"

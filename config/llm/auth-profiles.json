@@ -1,5 +1,10 @@
 {
   "profiles": {
+    "google": {
+      "type": "api_key",
+      "env_names": ["GEMINI_API_KEY"],
+      "required": true
+    },
     "deepseek": {
       "type": "api_key",
       "env_names": ["DEEPSEEK_API"],
@@ -8,6 +13,11 @@
     "kimi_coding": {
       "type": "api_key",
       "env_names": ["KIMI_CODE_API_KEY"],
+      "required": true
+    },
+    "openai": {
+      "type": "api_key",
+      "env_names": ["OPENAI_API_KEY"],
       "required": true
     },
     "openrouter": {

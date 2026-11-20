@@ -1,9 +1,10 @@
-/** Desktop-only file viewing. References never accept arbitrary host paths. */
+/** A linked path is readable only after a user click in this session's chat. */
 export type SessionFileRef = { session_id: string } & (
   | { kind: "skill"; id: string }
   | { kind: "artifact"; id: string }
   | { kind: "attachment"; id: string }
   | { kind: "workspace"; path: string }
+  | { kind: "linked"; path: string }
 );
 export type FilePreviewKind = "markdown" | "text" | "image" | "pdf" | "office" | "excel" | "html" | "unsupported";
 export type HtmlPreviewReference = { kind: "script" | "stylesheet"; reference: string };

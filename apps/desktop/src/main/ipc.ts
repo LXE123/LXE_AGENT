@@ -1,4 +1,5 @@
 import { validateTitlebarMenu } from "./titlebar-menu";
+import { isAmazonV2Settings } from "./amazon-v2-settings";
 import { fileResult } from "./file-preview/errors";
 import { mkdirSync } from "node:fs";
 import { app, dialog, ipcMain, shell } from "electron";
@@ -14,6 +15,7 @@ import type {
   DesktopInputAssetSlot,
   DesktopVietnamSettingsState,
   DesktopVietnamTemplateExportResult,
+  DesktopAmazonV2Settings,
   DesktopInputAttachmentPayload,
   DesktopDraftAttachmentPayload,
   DesktopLocalModelCredentialInput,
@@ -47,7 +49,8 @@ import {
 
 export interface DesktopIpcApplication {
   showTitlebarMenu?(request: import("@lxe/desktop-protocol").DesktopTitlebarMenuRequest): Promise<import("@lxe/desktop-protocol").DesktopTitlebarAction>;
-  isTrustedFileSender(event: import("electron").IpcMainInvokeEvent): boolean;
+  isTrustedFileSender(event: Pick<Electron.IpcMainInvokeEvent, "sender" | "senderFrame">): boolean;
+  clickedFileLink(session: string, path: string): void;
   fileCall?<K extends keyof import("@lxe/desktop-protocol").DesktopFileOperations>(call: import("@lxe/desktop-protocol").DesktopFileCall<K>): Promise<import("@lxe/desktop-protocol").DesktopFileOperations[K]["result"]>;
   fileRead?(handle: string, relativeImage?: string): Promise<Uint8Array>;
   fileReadText?(handle: string, range?: import("@lxe/desktop-protocol").TextPageRequest): Promise<import("@lxe/desktop-protocol").PreviewTextPage>;
@@ -73,7 +76,7 @@ export interface DesktopIpcApplication {
   retryCloudConnection(): Promise<DesktopCloudState>;
   openCloudDestination(destination: DesktopCloudDestination): Promise<void>;
   logsDirectory: string;
-  applyAppearance(appearance: "light" | "dark"): void;
+  applyAppearance(appearance: "system" | "light" | "dark"): void;
   registerSyntheticPerformerSources(
     kind: DesktopSyntheticPerformerSourceKind,
     paths: string[],
@@ -87,6 +90,8 @@ export interface DesktopIpcApplication {
   inputAssetSlotDirectory(slot: string): Promise<string>;
   getVietnamSettings(): Promise<DesktopVietnamSettingsState>;
   saveVietnamParameters(input: unknown): Promise<DesktopVietnamSettingsState>;
+  getAmazonV2Settings(): Promise<DesktopAmazonV2Settings>;
+  saveAmazonV2Settings(input: unknown): Promise<DesktopAmazonV2Settings>;
   installVietnamTemplate(sourcePath: string): Promise<DesktopVietnamSettingsState>;
   exportVietnamTemplate(path: string): Promise<DesktopVietnamTemplateExportResult>;
   registerConversationFiles(paths: string[]): DesktopInputAttachmentPayload[];
@@ -110,6 +115,10 @@ const stringArray = (value: unknown, label: string): string[] => {
 };
 
 export function registerDesktopIpc(application: DesktopIpcApplication): () => void {
+  const clickedFileLink = (event: Electron.IpcMainEvent, session: unknown, path: unknown) => {
+    if (application.isTrustedFileSender(event) && typeof session === "string" && typeof path === "string") application.clickedFileLink(session, path);
+  };
+  ipcMain.on(IPC_CHANNELS.clickedFileLink, clickedFileLink);
   const workspaceApps = new WorkspaceApplications({ openPath: path => shell.openPath(path), icon: path => process.platform === "darwin" ? bundleIconDataUrl(path) : app.getFileIcon(path, { size: "normal" }).then(image => image.toDataURL()) });
   const trustedWorkspaceSender = (event: Electron.IpcMainInvokeEvent) => { if (!application.isTrustedFileSender(event)) throw new Error("Workspace applications are only available to the desktop main frame"); };
   ipcMain.handle(IPC_CHANNELS.fileCall, (event, call) => fileResult(typeof call?.operation === "string" ? call.operation : "call", () => {
@@ -148,8 +157,13 @@ export function registerDesktopIpc(application: DesktopIpcApplication): () => vo
   };
   ipcMain.handle(IPC_CHANNELS.downloadUpdate, (event, value:unknown) => application.downloadUpdate?.(updateTarget(event,value)) ?? {phase:"unsupported"});
   ipcMain.handle(IPC_CHANNELS.installUpdate, (event, value:unknown) => application.installUpdate?.(updateTarget(event,value)) ?? {phase:"unsupported"});
-  ipcMain.handle(IPC_CHANNELS.dashboardCall, (_event, call: unknown) =>
-    application.dashboardCall(validateDashboardRpcCall(call)));
+  ipcMain.handle(IPC_CHANNELS.dashboardCall, (event, call: unknown) => {
+    const request = validateDashboardRpcCall(call);
+    if (request.operation === "mcp.servers.add" && !application.isTrustedFileSender(event)) {
+      throw new Error("MCP configuration is only available to the desktop main frame");
+    }
+    return application.dashboardCall(request);
+  });
   ipcMain.handle(IPC_CHANNELS.selectWorkspace, async () => {
     const selection = await dialog.showOpenDialog({
       title: "选择 LXE Agent 工作区",
@@ -272,6 +286,17 @@ export function registerDesktopIpc(application: DesktopIpcApplication): () => vo
     trustedWorkspaceSender(event);
     return application.saveVietnamParameters(input);
   });
+  ipcMain.handle(IPC_CHANNELS.getAmazonV2Settings, (event) => {
+    trustedWorkspaceSender(event);
+    return application.getAmazonV2Settings();
+  });
+  ipcMain.handle(IPC_CHANNELS.saveAmazonV2Settings, (event, input: unknown) => {
+    trustedWorkspaceSender(event);
+    if (!isAmazonV2Settings(input)) {
+      throw new Error("peak_boost_enabled must be a boolean; peak_boost_days must be an integer between 0 and 120 when enabled, otherwise null is allowed");
+    }
+    return application.saveAmazonV2Settings(input);
+  });
   ipcMain.handle(IPC_CHANNELS.uploadVietnamTemplate, async (event) => {
     trustedWorkspaceSender(event);
     const selection = await dialog.showOpenDialog({
@@ -297,6 +322,7 @@ export function registerDesktopIpc(application: DesktopIpcApplication): () => vo
     if (error) throw new Error(error);
   });
   return () => {
+    ipcMain.removeListener(IPC_CHANNELS.clickedFileLink, clickedFileLink);
     for (const channel of Object.values(IPC_CHANNELS)) {
       if (channel !== IPC_CHANNELS.statusChanged
         && channel !== IPC_CHANNELS.cloudStateChanged

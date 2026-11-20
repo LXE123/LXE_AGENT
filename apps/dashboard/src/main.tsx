@@ -1,4 +1,7 @@
+import { AutomationsPage } from "./features/automations/AutomationsPage";
 import { VietnamSettingsWorkbench } from "./features/workbench/vietnam-settings-view";
+import { AmazonV2SettingsWorkbench } from "./features/workbench/amazon-v2-settings-view";
+import { FbaCapacityWorkbench } from "./features/workbench/fba-capacity-view";
 import { SessionSidebar } from "./features/sessions/SessionSidebar";
 import { ConversationPage } from "./features/sessions/ConversationPage";
 import { CapabilitiesPage } from "./features/capabilities/CapabilitiesPage";
@@ -8,19 +11,11 @@ import { useModelActions } from "./api/model-actions";
 import { useMcpActions } from "./api/mcp-actions";
 import { useConversationEvents } from "./features/sessions/use-conversation-events";
 import { useEffect, useLayoutEffect, useState } from "react";
-import type { ReactNode } from "react";
 import { createRoot } from "react-dom/client";
 import type {
   DesktopCloudState,
   DesktopHealth,
 } from "@lxe/desktop-protocol";
-import {
-  ChartColumn,
-  BriefcaseBusiness,
-  House,
-  MessageSquareText,
-  Sparkles,
-} from "lucide-react";
 
 import "./styles.css";
 import "./features/home/theme.css";
@@ -30,6 +25,8 @@ import "./features/workbench/index-theme.css";
 import "./features/workbench/detail-theme.css";
 import "./desktop/update-control.css";
 import "./shared/navigation-rail.css";
+import "./shared/app-chrome.css";
+import "./shared/app-frame.css";
 import { SidebarStatus } from "./desktop/sidebar-status";
 import { DashboardQueryProvider } from "./api/query-client";
 import {
@@ -39,6 +36,7 @@ import {
   useModelsQuery,
   useSkillsQuery,
   useToolsetsQuery,
+  useMcpServersQuery,
 } from "./api/queries";
 import { formatDate, formatNumber } from "./shared/format";
 import {
@@ -61,6 +59,7 @@ import { DetailModal } from "./features/details/view";
 import { DashboardHome } from "./features/home/view";
 import { RuntimeStatusPopover } from "./features/runtime-status/view";
 import { StatsView } from "./features/stats/view";
+import { TeamSkillsPage } from "./features/team-skills/view";
 import { SyntheticPerformerWorkbench } from "./features/workbench/view";
 import { WorkbenchIndex } from "./features/workbench/index-view";
 import { InputAssetsWorkbench, useInputAssetSlots } from "./features/workbench/input-assets-view";
@@ -70,9 +69,8 @@ import { DashboardRootErrorBoundary } from "./root-error-boundary";
 import { useThreeStateSidebar } from "./shared/use-three-state-sidebar";
 import { SidebarResizer } from "./shared/sidebar-resizer";
 import { NavigationRail } from "./shared/navigation-rail";
-import type {
-  DashboardSection,
-} from "./shared/navigation";
+import { workbenchParent, type DashboardSection } from "./shared/navigation";
+import { AppFrame } from "./shared/app-frame";
 const DOCS_HOME_PATH = "README.md";
 
 function App({
@@ -126,9 +124,10 @@ function App({
     dashboardRuntimeReady && capabilitiesOpen && capabilityView === "skills",
   );
   const toolsetsQuery = useToolsetsQuery(
-    dashboardRuntimeReady
-      && capabilitiesOpen
-      && (capabilityView === "tools" || capabilityView === "connections"),
+    dashboardRuntimeReady && capabilitiesOpen && capabilityView === "tools",
+  );
+  const mcpServersQuery = useMcpServersQuery(
+    dashboardRuntimeReady && capabilitiesOpen && capabilityView === "connections",
   );
   useConversationEvents();
 
@@ -144,9 +143,11 @@ function App({
 
   const showDashboardHome = activeSection === "home";
   const hasEmbeddedPageHeader = activeSection === "capabilities"
+    || activeSection === "team-skills"
     || activeSection === "activity"
     || activeSection === "workbench"
-    || activeSection === "sessions";
+    || activeSection === "sessions"
+    || activeSection === "automations";
   const activeQueries = activeSection === "sessions"
     ? [...workspace.queryStatus, modelsQuery, sessionModelQuery]
     : activeSection === "capabilities" && capabilityView === "models"
@@ -156,21 +157,23 @@ function App({
         : activeSection === "capabilities" && capabilityView === "skills"
           ? [skillsQuery, commandsQuery]
           : activeSection === "capabilities" && capabilityView === "connections"
-            ? [toolsetsQuery]
+            ? [mcpServersQuery]
             : [];
-  const activeRefreshing = dashboardRuntimeReady
+  const showRefreshIndicator = dashboardRuntimeReady && activeSection !== "sessions"
     && activeQueries.some((current) => current.isFetching && !current.isPending);
   const backgroundError = dashboardRuntimeReady
     ? activeQueries.find((current) => current.isRefetchError)?.error
     : undefined;
   const visibleError = dashboardRuntimeReady ? error || queryError(backgroundError) : "";
 
-  const tabs: Array<{ id: DashboardSection; label: string; icon: ReactNode }> = [
-    { id: "home", label: t.nav.home, icon: <House size={16} /> },
-    { id: "sessions", label: t.nav.sessions, icon: <MessageSquareText size={16} /> },
-    { id: "workbench", label: t.nav.workbench, icon: <BriefcaseBusiness size={16} /> },
-    { id: "capabilities", label: t.nav.capabilities, icon: <Sparkles size={16} /> },
-    { id: "activity", label: t.nav.activity, icon: <ChartColumn size={16} /> },
+  const tabs: Array<{ id: DashboardSection; label: string }> = [
+    { id: "home", label: t.nav.home },
+    { id: "sessions", label: t.nav.sessions },
+    { id: "workbench", label: t.nav.workbench },
+    { id: "automations", label: language === "zh" ? "定时任务" : "Automations" },
+    { id: "capabilities", label: t.nav.capabilities },
+    { id: "activity", label: t.nav.activity },
+    { id: "team-skills", label: t.teamSkills.name },
   ];
   const pageTitle = activeSection === "home"
     ? t.home.title
@@ -184,7 +187,7 @@ function App({
         ? `${formatDate(selectedSession.last_active_at)} · ${formatNumber(selectedSession.input_tokens + selectedSession.output_tokens)} ${t.sessions.tokenSuffix}`
         : ""
       : "";
-  const runtimeStatusNavigationKey = `${activeSection}:${capabilityView}:${activityView}:${selectedSessionId}`;
+  const runtimeStatusNavigationKey = `${activeSection}:${workbenchView}:${capabilityView}:${activityView}:${selectedSessionId}`;
   const runtimeStatusPopover = (
     <RuntimeStatusPopover
       currentModel={currentModelQuery.data ?? null}
@@ -206,16 +209,17 @@ function App({
 
   return (
     <>
-      <main className={shellClassName}>
-        <NavigationRail
+      <AppFrame className={shellClassName}
+        navigation={<NavigationRail
           items={tabs}
           activeSection={activeSection}
           label={t.nav.aria}
           onNavigate={openDashboardSection}
           footer={<SidebarStatus onOpen={() => onOpenDesktopSettings?.("status")} />}
-        />
-        <SessionSidebar sidebar={sidebar} data={workspace.sidebar} actions={workspace.actions} />
-
+        />}
+        sidebar={<SessionSidebar sidebar={sidebar} data={workspace.sidebar} actions={workspace.actions} />}
+        resizer={<SidebarResizer expanded={sidebarAvailable && sidebar.expanded} storage={browserStorage()} />}
+      >
         <section className={showDashboardHome ? "main-panel dashboard-home-panel" : "main-panel"}>
           {!showDashboardHome && !hasEmbeddedPageHeader ? (
             <header className={`main-header tab-${activeSection}`}>
@@ -230,15 +234,17 @@ function App({
             activeSection === "sessions" ? "content-panel-fill" : "",
             activeSection === "home" ? "home-theme" : "",
             activeSection === "capabilities" ? "capabilities-theme" : "",
+            activeSection === "automations" ? "automations-theme" : "",
             activeSection === "activity" ? "activity-theme" : "",
             activeSection === "workbench" ? "workbench-theme" : "",
+            activeSection === "team-skills" ? "team-skills-panel" : "",
           ].filter(Boolean).join(" ")}>
             {visibleError ? (
               <div className="dashboard-query-notice" role="status">
                 {t.common.errorPrefix(t.errors.api, visibleError)}
               </div>
             ) : null}
-            {activeRefreshing ? (
+            {showRefreshIndicator ? (
               <div className="dashboard-refresh-indicator" role="status">{t.common.updating}</div>
             ) : null}
             {activeSection === "sessions" ? (
@@ -258,6 +264,7 @@ function App({
                 }}
               />
             ) : null}
+            {activeSection === "automations" ? <AutomationsPage defaultWorkspaceId={workspace.sidebar.activeWorkspaceId} ready={dashboardRuntimeReady} onOpenSession={workspace.actions.openSessionRun} /> : null}
             {activeSection === "home" ? (
               <DashboardHome
                 enabled={dashboardRuntimeReady}
@@ -266,24 +273,38 @@ function App({
                 onOpenStats={() => openActivityView("stats")}
               />
             ) : null}
-            {activeSection === "workbench" && workbenchView === "index" ? (
+            {activeSection === "workbench" && (workbenchView === "tasks" || workbenchView === "tools") ? (
               <WorkbenchIndex
+                view={workbenchView}
                 assetStatus={assetSlotStatus}
                 onOpen={openWorkbenchView}
                 syntheticPerformerStatus=""
               />
             ) : null}
             {activeSection === "workbench" && workbenchView === "synthetic-performer" ? (
-              <SyntheticPerformerWorkbench onBack={() => openWorkbenchView("index")} />
+              <SyntheticPerformerWorkbench onBack={() => openWorkbenchView(workbenchParent(workbenchView))} />
             ) : null}
             {activeSection === "workbench" && workbenchView === "vietnam-settings" ? (
-              <VietnamSettingsWorkbench onBack={() => openWorkbenchView("index")} />
+              <VietnamSettingsWorkbench onBack={() => openWorkbenchView(workbenchParent(workbenchView))} />
             ) : null}
+            {activeSection === "workbench" && workbenchView === "amazon-v2-settings" ? (
+              <AmazonV2SettingsWorkbench onBack={() => openWorkbenchView(workbenchParent(workbenchView))} />
+            ) : null}
+            {activeSection === "workbench" && workbenchView === "fba-capacity" ? (
+              <FbaCapacityWorkbench
+                ready={dashboardRuntimeReady}
+                defaultDirectory={desktopHealth.workspace_root}
+                onBack={() => openWorkbenchView(workbenchParent(workbenchView))}
+                onOpenSession={workspace.actions.openSessionRun}
+                onInstallSkill={() => openDashboardSection("team-skills")}
+              />
+            ) : null}
+            <TeamSkillsPage visible={activeSection === "team-skills"} />
             {activeSection === "workbench" && workbenchView === "input-assets" ? (
               <InputAssetsWorkbench
                 error={assetSlots.error}
                 loading={assetSlots.loading}
-                onBack={() => openWorkbenchView("index")}
+                onBack={() => openWorkbenchView(workbenchParent(workbenchView))}
                 refresh={assetSlots.refresh}
                 slots={assetSlots.slots}
               />
@@ -298,6 +319,7 @@ function App({
                 skillsQuery={skillsQuery}
                 commandsQuery={commandsQuery}
                 toolsetsQuery={toolsetsQuery}
+                mcpServersQuery={mcpServersQuery}
                 onOpenDetail={setDetailTarget}
                 startSkillConversation={startSkillConversation}
                 mcpSavingId={mcpSavingId}
@@ -317,15 +339,14 @@ function App({
             ) : null}
           </section>
         </section>
+      </AppFrame>
+      <DetailModal
+        themeClassName={capabilitiesOpen ? "capabilities-theme" : undefined}
+        enabled={dashboardRuntimeReady}
+        target={detailTarget}
+        onClose={() => setDetailTarget(null)}
+      />
 
-        <DetailModal
-          themeClassName={capabilitiesOpen ? "capabilities-theme" : undefined}
-          enabled={dashboardRuntimeReady}
-          target={detailTarget}
-          onClose={() => setDetailTarget(null)}
-        />
-        <SidebarResizer expanded={sidebarAvailable && sidebar.expanded} storage={browserStorage()} />
-      </main>
       <div className={activeSection === "sessions" ? "runtime-status-host sessions-focus" : "runtime-status-host"}>
         {runtimeStatusPopover}
       </div>
@@ -358,10 +379,9 @@ function DashboardApplication() {
     // Native controls - scrollbars, selects, form widgets - follow this and
     // nothing else, so leaving it out gives light scrollbars on a dark page.
     document.documentElement.style.colorScheme = resolved;
-    // The window frame is painted by the Main process and does not follow the
-    // page: on Windows the caption strip keeps whatever colour it was built
-    // with, so it has to be told.
-    void window.lxe?.desktop?.applyAppearance(resolved);
+    // Preserve "system" so nativeTheme can release an earlier manual override.
+    // Native chrome and embedded pages then receive the same browser preference.
+    void window.lxe?.desktop?.applyAppearance(theme);
     try {
       window.localStorage.setItem(THEME_STORAGE_KEY, theme);
     } catch {

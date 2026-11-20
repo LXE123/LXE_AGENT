@@ -1,5 +1,5 @@
 // Local Electron renderer only; this never connects to a store browser.
-const { app, BrowserWindow } = require("electron");
+const { app, BrowserWindow, session } = require("electron");
 const assert = require("node:assert/strict");
 const [suite, profile, url] = process.argv.slice(2);
 // DOM/input regression tests must also run in remote Windows sessions without a GPU.
@@ -10,10 +10,17 @@ const passed = [];
 const errors = [];
 
 app.whenReady().then(async () => {
-  // Caption restoration and chart focus tooltips need native document focus.
-  const nativeFocus = suite === 'windows-menu' || suite === 'overview-pages';
+  // Caption focus ownership, restoration and chart tooltips need native focus.
+  const nativeFocus = suite === 'windows-menu' || suite === 'overview-pages' || suite === 'app-frame';
+  const catalog = suite === "overview-pages";
   const win = new BrowserWindow({ width: 1200, height: 900, show: nativeFocus, alwaysOnTop: nativeFocus,
-    webPreferences: { offscreen: !nativeFocus, contextIsolation: true, nodeIntegration: false, backgroundThrottling: false } });
+    webPreferences: { ...(catalog ? { webviewTag: true, preload: require.resolve("./catalog-preload.cjs") } : {}), offscreen: !nativeFocus, contextIsolation: true, nodeIntegration: false, backgroundThrottling: false } });
+  if (catalog) {
+    require(require("node:path").join(profile, "team-skills-view.cjs")).registerTeamSkillsGuest(win.webContents);
+    const catalogSession = session.fromPartition("persist:lxe-workbench-team-skills");
+    catalogSession.protocol.handle("https", () => new Response(
+      '<body style="background:#24689c"><input aria-label="Filter"></body>', { headers: { "Content-Type": "text/html" } }));
+  }
   // Do not permit accidental external requests from fixtures or production UI.
   win.webContents.session.webRequest.onBeforeRequest((details, callback) => {
     const local = details.url.startsWith(new URL(url).origin + "/") || /^(data:|blob:)/.test(details.url);
@@ -70,14 +77,22 @@ app.whenReady().then(async () => {
   };
   try {
     await load();
-    if (suite === "workspace-deletion") {
+    if (suite === "app-frame") {
+      await require("./app-frame.cjs")({win,js,step,load,waitFor,click,settle,delay});
+    } else if (suite === "workspace-deletion") {
       await require("./workspace-deletion.cjs")({win,js,step,load,waitFor,click,key,focus,settle,state});
+    } else if (suite === "session-fork") {
+      await require("./session-fork.cjs")({win,js,step,load,waitFor,click,key,settle,state});
     } else if (suite === "session-titles") {
       await require("./session-titles.cjs")({win,js,step,load,waitFor,click,key,focus,settle,state});
+    } else if (suite === "streaming-markdown") {
+      await require("./streaming-markdown.cjs")({win, js, step, settle, waitFor});
     } else if (suite === "markdown") {
       await require("./markdown.cjs")({win, js, step, settle, waitFor});
     } else if (suite === "conversation-content" || suite === "conversation-window") {
       await require("./conversation-contracts.cjs")({suite, win, url, js, step, load, waitFor, click, key, focus, settle, state});
+    } else if (suite === "navigation-rail") {
+      await require("./navigation-rail.cjs")({win, js, step, load, waitFor, click, key, focus, settle});
     } else if (suite === "dashboard-pages") {
       await require("./dashboard-pages.cjs")({win, js, step, load, waitFor, click, key, focus, settle, state});
     } else if (suite === "overview-pages") {
@@ -92,7 +107,12 @@ app.whenReady().then(async () => {
       await require("./app-actions.cjs")({suite, js, step, settle, click, type, focus, key, state, waitFor});
     } else if (suite === "vietnam-settings") {
       const openSettings = async () => {
-        await js("[...document.querySelectorAll('.workbench-tool-card')].find(el => el.textContent.includes('Vietnam replenishment settings')).click()");
+        const tools = ".workbench-subnav .workspace-subnav-item:nth-child(2)";
+        await waitFor(`Boolean(document.querySelector(${JSON.stringify(tools)}))`, "workbench sub-pages");
+        await js(`document.querySelector(${JSON.stringify(tools)}).click()`);
+        const card = "[...document.querySelectorAll('.workbench-tool-card')].find(el => el.textContent.includes('Vietnam replenishment settings'))";
+        await waitFor(`Boolean(${card})`, "Vietnam settings card");
+        await js(`${card}.click()`);
         await waitFor("document.querySelectorAll('.vietnam-settings-view input').length === 7", "Vietnam parameters loaded");
       };
       const input = async (index, value) => {
@@ -316,6 +336,8 @@ app.whenReady().then(async () => {
         await waitFor("document.querySelector('.permission-approval')?.dataset.requestId === 'permission-1'", "next pending approval");
         await click(".permission-approval footer button:first-child");
         await waitFor("!document.querySelector('.permission-approval')", "requests rejected");
+        await click(".conversation-send-button[data-mode='send']");
+        assert.equal((await state()).sends.at(-1).text, "Keep this draft");
         await click(".conversation-send-button[data-mode='stop']");
         assert.equal((await state()).stops, 1, "normal stop is available after rejection");
       });
@@ -348,6 +370,8 @@ app.whenReady().then(async () => {
       });
       await step("file and edit previews preserve exact text and reset collapsed state across requests", async () => {
         await show(request("write-preview", "write", { path: "D:\\work\\订单分析\\hello.txt", content: "第一行\n\n<script>visible text</script>\n最后一行\n" }));
+        assert.equal(await js("document.querySelector('.permission-approval-reason').textContent"), "创建测试文件，验证权限申请流程。");
+        assert.match(await js("document.querySelector('.permission-approval-mode').textContent"), /Workspace Write/);
         assert.equal(await js("document.querySelector('.permission-operation-details').open"), false);
         assert.equal(await js("document.querySelector('.permission-target code').textContent"), "D:\\work\\订单分析\\hello.txt");
         await click(".permission-operation-details summary");
@@ -367,7 +391,6 @@ app.whenReady().then(async () => {
         for (const theme of ["light", "dark"]) {
           await js(`document.documentElement.dataset.theme=${JSON.stringify(theme)}`);
           await show({ ...value, request_id: `visual-${theme}` }); await settle();
-          assert.match(await js("document.querySelector('.permission-approval-status').innerText"), /等待审批/);
           assert.ok(await js("document.querySelector('.permission-approval').getBoundingClientRect().height < 240"));
           if (process.env.LXE_APPROVAL_SCREENSHOT) {
             await js("document.fonts.ready.then(() => undefined)"); await settle();
@@ -486,6 +509,65 @@ app.whenReady().then(async () => {
         await key("Escape"); assert.equal((await state()).active, "opener");
       });
     } else if (suite === "composer") {
+      await step("toolbar controls fit a narrow chat column and identify the open picker in both themes", async () => {
+        await js("behavior.mountComposer()");
+        const trigger = ".permission-picker .conversation-model-trigger";
+        for (const theme of ["light", "dark"]) {
+          await js(`document.documentElement.dataset.theme = '${theme}'; document.querySelector('.conversation-compose-box').style.width = '300px'`);
+          await settle();
+          const bounds = await js(`(() => {
+            const bar = document.querySelector('.conversation-compose-actions');
+            const rect = bar.getBoundingClientRect();
+            return Array.from(bar.querySelectorAll('button'), button => {
+              const {left, right, height} = button.getBoundingClientRect();
+              return {inside: left >= rect.left - 1 && right <= rect.right + 1, height};
+            });
+          })()`);
+          assert.ok(bounds.length >= 5);
+          assert.ok(bounds.every(button => button.inside && button.height === 30));
+          const modelName = await js(`(async () => {
+            await document.fonts.ready;
+            const label = document.querySelector('.conversation-model-name');
+            const box = label.getBoundingClientRect();
+            const range = document.createRange();
+            range.selectNodeContents(label);
+            const text = range.getBoundingClientRect();
+            return { top: text.top - box.top, bottom: box.bottom - text.bottom, color: getComputedStyle(label).color };
+          })()`);
+          assert.ok(modelName.top >= -0.5 && modelName.bottom >= -0.5, `Model name clipped: ${JSON.stringify(modelName)}`);
+          assert.equal(modelName.color, theme === "dark" ? "rgb(255, 255, 255)" : "rgb(11, 11, 11)");
+          const gaps = await js(`(() => {
+            const bounds = selector => document.querySelector(selector).getBoundingClientRect();
+            const track = document.querySelector('.conversation-context-ring-track');
+            const halfStroke = parseFloat(getComputedStyle(track).strokeWidth) * track.getScreenCTM().a / 2;
+            const ringRight = track.getBoundingClientRect().right + halfStroke;
+            const modelButton = bounds('.conversation-compose-trailing .conversation-model-trigger');
+            const icon = bounds('.conversation-model-trigger > [data-provider-mark]');
+            const model = bounds('.conversation-model-name');
+            const thinking = bounds('.conversation-thinking-trigger > span');
+            const button = bounds('.conversation-thinking-trigger');
+            const send = bounds('.conversation-send-button');
+            return {
+              labels: thinking.left - model.right, send: send.left - thinking.right,
+              beforePickers: modelButton.left - ringRight, afterPickers: send.left - button.right,
+              modelLeft: icon.left - modelButton.left, modelRight: modelButton.right - model.right,
+              thinkingLeft: thinking.left - button.left, thinkingRight: button.right - thinking.right,
+            };
+          })()`);
+          assert.ok(gaps.labels >= 0 && gaps.labels <= 8 && gaps.send >= 16, `Toolbar spacing: ${JSON.stringify(gaps)}`);
+          assert.ok(Math.abs(gaps.beforePickers - gaps.afterPickers) <= 0.5, `Picker outer spacing: ${JSON.stringify(gaps)}`);
+          for (const inset of [gaps.modelLeft, gaps.modelRight, gaps.thinkingLeft, gaps.thinkingRight]) {
+            assert.ok(Math.abs(inset - 4) <= 0.5, `Picker padding: ${JSON.stringify(gaps)}`);
+          }
+          await click(trigger);
+          win.webContents.sendInputEvent({ type: "mouseMove", x: 0, y: 0 });
+          await settle();
+          const selected = await js(`getComputedStyle(document.querySelector('${trigger}')).backgroundColor`);
+          await key("Escape");
+          assert.equal(await js(`document.querySelector('${trigger}').getAttribute('aria-expanded')`), "false");
+          assert.notEqual(await js(`getComputedStyle(document.querySelector('${trigger}')).backgroundColor`), selected);
+        }
+      });
       await step("IME confirmation does not send; Shift+Enter inserts a line; Enter sends once", async () => {
         await js("behavior.mountComposer()"); await type("中文");
         assert.equal(await js("Number(document.querySelector('.reference-editor').dataset.maxlength)"), 8192);
@@ -506,13 +588,26 @@ app.whenReady().then(async () => {
         await js("behavior.releaseSend()"); await settle();
         assert.equal(await js("(sessionStorage.getItem('lxe.composer-draft.' + document.querySelector('.reference-editor').dataset.session) || '')"), "");
       });
-      await step("running work changes the action button to stop", async () => {
-        await js("behavior.mountComposer({running:true})"); await type("queued draft");
-        await click(".conversation-send-button");
-        assert.equal((await state()).stops, 1); assert.equal((await state()).sends.length, 0);
-        // Enter intentionally queues a new message during an existing turn.
-        await focus(".reference-editor"); await key("Enter");
-        assert.equal((await state()).sends.length, 1);
+      await step("a running turn accepts a draft from the button or Enter and stops with an empty draft", async () => {
+        await js("behavior.mountComposer({running:true})");
+        assert.match(await js("document.querySelector('.reference-editor').dataset.placeholder"), /插话|steer/i);
+        await type("steering draft");
+        await click(".conversation-send-button[data-mode='send']");
+        await type("keyboard draft"); await key("Enter");
+        assert.deepEqual((await state()).sends.map(input => input.text), ["steering draft", "keyboard draft"]);
+        assert.equal((await state()).stops, 0);
+        await click(".conversation-send-button[data-mode='stop']");
+        assert.equal((await state()).stops, 1);
+      });
+      await step("an attachment can be sent while stopping", async () => {
+        await js("behavior.mountComposer({running:true,stopping:true}); behavior.chooseFile('note.txt')");
+        assert.equal(await js("document.querySelector('.conversation-send-button').disabled"), true);
+        await click(".conversation-attach-button");
+        await click(".conversation-send-button[data-mode='send']");
+        assert.deepEqual((await state()).sends, [{ text: "", attachments: [
+          { attachment_id: "note.txt", name: "note.txt", media_type: "text/plain", size_bytes: 1 },
+        ] }]);
+        assert.equal((await state()).stops, 0);
       });
       await step("model/thinking saves block both click and keyboard submission", async () => {
         for (const flag of ["modelSaving", "thinkingSaving"]) {
@@ -742,16 +837,31 @@ app.whenReady().then(async () => {
       const rect = selector => js(`(()=>{const r=document.querySelector(${JSON.stringify(selector)}).getBoundingClientRect();return {left:r.left,right:r.right,top:r.top,bottom:r.bottom,width:r.width,height:r.height}})()`);
       const move = (x, y) => win.webContents.sendInputEvent({ type: "mouseMove", x: Math.round(x), y: Math.round(y) });
       const expanded = () => js("document.querySelector('.app-sidebar').classList.contains('is-expanded')");
+      // Hit-test the exposed corner, not just border-radius: a square child
+      // background can otherwise paint over a correctly rounded parent.
+      const assertCorner = async (selector, rounded, label) => {
+        const { left, top } = await rect(selector);
+        // Ignore drawer overlays and the Windows caption's transparent pointer
+        // corridor; neither paints the canvas corner beneath the hovering list.
+        const inside = (x, y) => js(`document.elementsFromPoint(${left + x}, ${top + y}).some(el => !el.closest(".sidebar-dismiss, .app-sidebar, .sidebar-window-controls") && document.querySelector(${JSON.stringify(selector)}).contains(el))`);
+        assert.equal(await inside(1, 1), !rounded, `${label}: corner cutout`);
+        assert.equal(await inside(16, 16), true, `${label}: canvas inside corner`);
+      };
       await load(sidebarQuery);
       await waitFor("document.querySelectorAll('.workspace-group').length === 3", "workspace list ready");
       const railWidth = (await rect(".app-navigation")).width;
       await step("navigation is separate from the workspace list and preserves its expansion", async () => {
-        assert.equal(await js("document.querySelectorAll('.app-navigation nav button').length"), 5);
+        assert.equal(await js("document.querySelectorAll('.app-navigation nav button').length"), 7);
         assert.ok(Math.abs(railWidth - 56 * 0.95) < 0.02);
-        assert.ok(Math.abs((await rect(".app-sidebar")).top - (process.platform === "win32" ? 40 : 44 * 0.95)) < 0.02);
-        assert.equal((await rect(".app-sidebar")).left, railWidth);
-        assert.equal((await rect(".main-panel")).left, railWidth + 256);
-        assert.ok((await rect(".workspace-index-scroll")).height > await js("innerHeight") * 0.72, "workspace list uses most of the available window height");
+        assert.ok(Math.abs((await rect(".app-sidebar")).top - (process.platform === "win32" ? 41 : 43)) < 0.02);
+        assert.equal((await rect(".app-sidebar")).left, railWidth + 1);
+        assert.equal((await rect(".main-panel")).left, railWidth + 1 + 256);
+        const workspaceScroll = await rect(".workspace-index-scroll");
+        const sidebar = await rect(".app-sidebar");
+        const bottomInset = await js("(()=>{const style=getComputedStyle(document.querySelector('.app-sidebar'));return parseFloat(style.paddingBottom)+parseFloat(style.borderBottomWidth)})()");
+        assert.ok(workspaceScroll.height > 0);
+        assert.ok(Math.abs(workspaceScroll.bottom - (sidebar.bottom - bottomInset)) < 1,
+          `workspace list fills the space below its controls: ${JSON.stringify({ workspaceScroll, sidebar, bottomInset })}`);
         await click(".tab-home");
         assert.equal(await js("document.querySelector('.tab-home').getAttribute('aria-current')"), "page");
         assert.equal(await expanded(), true);
@@ -762,7 +872,7 @@ app.whenReady().then(async () => {
       await step("collapsing only hides the list; navigation and settings remain usable", async () => {
         await click(".sidebar-toggle-button"); await delay(220);
         assert.equal(await js("document.querySelector('.app-sidebar').inert"), true);
-        assert.equal((await rect(".main-panel")).left, railWidth);
+        assert.equal((await rect(".main-panel")).left, railWidth + 1);
         await click(".tab-home"); await click(".tab-sessions");
         assert.equal(await expanded(), false);
         await click(".sidebar-settings-button");
@@ -787,7 +897,10 @@ app.whenReady().then(async () => {
         const toggle = await rect(".sidebar-toggle-button");
         move(toggle.left + 10, toggle.top + 10);
         await waitFor("document.querySelector('.app-sidebar').classList.contains('is-peek')", "hover peek");
-        assert.equal((await rect(".main-panel")).left, railWidth);
+        assert.equal((await rect(".main-panel")).left, railWidth + 1);
+        assert.equal(await js("getComputedStyle(document.querySelector('.sidebar-window-controls'), '::after').backgroundColor"), "rgba(0, 0, 0, 0)",
+          "the pointer corridor must remain transparent");
+        await assertCorner(".app-content-frame", true, "hover peek keeps the chat corner");
         const search = await rect(".sidebar-search-button");
         move(search.left + 10, search.top + 10);
         await click(".sidebar-search-button");
@@ -813,16 +926,17 @@ app.whenReady().then(async () => {
           JSON.stringify({ handle, before, after: await rect(".app-sidebar") }));
         await load(sidebarQuery);
         await waitFor("document.querySelectorAll('.workspace-group').length === 3", "reloaded list");
-        await waitFor(`document.querySelector('.main-panel').getBoundingClientRect().left === ${railWidth + before.width + 60}`, "restored width animation completed");
+        await waitFor(`document.querySelector('.main-panel').getBoundingClientRect().left === ${railWidth + 1 + before.width + 60}`, "restored width animation completed");
         assert.equal(await expanded(), true);
         assert.equal((await rect(".app-sidebar")).width, before.width + 60);
-        assert.equal((await rect(".main-panel")).left, railWidth + before.width + 60);
+        assert.equal((await rect(".main-panel")).left, railWidth + 1 + before.width + 60);
         await focus(".sidebar-resizer"); await key("Left");
         assert.equal(await js("Number(localStorage.getItem('lxe.dashboard.sidebar.width'))"), before.width + 50);
       });
       await step("narrow windows use a dismissible drawer while keeping the rail accessible", async () => {
         win.setContentSize(800, 900); await delay(250);
-        assert.equal((await rect(".main-panel")).left, railWidth);
+        assert.equal((await rect(".main-panel")).left, railWidth + 1);
+        await assertCorner(".app-content-frame", true, "narrow chat behind drawer");
         assert.equal(await js("getComputedStyle(document.querySelector('.sidebar-dismiss')).display"), "block");
         const panel = await rect(".app-sidebar");
         assert.ok(panel.left > railWidth && panel.right < 800);
@@ -835,9 +949,9 @@ app.whenReady().then(async () => {
         win.setContentSize(1200, 900); await delay(250);
       });
       await step("both desktop title-bar layouts keep controls and list clear in either theme", async () => {
-        const original = await js("document.querySelector('.desktop-window-frame').className");
         for (const platform of ["darwin", "win32"]) {
-          await js(`document.querySelector('.desktop-window-frame').className='desktop-window-frame desktop-platform-${platform}'`);
+          await load(sidebarQuery + "&platform=" + platform);
+          await waitFor("Boolean(document.querySelector('.conversation-header'))", "caption mounted");
           for (const theme of ["dark", "light"]) {
             await js(`document.documentElement.dataset.theme='${theme}'`);
             for (const open of [false, true]) {
@@ -848,19 +962,41 @@ app.whenReady().then(async () => {
               assert.ok((await rect(".navigation-rail-button")).top >= 44);
               assert.equal(await js("getComputedStyle(document.querySelector('.sidebar-toggle-button')).webkitAppRegion"), "no-drag");
               if (platform === "darwin") {
-                assert.equal(await js("getComputedStyle(document.querySelector('.conversation-header')).webkitAppRegion"), "no-drag");
-                assert.equal(await js("getComputedStyle(document.querySelector('.conversation-header-copy')).webkitAppRegion"), "drag");
+                const strip = await rect(".desktop-window-drag-region");
+                assert.equal(strip.left, 0);
+                assert.equal(strip.right, await js("innerWidth"));
+                assert.equal(strip.bottom, (await rect(".app-content-frame")).top);
+                assert.equal(await js("getComputedStyle(document.querySelector('.desktop-window-drag-region')).webkitAppRegion"), "drag");
+                assert.equal(await js("getComputedStyle(document.querySelector('.conversation-header')).webkitAppRegion"), "none");
                 assert.equal(await js("getComputedStyle(document.querySelector('.conversation-header button')).webkitAppRegion"), "no-drag");
               }
               if (platform === "win32") {
-                assert.equal((await rect(".main-panel")).top, 40);
+                assert.equal((await rect(".main-panel")).top, 41);
                 assert.equal((await rect(".app-navigation")).top, 40);
                 assert.ok((await rect(".conversation-header-actions")).right > 1200 - 138);
+              }
+              const body = await rect(".conversation-body"), header = await rect(".conversation-header");
+              assert.ok(Math.abs(body.top - header.bottom) <= 1.02, "chat canvas begins below its caption");
+              await assertCorner(".app-content-frame", true, `${platform} ${theme} chat ${open}`);
+              await click(".tab-home");
+              await assertCorner(".app-content-frame", true, `${platform} ${theme} home ${open}`);
+              await click(".tab-sessions");
+              if (open) {
+                const sidebar = await rect(".app-sidebar"), resize = await rect(".sidebar-resizer");
+                assert.ok(Math.abs(resize.top - sidebar.top) < 0.02, `${platform}: resize starts below caption`);
+                assert.ok(Math.abs(resize.bottom - sidebar.bottom) < 0.02);
+                if (platform === "darwin") {
+                  assert.ok(Math.abs((await rect(".conversation-header")).bottom - sidebar.top) <= 1.02, "chat header meets sidebar edge");
+                  assert.equal(await js(`document.elementFromPoint(${resize.left + resize.width / 2}, ${sidebar.top / 2})?.closest('.sidebar-resizer') !== null`), false, "caption must not become a sidebar resize target");
+                  await click(".tab-home");
+                  assert.ok(Math.abs((await rect(".content-panel")).top - sidebar.top) < 0.02, "home canvas meets the same caption edge");
+                  await click(".tab-sessions");
+                }
               }
             }
           }
         }
-        await js(`document.querySelector('.desktop-window-frame').className=${JSON.stringify(original)}`);
+
         if (process.env.LXE_SIDEBAR_SCREENSHOT) {
           await load(sidebarQuery + "&language=zh");
           await waitFor("document.querySelectorAll('.workspace-group').length === 3", "preview loaded");
@@ -871,8 +1007,10 @@ app.whenReady().then(async () => {
           await js("document.documentElement.dataset.theme='light'"); await delay(250);
           require("node:fs").writeFileSync(process.env.LXE_SIDEBAR_SCREENSHOT.replace(/\.png$/, "-light.png"), (await win.webContents.capturePage()).toPNG());
           await click(".sidebar-toggle-button"); await delay(220);
-          await js("document.documentElement.dataset.theme='dark'");
+          await js("document.documentElement.dataset.theme='dark'"); await delay(250);
           require("node:fs").writeFileSync(process.env.LXE_SIDEBAR_SCREENSHOT.replace(/\.png$/, "-collapsed.png"), (await win.webContents.capturePage()).toPNG());
+          await js("document.documentElement.dataset.theme='light'"); await delay(250);
+          require("node:fs").writeFileSync(process.env.LXE_SIDEBAR_SCREENSHOT.replace(/\.png$/, "-collapsed-light.png"), (await win.webContents.capturePage()).toPNG());
           await click(".sidebar-toggle-button");
           await click(".tab-capabilities"); await delay(250);
           require("node:fs").writeFileSync(process.env.LXE_SIDEBAR_SCREENSHOT.replace(/\.png$/, "-capabilities.png"), (await win.webContents.capturePage()).toPNG());
@@ -963,7 +1101,7 @@ app.whenReady().then(async () => {
         await focus(".search-box input"); await win.webContents.insertText("Archived project"); await settle();
         await waitFor("document.querySelector('.session-workspace-result')?.textContent === '/fixture/archive'", "search directory label");
         await click(".session-index-open");
-        await waitFor("document.querySelector('.conversation-workspace-name')?.textContent === 'archive'", "existing chat directory");
+        await waitFor("document.querySelector('.conversation-workspace.is-readonly .workspace-open-split button')?.title.endsWith('/fixture/archive')", "existing chat directory");
         assert.equal(await js("Boolean(document.querySelector('.conversation-workspace select'))"), false);
         await click(".conversation-workspace .workspace-open-split button:first-child");
         assert.equal((await state()).calls.findLast(call => call.operation === "openWorkspace").input, "/fixture/archive");
@@ -980,7 +1118,7 @@ app.whenReady().then(async () => {
         await waitFor('Boolean(document.querySelector(' + JSON.stringify(group('/fixture/empty')) + '))', 'empty registration after reload');
         assert.equal(await expanded('/fixture/empty'), 'true');
       });
-      await step('rename failure keeps input, retry updates sidebar, selector and conversation title', async () => {
+      await step('rename failure keeps input, retry updates sidebar and selector while preserving the conversation directory', async () => {
         await beginRename('/fixture/archive');
         await js('behavior.failRename(true)');
         await enterName('  采购项目  ');
@@ -992,7 +1130,7 @@ app.whenReady().then(async () => {
         assert.equal(await label('/fixture/archive'), '采购项目');
         if (await expanded('/fixture/archive') !== 'true') await click(group('/fixture/archive') + ' .workspace-group-toggle');
         await click(group('/fixture/archive') + ' .session-index-open');
-        await waitFor('document.querySelector(".conversation-workspace-name")?.textContent === "采购项目"', 'updated conversation name');
+        await waitFor("document.querySelector('.conversation-workspace.is-readonly .workspace-open-split button')?.title.endsWith('/fixture/archive')", 'conversation retains directory after rename');
         await click(group('/fixture/archive') + ' .workspace-group-header > button:last-child');
         assert.equal(await js('document.querySelector(".conversation-workspace select option:checked").textContent'), '采购项目');
         await beginRename('/fixture/archive'); await enterName('');

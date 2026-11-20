@@ -1,3 +1,4 @@
+import { directoryRevisions, latestPromptState, sameTools, withMcpDirectory } from "./prompt-state";
 import { TurnStatistics, type CommandSkill } from "../statistics/turn-statistics";
 import type { SessionTitleService } from "../state/session-title";
 import { ExecutionPaths } from "../permissions/execution-paths";
@@ -24,6 +25,7 @@ import {
 } from "@lxe/core";
 import {
   ToolExecutionError,
+  ToolOutputError,
   ToolRegistry,
   unknownToolFailureDetails,
   type ToolExposureOptions,
@@ -34,7 +36,6 @@ import {
   ContextPipeline,
   DEFAULT_CONTEXT_WINDOW_TOKENS,
   estimateTokens,
-  requestContextTokenEstimate,
   isContextOverflowError,
   trimToolResultBlocks,
   type ContextCompactionResult,
@@ -46,17 +47,16 @@ import {
   type RuntimeProviderManager,
 } from "../providers/provider";
 import { RuntimeTurnObserver } from "./turn-observer";
-import {
-  heartbeatPrompt,
-  normalizePendingSystemEvents,
-  userContentWithSystemEvents,
-  withTurnContext,
-} from "./system-events";
-import type { RuntimeWireTraceAttempt, RuntimeWireTraceControllerPort } from "../providers/wire-trace";
+import { providerRetryDelayMs, waitForProviderRetry } from "../providers/provider-retry";
+import { prepareUserContent, withTurnContext } from "./system-events";
+import type { RuntimeWireTraceControllerPort } from "../providers/wire-trace";
 import type {
   AgentRuntime,
   RuntimeContentBlock,
   RuntimeEmitter,
+  RuntimeEventHandler,
+  RuntimeEventMap,
+  RuntimeTurnEventContext,
   RuntimeHandle,
   RuntimeMessage,
   RuntimeMessageContent,
@@ -64,11 +64,12 @@ import type {
   RuntimeSkillSnapshot,
   RuntimeWorkspaceInstanceProvider,
   RuntimeStore,
-  AssistantMessageEvent,
+  RuntimeProviderRequest,
   SystemPromptContext,
   RuntimeTurnContextRecord,
   AssistantMessage,
   RuntimeUsage,
+  ToolExecutionResult,
   ToolResultBlock,
   ToolCallBlock,
   TurnOutcome,
@@ -81,6 +82,11 @@ export interface TypeScriptAgentRuntimeOptions {
   providerManager?: RuntimeProviderManager;
   wireTraceController?: RuntimeWireTraceControllerPort;
   tools: ToolRegistry;
+  acquireSessionTools?: (context: RuntimeTurnEventContext) => Promise<{
+    tools: ToolRegistry;
+    mcpServerDirectory(): string;
+    release(): void;
+  }>;
   toolExposure?: ToolExposureOptions | (() => ToolExposureOptions);
   resolveInvokedSkill?: (name: string, workspace: WorkspaceContext) => Promise<{ name: string; root: string; content: string } | undefined>;
   onToolResult?: (session: string) => void;
@@ -101,6 +107,7 @@ export interface TypeScriptAgentRuntimeOptions {
   executionPaths?: ExecutionPaths;
   approvalAvailable?: boolean;
   userSkillsRoot?: string;
+  mcpServerDirectory?: (context: SystemPromptContext) => string;
   systemPrompt: string | ((context: SystemPromptContext) => string);
   /** Defaults to unlimited steps; a finite limit reserves the last step for a tool-free reply. */
   maxSteps?: number;
@@ -181,16 +188,56 @@ export class TypeScriptAgentRuntime implements AgentRuntime {
     await this.notifySessionChanged(sessionId, "messages");
   }
 
+  private async persistPartialReply(job: AgentJob, message: AssistantMessage, stopReason: "error" | "aborted"): Promise<void> {
+    const content = message.content.flatMap((block, contentIndex) =>
+      block.type === "text" && block.text.length ? [{ type: "text" as const, text: block.text, contentIndex }] : []);
+    if (!content.length) return;
+    try {
+      // Keep the original stream indices so the desktop can reconcile live and stored rows.
+      const { id, timestamp, api, provider, model, usage } = message;
+      await this.appendMessage(job.session_id, {
+        id, timestamp, api, provider, model, usage, role: "assistant", stopReason, content,
+      }, "assistant_partial", job.job_id);
+    } catch (error) {
+      this.logger.warn("assistant_partial_persist_failed", { message_id: message.id, error });
+    }
+  }
+
   private async appendTurnError(sessionId: string, turnId: string, message: string): Promise<void> {
     await this.options.store.appendTurnError(sessionId, turnId, message);
     await this.notifySessionChanged(sessionId, "messages");
   }
 
   private readonly active = new Set<RuntimeHandle>();
+  private readonly subscriptions: {
+    [K in keyof RuntimeEventMap]: Set<{ handler: RuntimeEventHandler<K> }>;
+  } = { before_turn: new Set(), before_model_step: new Set() };
   private started = false;
 
   constructor(private readonly options: TypeScriptAgentRuntimeOptions) {
     this.logger = options.logger ?? createLogger("runtime");
+  }
+
+  on<K extends keyof RuntimeEventMap>(type: K, handler: RuntimeEventHandler<K>): () => void {
+    const subscriptions = this.subscriptions[type];
+    const subscription = { handler };
+    subscriptions.add(subscription);
+    return () => { subscriptions.delete(subscription); };
+  }
+
+  private async emitTurnEvent<K extends keyof RuntimeEventMap>(
+    event: RuntimeEventMap[K] & { readonly type: K }, context: RuntimeTurnEventContext,
+  ): Promise<void> {
+    const subscriptions = this.subscriptions[event.type];
+    for (const subscription of [...subscriptions]) {
+      if (context.signal.aborted) break;
+      if (!subscriptions.has(subscription)) continue;
+      try {
+        await subscription.handler(event, context);
+      } catch (error) {
+        this.logger.warn("runtime_event_handler_failed", { event: event.type, error });
+      }
+    }
   }
 
   async start(): Promise<void> {
@@ -238,6 +285,8 @@ export class TypeScriptAgentRuntime implements AgentRuntime {
           this.logger.warn("turn_aborted_context_persist_failed", { error });
         }
       }
+      await this.options.store.appendTurnEnd(job.session_id, job.job_id, outcome.status);
+      await this.notifySessionChanged(job.session_id, "messages");
       return outcome;
     });
   }
@@ -269,10 +318,15 @@ export class TypeScriptAgentRuntime implements AgentRuntime {
     const observer = new RuntimeTurnObserver();
     const wireTraceTurn = this.options.wireTraceController?.startTurn(job.session_id, job.job_id);
     const contextWindowTokens = descriptor?.contextWindowTokens ?? this.options.contextWindowTokens ?? this.options.display?.contextWindowTokens;
+    const midConvo = descriptor?.apiStyle === "openai_responses" && descriptor.compat?.supportsMidConvoSystemMessages === true;
+    const inlineTools = midConvo && descriptor.compat?.supportsAdditionalTools === true;
+    const promptCapabilities = { midConvo, inlineTools, currentMcpDirectory: undefined as string | undefined };
     const contextPipeline = new ContextPipeline({
+      promptCapabilities,
       provider,
       store: this.options.store,
       ...(contextWindowTokens === undefined ? {} : { contextWindowTokens }),
+      ...(descriptor?.apiStyle === "google_generative_ai" ? { reserveTokens: descriptor.maxTokens } : {}),
     });
     const turnPlatform = String(job.source.platform ?? session.source.platform ?? "").trim();
     const userIdentity = { platform: turnPlatform, userId: String(job.user_id ?? "") };
@@ -282,6 +336,7 @@ export class TypeScriptAgentRuntime implements AgentRuntime {
           sessionId: job.session_id,
           turnId: job.job_id,
           responseRouteId: job.response_route_id,
+          showToolInput: turnPlatform === "desktop",
           emit: (request) => this.emitBestEffort(request, "stream"),
           ...(turnPlatform === "desktop" && this.options.emitter.desktopStream
             ? { emitDesktopBatch: (request) => this.emitDesktopStreamBestEffort(request) }
@@ -307,12 +362,13 @@ export class TypeScriptAgentRuntime implements AgentRuntime {
     let toolCalls = 0;
     let typingStarted = false;
     let workspaceLease: Awaited<ReturnType<RuntimeWorkspaceInstanceProvider["acquire"]>> | undefined;
+    let sessionTools: Awaited<ReturnType<NonNullable<TypeScriptAgentRuntimeOptions["acquireSessionTools"]>>> | undefined;
     const startedAt = Date.now() / 1_000;
     const emittedArtifactPaths = new Set<string>();
     let displayEpoch: string | undefined;
     let displayMeasurement: import("./context-meter").ContextMeasurement | undefined;
     const saveDisplay = async (measurement = displayMeasurement): Promise<void> => {
-      if (job.job_kind === "heartbeat" || !measurement || !displayEpoch) return;
+      if (!measurement || !displayEpoch) return;
       displayMeasurement = measurement;
       try {
         await this.options.store.saveContextDisplay?.(job.session_id, displayEpoch, {
@@ -384,10 +440,8 @@ export class TypeScriptAgentRuntime implements AgentRuntime {
       observer.complete({ status, inputTokens, outputTokens, toolCalls, apiCalls, ...(error === undefined ? {} : { error }) });
     };
     try {
-      if (job.job_kind !== "heartbeat") {
-        try { displayEpoch = await this.options.store.beginContextDisplay?.(job.session_id, startedAt * 1_000); }
-        catch (error) { this.logger.warn("context_display_begin_failed", { error }); }
-      }
+      try { displayEpoch = await this.options.store.beginContextDisplay?.(job.session_id, startedAt * 1_000); }
+      catch (error) { this.logger.warn("context_display_begin_failed", { error }); }
       if (descriptor?.credentialSource === "cloud"
         && descriptor.credentialRevision
         && String(this.options.environment?.LXE_MANAGED_LLM_INVALID_REVISION ?? "").trim().toLowerCase()
@@ -396,12 +450,11 @@ export class TypeScriptAgentRuntime implements AgentRuntime {
           "managed LLM credential revision is invalid",
           descriptor.name,
           "认证失败",
-          "云端模型凭证已失效，正在尝试从公司服务器刷新。",
           false,
           401,
         );
       }
-      if (job.job_kind === "turn" && job.response_route_id) {
+      if (job.response_route_id) {
         typingStarted = await this.typingBestEffort({
           session_id: job.session_id,
           turn_id: job.job_id,
@@ -410,27 +463,16 @@ export class TypeScriptAgentRuntime implements AgentRuntime {
           emit_id: randomUUID().replaceAll("-", ""),
         }, "start");
       }
-      const heartbeat = job.job_kind === "heartbeat";
-      const storedPendingEvents = await this.options.store.popPendingEvents(job.session_id);
-      const pendingEvents = normalizePendingSystemEvents(storedPendingEvents);
-      if (heartbeat) observer.pendingEvents("popped", pendingEvents.length);
-      else if (pendingEvents.length > 0) observer.pendingEvents("attached", pendingEvents.length);
-      if (heartbeat && pendingEvents.length === 0) {
-        observer.start({
-        jobKind: "heartbeat",
-          provider: descriptor?.name ?? "custom",
-          model: descriptor?.model ?? this.options.display?.model ?? "",
-          messageTurns: 0,
-          systemTokens: 0,
-          messageTokens: 0,
-          contextCapacity: contextWindowTokens ?? DEFAULT_CONTEXT_WINDOW_TOKENS,
-          pendingEventCount: 0,
-        });
-        observer.pendingEvents("noop", 0);
-        await recordUsage("completed");
-        return this.outcome("completed", "", inputTokens, outputTokens, toolCalls);
-      }
       await finalAnswerStreamer?.startPreparingContext();
+      const toolPlatform = String(job.source.platform ?? "").trim();
+      const eventContext: RuntimeTurnEventContext = {
+        sessionId: job.session_id, turnId: job.job_id, workspace,
+        platform: turnPlatform, toolPlatform, signal: handle.signal,
+      };
+      await this.emitTurnEvent({ type: "before_turn", userInput: job.user_input }, eventContext);
+      sessionTools = await this.options.acquireSessionTools?.(eventContext);
+      handle.signal.throwIfAborted();
+      const tools = sessionTools?.tools ?? this.options.tools;
       workspaceLease = await this.options.workspaceInstances?.acquire(workspace);
       const skillSnapshot = workspaceLease?.snapshot.skills ?? this.options.skillSnapshot?.(workspace);
       statistics.setSkills(skillSnapshot?.locations ?? {}, skillSnapshot?.modules ?? {});
@@ -439,9 +481,11 @@ export class TypeScriptAgentRuntime implements AgentRuntime {
         : this.options.toolExposure;
       const skillNames = skillSnapshot?.names
         ?? (exposureOptions?.allowedSkills ? [...exposureOptions.allowedSkills] : []);
-      const toolExposure = this.options.tools.createExposureState({
+      const toolExposure = tools.createExposureState({
         ...exposureOptions,
-        platform: String(job.source.platform ?? "").trim(),
+        loadedTools: await this.options.store.readLoadedTools(job.session_id),
+        onToolsLoaded: tools => this.options.store.appendLoadedTools(job.session_id, job.job_id, tools, handle.signal),
+        platform: toolPlatform,
         ...(skillSnapshot ? { allowedSkills: new Set(skillNames), skillLocations: skillSnapshot.locations } : {}),
         onSkillActivated: async (name) => {
           await exposureOptions?.onSkillActivated?.(name);
@@ -449,15 +493,19 @@ export class TypeScriptAgentRuntime implements AgentRuntime {
       });
       const systemPromptContext: SystemPromptContext = {
         platform: turnPlatform,
+        toolPlatform,
         provider: descriptor?.name ?? "custom",
         model: descriptor?.model ?? this.options.display?.model ?? "",
         skillPrompt: skillSnapshot?.prompt ?? "",
         workspace,
         ...(workspaceLease ? { workspaceSnapshot: workspaceLease.snapshot } : {}),
       };
-      const systemPrompt = typeof this.options.systemPrompt === "function"
+      const baseSystem = typeof this.options.systemPrompt === "function"
         ? this.options.systemPrompt(systemPromptContext)
         : this.options.systemPrompt;
+      const readMcpDirectory = () => sessionTools?.mcpServerDirectory() ?? this.options.mcpServerDirectory?.(systemPromptContext);
+      let directory = readMcpDirectory();
+      let systemPrompt = withMcpDirectory(baseSystem, directory);
       const fingerprintFor = (toolSchemas: ReturnType<typeof toolExposure.schemas>, isLastStep: boolean) => contextFingerprint({
           provider: systemPromptContext.provider, model: systemPromptContext.model,
           api: descriptor?.apiStyle, endpoint: descriptor?.baseURL,
@@ -465,12 +513,13 @@ export class TypeScriptAgentRuntime implements AgentRuntime {
           thinkingEffort: descriptor?.thinkingEffort, thinkingBudget: descriptor?.thinkingBudgetTokens,
           thinkingDisplay: descriptor?.thinkingDisplay, supportsVision: descriptor?.supportsVision,
           maxTokens: descriptor?.maxTokens, toolStream: descriptor?.toolStream,
-          system: systemPrompt, tools: toolSchemas, toolChoice: heartbeat || isLastStep ? "none" : "auto",
+          ...(midConvo ? { promptCapabilities: { midConvo, inlineTools } } : {}),
+          system: systemPrompt, tools: toolSchemas, toolChoice: isLastStep ? "none" : "auto",
         });
       const turnContext: RuntimeTurnContextRecord = {
         ...(session.model_selection_version === undefined ? {} : { model_selection_version: session.model_selection_version }),
         turn_id: job.job_id,
-        job_kind: heartbeat ? "heartbeat" : "turn",
+        job_kind: job.job_kind,
         provider: descriptor?.name ?? "custom",
         model: descriptor?.model ?? this.options.display?.model ?? "",
         credential_source: descriptor?.credentialSource ?? "local",
@@ -481,13 +530,14 @@ export class TypeScriptAgentRuntime implements AgentRuntime {
         ts: Date.now() / 1_000,
       };
       await this.options.store.appendTurnContext(job.session_id, turnContext);
-      let messages = heartbeat ? [] : await this.options.store.loadMessages(job.session_id);
-      const titleInput = heartbeat ? "" : job.user_content_blocks?.length
+      let messages = await this.options.store.loadMessages(job.session_id);
+      const titleInput = job.user_content_blocks?.length
         ? job.user_content_blocks.filter(block => block.type === "text").map(block => String(block.text ?? "")).join(" ") : job.user_input;
-      const userContent: RuntimeMessageContent = heartbeat
-        ? heartbeatPrompt(pendingEvents)
-        : userContentWithSystemEvents(job.user_input, job.user_content_blocks, pendingEvents);
+      const userContent: RuntimeMessageContent = prepareUserContent(job.user_input, job.user_content_blocks);
       const userMessage: RuntimeMessage = { role: "user", content: withTurnContext(userContent, job.diagnostics), message_id: job.message_id, ...(typeof job.raw_data.client_message_id === "string" ? { client_message_id: job.raw_data.client_message_id } : {}) };
+      if (directory !== undefined && latestPromptState(messages).mcpDirectory !== directory) {
+        userMessage.promptState = { mcpDirectory: directory };
+      }
       const loadInvokedSkills = async (names: readonly string[], seen = new Set<string>()): Promise<RuntimeMessage[]> => {
         const injected: RuntimeMessage[] = [];
         for (const name of names) {
@@ -501,45 +551,49 @@ export class TypeScriptAgentRuntime implements AgentRuntime {
         }
         return injected;
       };
-      const instructions = heartbeat ? [] : await loadInvokedSkills(invokedSkillNames(job.user_input)).catch(async error => {
+      const instructions = await loadInvokedSkills(invokedSkillNames(job.user_input)).catch(async error => {
         // Keep the submitted input in history when skill selection or loading fails.
         await this.appendMessage(job.session_id, userMessage, "turn_input", job.job_id, titleInput);
         throw error;
       });
       if (instructions.length) userMessage.invoked_skills = instructions.flatMap(item => item.role === "user" ? item.invoked_skills ?? [] : []);
       messages.push(userMessage, ...instructions);
-      const firstTools = heartbeat || (this.options.maxSteps ?? DEFAULT_MAX_STEPS) <= 1 ? [] : toolExposure.schemas();
+      const firstTools = !inlineTools && (this.options.maxSteps ?? DEFAULT_MAX_STEPS) <= 1 ? [] : toolExposure.schemas();
       const initialMeasurement = contextPipeline.measure(systemPrompt, messages, firstTools,
         fingerprintFor(firstTools, (this.options.maxSteps ?? DEFAULT_MAX_STEPS) <= 1));
       observer.start({
         measurement: initialMeasurement,
-        jobKind: heartbeat ? "heartbeat" : "turn",
+        jobKind: job.job_kind,
         provider: descriptor?.name ?? "custom",
         model: descriptor?.model ?? this.options.display?.model ?? "",
         messageTurns: messages.filter((message) => message.role === "user").length,
         systemTokens: estimateTokens(systemPrompt),
         messageTokens: estimateTokens(messages),
         contextCapacity: contextWindowTokens ?? DEFAULT_CONTEXT_WINDOW_TOKENS,
-        pendingEventCount: pendingEvents.length,
       });
-      await this.appendMessage(job.session_id, userMessage, heartbeat ? "heartbeat" : "turn_input", job.job_id, titleInput);
+      await this.appendMessage(job.session_id, userMessage, "turn_input", job.job_id, titleInput);
       for (const instruction of instructions) await this.appendMessage(job.session_id, instruction, "skill_invocation", job.job_id);
       await saveDisplay(initialMeasurement);
       await finalAnswerStreamer?.updateContext(initialMeasurement);
-      if (!heartbeat && job.user_content_blocks.some((block) => block.type === "local_file")) {
+      if (job.user_content_blocks.some((block) => block.type === "local_file")) {
         await this.notifySessionChanged(job.session_id, "attachments");
       }
 
-      const appendSteering = async (steeringMessages = handle.drainSteering()): Promise<number> => {
+      const appendSteering = async (): Promise<number> => {
         let appended = 0;
         const seen = new Set<string>();
-        for (const steering of steeringMessages) {
+        for (const steering of handle.drainSteering()) {
           const text = String(steering.text ?? "").trim();
-          if (!text) continue;
+          const blocks = steering.user_content_blocks ?? [];
+          if (!text && !blocks.length) continue;
           const instructions = await loadInvokedSkills(invokedSkillNames(text), seen);
-          const message: RuntimeMessage = { role: "user", content: text, ...(instructions.length ? { invoked_skills: instructions.flatMap(item => item.role === "user" ? item.invoked_skills ?? [] : []) } : {}) };
+          const message: RuntimeMessage = { role: "user", content: prepareUserContent(text, blocks),
+            ...(steering.message_id ? { message_id: steering.message_id } : {}),
+            ...(steering.client_message_id ? { client_message_id: steering.client_message_id } : {}),
+            ...(instructions.length ? { invoked_skills: instructions.flatMap(item => item.role === "user" ? item.invoked_skills ?? [] : []) } : {}) };
           messages.push(message, ...instructions);
           await this.appendMessage(job.session_id, message, "steering", job.job_id);
+          if (blocks.some(block => block.type === "local_file")) await this.notifySessionChanged(job.session_id, "attachments");
           for (const instruction of instructions) await this.appendMessage(job.session_id, instruction, "skill_invocation", job.job_id);
           appended += 1;
         }
@@ -556,14 +610,24 @@ export class TypeScriptAgentRuntime implements AgentRuntime {
           return this.outcome("cancelled", "", inputTokens, outputTokens, toolCalls);
         }
         await appendSteering();
+        await this.emitTurnEvent({ type: "before_model_step", step }, eventContext);
+        handle.signal.throwIfAborted();
         const isLastStep = step === maxSteps - 1;
-        const toolSchemas = heartbeat || isLastStep ? [] : toolExposure.schemas();
-        const fingerprint = fingerprintFor(toolSchemas, isLastStep);
+        let toolSchemas = firstTools;
+        let fingerprint = "";
+        const snapshotToolsAndDirectory = () => {
+          directory = readMcpDirectory();
+          promptCapabilities.currentMcpDirectory = directory;
+          systemPrompt = withMcpDirectory(baseSystem, directory);
+          toolSchemas = isLastStep && !inlineTools ? [] : toolExposure.schemas();
+          fingerprint = fingerprintFor(toolSchemas, isLastStep);
+        };
         const updateContext = async () => {
           const measurement = contextPipeline.measure(systemPrompt, messages, toolSchemas, fingerprint);
           observer.measurement(measurement);
           await saveDisplay(measurement);
           await finalAnswerStreamer?.updateContext(measurement);
+          return measurement;
         };
         const captureCurrentEnvironment = async () => {
           const current = await this.options.store.getSession(job.session_id);
@@ -573,7 +637,7 @@ export class TypeScriptAgentRuntime implements AgentRuntime {
             permissions: permissionEnvironment(policy, executionPaths, this.options.approvalAvailable === true && job.source.platform === "desktop"),
             ...(this.options.userSkillsRoot ? { userSkillsRoot: this.options.userSkillsRoot } : {}) });
         };
-        const prepareRequestContext = async (): Promise<void> => {
+        const prepareRequestContext = async () => {
           let snapshot = await captureCurrentEnvironment();
           let environment = environmentMessage(snapshot);
           const prepared = await contextPipeline.prepare({
@@ -591,7 +655,7 @@ export class TypeScriptAgentRuntime implements AgentRuntime {
           observer.context(prepared);
           messages = prepared.messages;
           if (prepared.failureReason) {
-            throw new ContextCompactionError(prepared.failureReason, prepared.afterTokens);
+            throw new ContextCompactionError(prepared.failureReason, prepared.afterTokens, prepared.providerError);
           }
           if (prepared.hardLimitExceeded) {
             throw new ContextOverflowError(prepared.afterTokens, contextPipeline.hardLimitTokens);
@@ -606,31 +670,14 @@ export class TypeScriptAgentRuntime implements AgentRuntime {
             messages.push(environment);
             observer.context({ ...prepared, afterTokens: tokens });
           }
-          await updateContext();
+          return updateContext();
         };
-        const providerRequest = (
-          attemptObserver: ReturnType<RuntimeTurnObserver["providerAttempt"]>,
-          wireTrace?: RuntimeWireTraceAttempt,
-        ) => ({
-          system: systemPrompt,
-          messages: structuredClone(messages) as RuntimeMessage[],
-          tools: toolSchemas,
-          toolChoice: heartbeat || isLastStep ? "none" as const : "auto" as const,
-          signal: handle.signal,
-          userIdentity,
-          ...(wireTrace ? { wireTrace } : {}),
-          onEvent: async (event: AssistantMessageEvent) => {
-            if (event.type === "done") accountMessage(event.message);
-            if (event.type === "error") accountMessage(event.error);
-            attemptObserver.stream(event);
-            if (!isCancelled(handle)) await finalAnswerStreamer?.pushEvent(event);
-          },
-        });
         let providerAttemptOrdinal = 0;
         const invokeProvider = async (maximumAttempts = DEFAULT_PROVIDER_ATTEMPTS): Promise<AssistantMessage> => {
           let lastError: unknown;
           for (let attempt = 1; attempt <= maximumAttempts; attempt += 1) {
-            await prepareRequestContext();
+            snapshotToolsAndDirectory();
+            const input = await prepareRequestContext();
             providerAttemptOrdinal += 1;
             apiCalls += 1;
             const attemptObserver = observer.providerAttempt(
@@ -647,12 +694,37 @@ export class TypeScriptAgentRuntime implements AgentRuntime {
               endpoint: descriptor ? providerEndpointUrl(descriptor) : "",
               timeoutMs: descriptor?.requestIdleTimeoutMs ?? 0,
             });
+            let streamed: AssistantMessage | undefined;
             try {
               await finalAnswerStreamer?.startWaitingModel();
-              const request = providerRequest(attemptObserver, wireTrace);
-              const estimatedInput = requestContextTokenEstimate(request.system, request.messages, request.tools);
+              const request: RuntimeProviderRequest = {
+                inputTokenEstimate: input.tokens,
+                system: midConvo
+                  ? withMcpDirectory(baseSystem, directoryRevisions(messages)[0]?.directory ?? directory)
+                  : systemPrompt,
+                ...(midConvo && directory !== undefined ? { currentMcpDirectory: directory } : {}),
+                messages: structuredClone(messages),
+                tools: toolSchemas,
+                toolChoice: isLastStep ? "none" : "auto",
+                signal: handle.signal,
+                userIdentity,
+                ...(wireTrace ? { wireTrace } : {}),
+                onEvent: async event => {
+                  if (event.type === "done") {
+                    streamed = undefined;
+                    accountMessage(event.message);
+                  } else if (event.type === "error") {
+                    streamed = event.error;
+                    accountMessage(event.error);
+                  } else {
+                    streamed = event.partial;
+                  }
+                  attemptObserver.stream(event);
+                  if (!isCancelled(handle)) await finalAnswerStreamer?.pushEvent(event);
+                },
+              };
               const requestId = randomUUID();
-              if (!titleRequested && !heartbeat && providerSnapshot) {
+              if (!titleRequested && providerSnapshot) {
                 titleRequested = true;
                 this.options.sessionTitles?.onMainRequest(job.session_id, job.message_id || job.job_id, providerSnapshot, userIdentity);
               }
@@ -667,13 +739,17 @@ export class TypeScriptAgentRuntime implements AgentRuntime {
                 usage.status === "complete" && [usage.input_tokens, usage.output_tokens, usage.cache_read_input_tokens ?? 0, usage.cache_creation_input_tokens ?? 0]
                   .every(value => Number.isSafeInteger(value) && value >= 0) && Number.isSafeInteger(actualInput) && actualInput > 0 &&
                 (!response.responseModel || response.responseModel === systemPromptContext.model)) {
-                response.contextTokenAnchor = { version: 1, requestId, fingerprint, estimatedInput, actualInput };
+                response.contextTokenAnchor = { version: 1, requestId, fingerprint, estimatedInput: input.estimatedTokens, actualInput };
               }
               accountMessage(response);
               attemptObserver.succeed(response);
               return response;
             } catch (error) {
-              if (isCancelled(handle) || (error instanceof DOMException && error.name === "AbortError")) {
+              const aborted = isCancelled(handle) || (error instanceof DOMException && error.name === "AbortError");
+              if (streamed) {
+                await this.persistPartialReply(job, streamed, aborted || streamed.stopReason === "aborted" ? "aborted" : "error");
+              }
+              if (aborted) {
                 attemptObserver.cancel();
                 throw error;
               }
@@ -681,10 +757,11 @@ export class TypeScriptAgentRuntime implements AgentRuntime {
                 attemptObserver.fail(error, false);
                 throw error;
               }
-              const retryable = error instanceof RuntimeProviderError ? error.retryable : true;
+              const delayMs = attempt < maximumAttempts ? providerRetryDelayMs(error, attempt) : undefined;
               lastError = error;
-              attemptObserver.fail(error, retryable && attempt < maximumAttempts);
-              if (!retryable || attempt >= maximumAttempts) throw error;
+              attemptObserver.fail(error, delayMs !== undefined, delayMs);
+              if (delayMs === undefined) throw error;
+              await waitForProviderRetry(delayMs, handle.signal);
             }
           }
           throw lastError ?? new Error("provider request failed");
@@ -709,7 +786,7 @@ export class TypeScriptAgentRuntime implements AgentRuntime {
           observer.context(overflow);
           messages = overflow.messages;
           if (overflow.failureReason) {
-            throw new ContextCompactionError(overflow.failureReason, overflow.afterTokens);
+            throw new ContextCompactionError(overflow.failureReason, overflow.afterTokens, overflow.providerError);
           }
           if (!overflow.compacted || overflow.hardLimitExceeded) throw error;
           response = await invokeProvider(1);
@@ -725,6 +802,12 @@ export class TypeScriptAgentRuntime implements AgentRuntime {
         const assistant: RuntimeMessage = forcedLastStepReply
           ? { role: "assistant", content: assistantContent, ...(response.contextTokenAnchor ? { contextTokenAnchor: response.contextTokenAnchor } : {}) }
           : response;
+        if (inlineTools && !sameTools(latestPromptState(messages).tools, toolSchemas)) {
+          assistant.promptState = { tools: structuredClone(toolSchemas) };
+        }
+        if (directory !== undefined && latestPromptState(messages).mcpDirectory !== directory) {
+          assistant.promptState = { ...assistant.promptState, mcpDirectory: directory };
+        }
         messages.push(assistant);
         await this.appendMessage(job.session_id, assistant, "assistant_response", job.job_id);
         await updateContext();
@@ -747,7 +830,7 @@ export class TypeScriptAgentRuntime implements AgentRuntime {
             if (finalAnswerStreamer) await this.emitStreamFallback(job, reply, "final");
             else await this.emitBestEffort(this.finalRequest(job, reply), "final");
           }
-          if (!heartbeat && !isCancelled(handle)) {
+          if (!isCancelled(handle)) {
             try {
               const postTurn = await contextPipeline.postTurn({
                 toolSchemas, contextFingerprint: fingerprint,
@@ -762,7 +845,7 @@ export class TypeScriptAgentRuntime implements AgentRuntime {
               messages = postTurn.messages;
               await updateContext();
               if (postTurn.failureReason) {
-                throw new ContextCompactionError(postTurn.failureReason, postTurn.afterTokens);
+                throw new ContextCompactionError(postTurn.failureReason, postTurn.afterTokens, postTurn.providerError);
               }
               if (postTurn.hardLimitExceeded) {
                 this.logger.warn("post-turn context remains over hard limit", {
@@ -782,13 +865,19 @@ export class TypeScriptAgentRuntime implements AgentRuntime {
         }
 
         const resultSlots: Array<ToolResultBlock | undefined> = new Array(calls.length);
+        const appendToolResults = async (blocks: ToolResultBlock[], reason: string) => {
+          for (const block of blocks) {
+            const message: RuntimeMessage = { role: "tool", content: [block] };
+            await this.appendMessage(job.session_id, message, reason, job.job_id);
+            messages.push(message);
+          }
+        };
         const orderedResults = (): ToolResultBlock[] =>
           resultSlots.filter((result): result is ToolResultBlock => result !== undefined);
-        let interruptedBySteering = false;
         const executeToolCall = async (call: ToolCallBlock, callIndex: number): Promise<void> => {
           toolCalls += 1;
           const startedToolAt = Date.now();
-          const definition = this.options.tools.definition(call.name);
+          const definition = tools.definition(call.name);
           statistics.observe(call.name, call.arguments, definition?.source !== "mcp");
           observer.toolStarted(step + 1, call.name, call.id);
           await finalAnswerStreamer?.pushToolStart(call);
@@ -799,10 +888,10 @@ export class TypeScriptAgentRuntime implements AgentRuntime {
             const currentSession = await this.options.store.getSession(job.session_id);
             if (!currentSession || !sameWorkspaceContext(currentSession.workspace, workspace)) throw new Error("Session workspace changed before tool execution");
             const executionPolicy = this.options.permissionPolicy.resolve(currentSession);
-            const executed = await this.options.tools.execute(call.name, call.arguments, {
+            const toolContext = {
               executionPolicy,
               handle,
-              platform: String(job.source.platform ?? "").trim(),
+              platform: toolPlatform,
               session_id: job.session_id,
               response_route_id: job.response_route_id,
               turn_id: job.job_id,
@@ -811,7 +900,15 @@ export class TypeScriptAgentRuntime implements AgentRuntime {
               skill_names: skillNames,
               workspace,
               ...(workspaceLease ? { workspaceSearch: workspaceLease.search } : {}),
-            });
+            };
+            let executed: ToolExecutionResult;
+            try {
+              executed = await tools.execute(call.name, call.arguments, toolContext);
+            } catch (cause) {
+              if (!(cause instanceof ToolOutputError)) throw cause;
+              toolStatus = "error";
+              executed = { content: cause.content };
+            }
             const normalizedImages = await normalizeToolResultImages(executed.content, handle.signal);
             const result = { ...executed, content: normalizedImages.content };
             for (const failure of normalizedImages.failures) {
@@ -859,6 +956,7 @@ export class TypeScriptAgentRuntime implements AgentRuntime {
               type: "tool_result",
               tool_call_id: call.id,
               content: result.content,
+              ...(toolStatus === "error" ? { is_error: true } : {}),
             };
             toolDisplayStatus = result.display_status ?? toolStatus;
             toolDisplayOutput = { content: result.content };
@@ -902,25 +1000,6 @@ export class TypeScriptAgentRuntime implements AgentRuntime {
         };
 
         for (let callIndex = 0; callIndex < calls.length;) {
-          const steering = handle.drainSteering();
-          if (steering.some((item) => String(item.text ?? "").trim())) {
-            for (let pendingIndex = callIndex; pendingIndex < calls.length; pendingIndex += 1) {
-              const pending = calls[pendingIndex]!;
-              resultSlots[pendingIndex] = {
-                type: "tool_result",
-                tool_call_id: pending.id,
-                content: "Tool execution skipped because the user steered the active turn before dispatch.",
-                is_error: true,
-              };
-            }
-            const steeredTools: RuntimeMessage = { role: "tool", content: orderedResults() };
-            messages.push(steeredTools);
-            await this.appendMessage(job.session_id, steeredTools, "tool_results_steered", job.job_id);
-            await updateContext();
-            await appendSteering(steering);
-            interruptedBySteering = true;
-            break;
-          }
           if (isCancelled(handle)) {
             for (let pendingIndex = callIndex; pendingIndex < calls.length; pendingIndex += 1) {
               const pending = calls[pendingIndex]!;
@@ -931,19 +1010,17 @@ export class TypeScriptAgentRuntime implements AgentRuntime {
                 is_error: true,
               };
             }
-            const cancelledTools: RuntimeMessage = { role: "tool", content: orderedResults() };
-            messages.push(cancelledTools);
-            await this.appendMessage(job.session_id, cancelledTools, "tool_results_cancelled", job.job_id);
+            await appendToolResults(orderedResults(), "tool_results_cancelled");
             await updateContext();
             await finalAnswerStreamer?.cancel();
             await recordUsage("cancelled");
             return this.outcome("cancelled", "", inputTokens, outputTokens, toolCalls);
           }
-          const parallel = this.options.tools.definition(calls[callIndex]!.name)?.supportsParallelCalls === true;
+          const parallel = tools.definition(calls[callIndex]!.name)?.supportsParallelCalls === true;
           let waveEnd = callIndex + 1;
           if (parallel) {
             while (waveEnd < calls.length
-              && this.options.tools.definition(calls[waveEnd]!.name)?.supportsParallelCalls === true) {
+              && tools.definition(calls[waveEnd]!.name)?.supportsParallelCalls === true) {
               waveEnd += 1;
             }
           }
@@ -951,11 +1028,8 @@ export class TypeScriptAgentRuntime implements AgentRuntime {
             executeToolCall(call, callIndex + offset)));
           callIndex = waveEnd;
         }
-        if (interruptedBySteering) continue;
         const trimmedResults = trimToolResultBlocks(orderedResults(), contextPipeline.toolResultMaxTokens).results;
-        const toolMessage: RuntimeMessage = { role: "tool", content: trimmedResults };
-        messages.push(toolMessage);
-        await this.appendMessage(job.session_id, toolMessage, "tool_results", job.job_id);
+        await appendToolResults(trimmedResults, "tool_results");
         await updateContext();
       }
       const reply = MAX_STEP_REPLY;
@@ -1021,6 +1095,7 @@ export class TypeScriptAgentRuntime implements AgentRuntime {
       }
       this.active.delete(handle);
       workspaceLease?.release();
+      sessionTools?.release();
     }
   }
 

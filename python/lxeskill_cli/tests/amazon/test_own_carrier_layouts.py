@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from services.agent_cli.browser.amazon_common import own_carrier
+from services.commands.browser.amazon_common import own_carrier
 
 
 def test_detect_own_carrier_layout_phase_3_2_takes_priority(monkeypatch) -> None:
@@ -133,25 +133,6 @@ def test_phase_3_1_selects_date_updates_and_skips_transport_mode(monkeypatch) ->
     ]
 
 
-def test_phase_3_1_date_input_clicks_arrival_delivery_window_inner_input(monkeypatch) -> None:
-    driver = object()
-    seen_args: list[str] = []
-
-    def fake_execute(_driver, script: str, selector: str):
-        seen_args.append(selector)
-        assert 'input[part="input"]' in script
-        assert 'input[type="text"]' in script
-        assert "plan-delivery-window-input" not in script
-        assert "el.focus" in script
-        assert "pointerdown" in script
-        return True
-
-    monkeypatch.setattr(own_carrier, "_execute_page_script", fake_execute)
-
-    assert own_carrier._click_phase_3_1_date_input(driver) is True
-    assert seen_args == ['[data-testid="arrival-edit-delivery-window-link"]']
-
-
 def test_phase_3_1_non_amazon_partner_uses_npcp_penetrating_click(monkeypatch) -> None:
     driver = object()
     calls: list[str] = []
@@ -256,124 +237,6 @@ def test_phase_3_2_selects_date_transport_and_carrier_without_update(monkeypatch
     ]
 
 
-def test_phase_3_2_date_input_uses_delivery_window_picker(monkeypatch) -> None:
-    driver = object()
-    seen_args: list[tuple[str, str]] = []
-
-    def fake_execute(_driver, script: str, section_selector: str, picker_selector: str):
-        seen_args.append((section_selector, picker_selector))
-        assert "placeholder=\"YYYY/MM/DD\"" not in script
-        assert "deepQuerySelector(pickerSelector, section)" in script
-        return True
-
-    monkeypatch.setattr(own_carrier, "_execute_page_script", fake_execute)
-
-    assert own_carrier._click_phase_3_2_date_input(driver) is True
-    assert seen_args == [
-        (
-            'kat-accordion-item[data-testid="delivery-window-section-accordion-header"]',
-            'kat-date-picker[data-testid="delivery-window-date-picker"]',
-        )
-    ]
-
-
-def test_phase_3_2_calendar_day_uses_delivery_window_picker_scope(monkeypatch) -> None:
-    driver = object()
-    seen_args: list[tuple[str, str, str]] = []
-
-    def fake_execute(_driver, script: str, section_selector: str, picker_selector: str, label_prefix: str):
-        seen_args.append((section_selector, picker_selector, label_prefix))
-        assert "getScopedCalendar()" in script
-        assert "scopedQuerySelectorAll('button[aria-label]', calendar)" in script
-        assert "deepQuerySelectorAll('button[aria-label]')" not in script
-        return True
-
-    monkeypatch.setattr(own_carrier, "_execute_page_script", fake_execute)
-
-    assert own_carrier._click_phase_3_2_calendar_day(driver, date(2026, 5, 20)) is True
-    assert seen_args == [
-        (
-            'kat-accordion-item[data-testid="delivery-window-section-accordion-header"]',
-            'kat-date-picker[data-testid="delivery-window-date-picker"]',
-            "2026年5月20日",
-        )
-    ]
-
-
-def test_phase_3_2_delivery_window_month_buttons_use_light_click(monkeypatch) -> None:
-    driver = object()
-    scripts: list[str] = []
-
-    def fake_execute(_driver, script_body: str):
-        scripts.append(script_body)
-        return True
-
-    monkeypatch.setattr(own_carrier, "_execute_phase_3_2_date_picker_script", fake_execute)
-
-    assert own_carrier._click_phase_3_2_calendar_prev_month(driver) is True
-    assert own_carrier._click_phase_3_2_calendar_next_month(driver) is True
-
-    assert len(scripts) == 2
-    assert "[part=\"calendar-prev-month\"]" in scripts[0]
-    assert "[part=\"calendar-next-month\"]" in scripts[1]
-    for script in scripts:
-        assert "getScopedCalendar()" in script
-        assert "scrollIntoView" in script
-        assert "button.click()" in script
-        assert "clickElement" not in script
-        assert "pointerdown" not in script
-        assert "mousedown" not in script
-        assert "mouseup" not in script
-
-
-def test_phase_3_2_ship_date_input_uses_ship_date_picker(monkeypatch) -> None:
-    driver = object()
-    seen_args: list[tuple[str, list[str]]] = []
-
-    def fake_execute(_driver, script: str, picker_selector: str, fallback_selectors: list[str]):
-        seen_args.append((picker_selector, fallback_selectors))
-        assert "getShipDatePicker()" in script
-        assert "delivery-window-date-picker" not in script
-        assert "kat-input" not in script
-        assert "placeholder=\"YYYY/MM/DD\"" not in script
-        return True
-
-    monkeypatch.setattr(own_carrier, "_execute_page_script", fake_execute)
-
-    assert own_carrier._click_phase_3_2_ship_date_input(driver) is True
-    assert seen_args == [
-        (
-            'kat-date-picker[data-testid="kat-ship-date-picker"]',
-            ["kat-date-picker#sendByDatePicker", 'kat-date-picker[kat-aria-label="发货日期"]'],
-        )
-    ]
-
-
-def test_phase_3_2_ship_date_calendar_day_uses_ship_date_scope(monkeypatch) -> None:
-    driver = object()
-    seen_args: list[tuple[str, list[str], str]] = []
-
-    def fake_execute(_driver, script: str, picker_selector: str, fallback_selectors: list[str], label_prefix: str):
-        seen_args.append((picker_selector, fallback_selectors, label_prefix))
-        assert "getScopedCalendar()" in script
-        assert "getShipDatePicker()" in script
-        assert "scopedQuerySelectorAll('button[aria-label]', calendar)" in script
-        assert "deepQuerySelectorAll('button[aria-label]')" not in script
-        assert "delivery-window-date-picker" not in script
-        return True
-
-    monkeypatch.setattr(own_carrier, "_execute_page_script", fake_execute)
-
-    assert own_carrier._click_phase_3_2_ship_date_calendar_day(driver, date(2026, 5, 7)) is True
-    assert seen_args == [
-        (
-            'kat-date-picker[data-testid="kat-ship-date-picker"]',
-            ["kat-date-picker#sendByDatePicker", 'kat-date-picker[kat-aria-label="发货日期"]'],
-            "2026年5月7日",
-        )
-    ]
-
-
 def test_select_phase_3_2_ship_date_reclicks_when_picker_value_matches(monkeypatch) -> None:
     driver = object()
     calls: list[str] = []
@@ -407,62 +270,33 @@ def test_select_phase_3_2_ship_date_reclicks_when_picker_value_matches(monkeypat
     ]
 
 
-def test_phase_3_2_ship_date_completed_requires_value_and_non_error_state(monkeypatch) -> None:
-    driver = object()
-    payloads: list[dict[str, str]] = []
+def test_phase_3_2_ship_date_completed_requires_value_and_non_error_state() -> None:
+    payloads = iter([
+        {"value": "", "state": "error"},
+        {"value": "2026/5/7", "state": "error"},
+        {"value": "2026/05/07", "state": ""},
+    ])
 
-    def fake_execute(_driver, script: str, picker_selector: str, fallback_selectors: list[str]):
-        assert "getShipDatePicker()" in script
-        assert "state" in script
-        assert "aria-pressed" not in script
-        assert "selected" not in script
-        return payloads.pop(0)
+    class Driver:
+        def execute_script(self, _script, *_args):
+            return next(payloads)
 
-    monkeypatch.setattr(own_carrier, "_execute_page_script", fake_execute)
-
-    payloads.append({"value": "", "state": "error"})
+    driver = Driver()
     assert own_carrier._phase_3_2_ship_date_completed(driver, date(2026, 5, 7)) is False
-
-    payloads.append({"value": "2026/5/7", "state": "error"})
     assert own_carrier._phase_3_2_ship_date_completed(driver, date(2026, 5, 7)) is False
-
-    payloads.append({"value": "2026/05/07", "state": ""})
     assert own_carrier._phase_3_2_ship_date_completed(driver, date(2026, 5, 7)) is True
 
 
-def test_phase_3_ca_date_completed_uses_kat_input_value(monkeypatch) -> None:
-    driver = object()
+def test_phase_3_ca_date_completed_compares_browser_value_with_target_date() -> None:
     values = iter(["", "2026/06/24"])
 
-    def fake_execute(_driver, date_kind: str, script: str, *args):
-        assert date_kind == "delivery"
-        assert "getDateValue" in script
-        assert args == ()
-        return next(values)
+    class Driver:
+        def execute_script(self, _script, *_args):
+            return next(values)
 
-    monkeypatch.setattr(own_carrier, "_execute_phase_3_ca_date_script", fake_execute)
-
+    driver = Driver()
     assert own_carrier._phase_3_ca_date_completed(driver, "delivery", date(2026, 6, 24)) is False
     assert own_carrier._phase_3_ca_date_completed(driver, "delivery", date(2026, 6, 24)) is True
-
-
-def test_phase_3_ca_month_buttons_use_global_calendar_light_click(monkeypatch) -> None:
-    driver = object()
-    calls: list[tuple[str, str]] = []
-
-    def fake_execute(_driver, date_kind: str, script: str, *args):
-        calls.append((date_kind, script))
-        assert "getGlobalCalendar()" in script
-        assert "clickLight" in script
-        assert "clickElement" not in script
-        assert args == ()
-        return True
-
-    monkeypatch.setattr(own_carrier, "_execute_phase_3_ca_date_script", fake_execute)
-
-    assert own_carrier._click_phase_3_ca_calendar_prev_month(driver, "delivery") is True
-    assert own_carrier._click_phase_3_ca_calendar_next_month(driver, "delivery") is True
-    assert [date_kind for date_kind, _script in calls] == ["delivery", "delivery"]
 
 
 def test_select_phase_3_2_ship_date_ignores_default_selected_day_until_value_completed(monkeypatch) -> None:
@@ -550,44 +384,6 @@ def test_phase_3_2_carrier_mode_round_waits_two_seconds(monkeypatch) -> None:
     assert sleeps == [2.0]
 
 
-def test_phase_3_2_dropdown_display_selected_accepts_dropdown_value(monkeypatch) -> None:
-    driver = object()
-    seen_args: list[tuple[str, str, str]] = []
-
-    def fake_execute(_driver, script: str, dropdown_selector: str, expected_value: str, expected_text: str):
-        seen_args.append((dropdown_selector, expected_value, expected_text))
-        assert "root.value" in script
-        assert "root.getAttribute('value')" in script
-        assert "toUpperCase() === expectedValue" in script
-        assert '.select-header[part~="dropdown-header"]' in script
-        assert ".header-row-text" in script
-        assert "placeholder" in script
-        assert "getAttribute('title')" in script
-        assert ".selection-text" in script
-        return True
-
-    monkeypatch.setattr(own_carrier, "_execute_page_script", fake_execute)
-
-    assert own_carrier._phase_3_2_dropdown_display_selected(driver, own_carrier._TRANSPORTATION_MODE_DROPDOWN_SELECTOR, "AIR", "空运") is True
-    assert seen_args == [(own_carrier._TRANSPORTATION_MODE_DROPDOWN_SELECTOR, "AIR", "空运")]
-
-
-def test_phase_3_2_dropdown_display_selected_script_keeps_value_and_header_fallback(monkeypatch) -> None:
-    driver = object()
-
-    def fake_execute(_driver, script: str, _dropdown_selector: str, _expected_value: str, _expected_text: str):
-        assert "for (const item of [root.value, root.getAttribute('value')])" in script
-        assert "String(item).trim().toUpperCase() === expectedValue" in script
-        assert "return true;" in script
-        assert "classList.contains('placeholder')" in script
-        assert "title.includes(expectedText) || selection.includes(expectedText)" in script
-        return False
-
-    monkeypatch.setattr(own_carrier, "_execute_page_script", fake_execute)
-
-    assert own_carrier._phase_3_2_dropdown_display_selected(driver, "[dropdown]", "AIR", "空运") is False
-
-
 def test_phase_3_2_carrier_mode_fails_after_three_unselected_rounds(monkeypatch) -> None:
     driver = object()
     calls: list[str] = []
@@ -626,52 +422,6 @@ def test_phase_3_2_carrier_mode_partial_failure_messages() -> None:
 
     with pytest.raises(RuntimeError, match="非合作承运人未选择为 其他"):
         own_carrier._raise_phase_3_2_carrier_mode_selection_error(True, False, "空运")
-
-
-def test_select_dropdown_option_prefers_dropdown_scope_then_global_dom(monkeypatch) -> None:
-    driver = object()
-    seen_args: list[tuple[str, str, str]] = []
-
-    def fake_execute(_driver, script: str, dropdown_selector: str, option_value: str, option_text: str):
-        seen_args.append((dropdown_selector, option_value, option_text))
-        assert "if (dropdownSelector)" in script
-        assert "const dropdown = deepQuerySelector(dropdownSelector)" in script
-        assert "roots.push(document)" in script
-        assert "collectOptions(root)" in script
-        assert "isVisible" not in script
-        assert "hasAttribute('expanded')" not in script
-        return True
-
-    monkeypatch.setattr(own_carrier, "_execute_page_script", fake_execute)
-
-    assert own_carrier._select_dropdown_option_by_value(
-        driver,
-        "[data-testid='example']",
-        "OTHER",
-        option_text="其他",
-    ) is True
-    assert seen_args == [("[data-testid='example']", "OTHER", "其他")]
-
-
-def test_select_dropdown_option_allows_empty_dropdown_selector(monkeypatch) -> None:
-    driver = object()
-    seen_args: list[tuple[str, str, str]] = []
-
-    def fake_execute(_driver, script: str, dropdown_selector: str, option_value: str, option_text: str):
-        seen_args.append((dropdown_selector, option_value, option_text))
-        assert "if (dropdownSelector)" in script
-        assert "roots.push(document)" in script
-        return True
-
-    monkeypatch.setattr(own_carrier, "_execute_page_script", fake_execute)
-
-    assert own_carrier._select_dropdown_option_by_value(
-        driver,
-        "",
-        "nPCP",
-        option_text="非亚马逊合作承运人",
-    ) is True
-    assert seen_args == [("", "nPCP", "非亚马逊合作承运人")]
 
 
 def test_confirm_modal_if_visible_skips_when_no_dialog(monkeypatch) -> None:
@@ -982,22 +732,6 @@ def test_phase_3_2_raises_when_carrier_value_stays_wrong(monkeypatch) -> None:
             label="非合作承运人",
             timeout_seconds=1,
         )
-
-
-def test_click_calendar_day_uses_prefix_match_and_skips_disabled(monkeypatch) -> None:
-    driver = object()
-
-    def fake_execute(_driver, script: str, label_prefix: str):
-        assert label_prefix == "2026年5月20日"
-        assert "startsWith(labelPrefix)" in script
-        assert "aria-disabled" in script
-        assert "classList.contains('disabled')" in script
-        assert "pointerdown" in script
-        return True
-
-    monkeypatch.setattr(own_carrier, "_execute_page_script", fake_execute)
-
-    assert own_carrier._click_calendar_day(driver, date(2026, 5, 20)) is True
 
 
 def test_select_pickup_date_confirms_current_month_selection(monkeypatch) -> None:

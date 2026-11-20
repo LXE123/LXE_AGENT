@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import asyncio
-import inspect
 
 import pytest
 
@@ -23,20 +22,6 @@ def _payload(cookie_value: str = "fresh") -> dict:
         "free_token": "free-token",
         "wms_cookie_header": "WMSID=fresh",
     }
-
-
-def test_public_auth_api_has_only_the_unified_parameters() -> None:
-    assert list(inspect.signature(auth.refresh_mabang_auth).parameters) == ["account", "purpose"]
-    assert list(inspect.signature(auth.get_auth_context).parameters) == ["account", "purpose"]
-    assert list(inspect.signature(auth.get_fba_free_token).parameters) == ["purpose"]
-    assert list(inspect.signature(auth.get_fba_wms_cookie_header).parameters) == ["purpose"]
-    assert list(auth.MabangAuthContext.__dataclass_fields__) == [
-        "account",
-        "source",
-        "cookies_by_domain",
-        "free_token",
-        "wms_cookie_header",
-    ]
 
 
 def test_existing_auth_state_is_read_without_refresh(monkeypatch) -> None:
@@ -61,8 +46,6 @@ def test_existing_auth_state_is_read_without_refresh(monkeypatch) -> None:
 
     assert result.source == "file"
     assert result.free_token == "free-token"
-    assert not hasattr(result, "scope")
-    assert not hasattr(result, "raw")
     assert calls == ["read"]
 
 

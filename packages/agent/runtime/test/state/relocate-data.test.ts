@@ -28,9 +28,17 @@ test("offline relocation preserves history text and rebuilds attachment offsets 
     await store.stop();
     mkdirSync(join(source, "config"), {recursive: true});
     writeFileSync(join(source, "config/skill-states.local.json"), JSON.stringify({version:1,disabled:[join(source,"skills/disabled/SKILL.md"),join(root,"external/SKILL.md")]}));
+    const mcpConfig = { servers: { local: { enabled: false, command: join(source, "runtime/node"), cwd: workspace,
+      args: [join(source, "tools/server.js"), "--plain"], env: { TOKEN: "${TOKEN}" } } } };
+    writeFileSync(join(source, "config/mcp_servers.local.json"), JSON.stringify(mcpConfig));
     const before = readFileSync(join(source,"db/session_transcripts/s.jsonl"));
     cpSync(source, copy, {recursive: true});
     await relocateAgentData(copy,source,target);
+    expect(JSON.parse(readFileSync(join(copy, "config/mcp_servers.local.json"), "utf8"))).toEqual({ servers: { local: {
+      enabled: false, command: join(target, "runtime/node"), cwd: join(target, "workspace"),
+      args: [join(target, "tools/server.js"), "--plain"], env: { TOKEN: "${TOKEN}" },
+    } } });
+    expect(JSON.parse(readFileSync(join(source, "config/mcp_servers.local.json"), "utf8"))).toEqual(mcpConfig);
     const disabled = JSON.parse(readFileSync(join(copy, "config/skill-states.local.json"), "utf8")).disabled;
     const key = (path: string) => process.platform === "win32" ? path.toLowerCase() : path;
     expect(disabled).toEqual([join(target,"skills/disabled",process.platform === "win32" ? "skill.md" : "SKILL.md"),key(join(root,"external/SKILL.md"))]);

@@ -12,10 +12,9 @@ describe("protocol contracts", () => {
     const { validateAgentJob, validateEmitRequest } = await loadProtocol();
 
     expect(validateAgentJob(validAgentJob)).toBe(true);
-    const retiredField = ["server", "scope"].join("_");
     expect(validateAgentJob({
       ...validAgentJob,
-      workspace: { ...validAgentJob.workspace, [retiredField]: "local" },
+      workspace: { ...validAgentJob.workspace, unexpected_field: true },
     })).toBe(false);
     expect(validateEmitRequest(validEmitRequest)).toBe(true);
     expect(validateEmitRequest({ ...validEmitRequest, turn_id: "" })).toBe(false);
@@ -135,16 +134,10 @@ describe("protocol contracts", () => {
     })).toBe(false);
   });
 
-  test("allows an empty heartbeat message id but keeps normal turns strict", async () => {
+  test("only accepts ordinary turns with a message ID", async () => {
     const { validateAgentJob } = await loadProtocol();
-    const heartbeat = {
-      ...validAgentJob,
-      job_id: "heartbeat-1",
-      job_kind: "heartbeat",
-      message_id: "",
-      user_input: "",
-    };
-    expect(validateAgentJob(heartbeat)).toBe(true);
-    expect(validateAgentJob({ ...heartbeat, job_kind: "turn" })).toBe(false);
+    expect(validateAgentJob(validAgentJob)).toBe(true);
+    expect(validateAgentJob({ ...validAgentJob, job_kind: "heartbeat" })).toBe(false);
+    expect(validateAgentJob({ ...validAgentJob, message_id: "" })).toBe(false);
   });
 });

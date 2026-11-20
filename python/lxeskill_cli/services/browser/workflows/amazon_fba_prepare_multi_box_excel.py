@@ -4,9 +4,9 @@ from pathlib import Path
 from typing import Any, Callable
 
 from services.browser.workflows.amazon_fba_shipment_files import prepare_local_consignment_excel_payload
-from services.agent_cli.browser.amazon_fba.step2_excel_fill import fill_multi_box_step2_template
-from services.agent_cli.browser.amazon_common.region_switch import normalize_site_code
-from services.agent_cli.browser.amazon_common.send_to_amazon_multi_box import (
+from services.commands.browser.amazon_fba.step2_excel_fill import fill_multi_box_step2_template
+from services.commands.browser.amazon_common.region_switch import normalize_site_code
+from services.commands.browser.amazon_common.send_to_amazon_multi_box import (
     confirm_and_continue_to_own_carrier,
     download_generated_multi_box_template,
     generate_multi_box_excel,

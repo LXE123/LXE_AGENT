@@ -1,7 +1,6 @@
 import type { ComponentProps } from "react";
 import { FilePreviewLayout } from "../file-preview/Sidebar";
 import { useUiText } from "../../shared/i18n";
-import { EmptyState } from "../../shared/components";
 import { SessionDetailView } from "./view";
 import { WorkspaceControl } from "./workspaces";
 import type { SessionWorkspace } from "./use-session-workspace";
@@ -13,7 +12,7 @@ type Props = Readonly<{
   actions: Pick<SessionWorkspace["actions"],
     "switchConversationWorkspace" | "chooseConversationWorkspace" | "questionAnswered" | "approvalChanged" |
     "loadOlder" | "loadNewer" | "visibleGroupsChanged" | "jumpToLatest" | "followingChanged" |
-    "sendConversation" | "stopConversation" | "openConversationFile" | "revealConversationFile" | "openConversationAttachment">;
+    "forkConversation" | "sendConversation" | "stopConversation" | "openConversationFile" | "revealConversationFile" | "openConversationAttachment">;
   model: Readonly<Pick<ComponentProps<typeof SessionDetailView>,
     "currentModel" | "models" | "modelLoading" | "modelSaving" | "thinkingSaving" | "onModelChange" | "onThinkingLevelChange">>;
   setupComplete: boolean;
@@ -53,13 +52,16 @@ export function ConversationPage({ selection, conversation, workspace, actions, 
             onJumpToLatest={actions.jumpToLatest}
             onSend={actions.sendConversation}
             onStop={actions.stopConversation}
+            onFork={actions.forkConversation}
             onOpenFile={actions.openConversationFile}
             onRevealFile={actions.revealConversationFile}
             onOpenAttachment={actions.openConversationAttachment}
             onFollowingChange={actions.followingChanged}
           />
         ) : (
-          <EmptyState label={selectedSessionId ? t.sessionDetail.loading : t.sessions.selectPrompt} />
+          <div className="conversation-empty-state conversation-chrome-theme">
+            <p>{t.sessions.selectPrompt}</p>
+          </div>
         )}
       </FilePreviewLayout>
     </section>

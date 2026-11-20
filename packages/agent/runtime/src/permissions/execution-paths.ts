@@ -17,7 +17,8 @@ export class ExecutionPaths {
     this.systemTemporaryDirectory = options.temporaryRoot ?? tmpdir();
   }
   artifactRoot(policy: ExecutionPolicy): string { return workspaceArtifactRoot(policy.workspaceRoot); }
-  outputDirectory(policy: ExecutionPolicy): string { return join(this.dataRoot, "tmp", "exec", sessionKey(policy.sessionId)); }
+  outputRoot(): string { return join(this.dataRoot, "tmp", "exec"); }
+  outputDirectory(policy: ExecutionPolicy): string { return join(this.outputRoot(), sessionKey(policy.sessionId)); }
   temporaryDirectory(policy: ExecutionPolicy): string {
     if (this.platform !== "win32" || policy.mode !== "workspace-write") return this.systemTemporaryDirectory;
     const path = join(this.systemTemporaryDirectory, `lxe-${this.runtimeId}-${sessionKey(policy.sessionId)}`);

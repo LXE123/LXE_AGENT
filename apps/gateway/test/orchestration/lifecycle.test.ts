@@ -66,9 +66,6 @@ const makeLifecycle = (
     channelStartGate?: Promise<void>;
     channelStopGate?: Promise<void>;
     channelStopFailure?: boolean;
-    heartbeatStopFailure?: boolean;
-    heartbeatStartFailure?: boolean;
-    heartbeatStartGate?: Promise<void>;
     stateFailure?: boolean;
     runtimeStartFailure?: boolean;
     runtimeStopFailure?: boolean;
@@ -101,22 +98,6 @@ const makeLifecycle = (
       }
     },
   };
-  const heartbeat = {
-    live: false,
-    async start() {
-      calls.push("heartbeat.start");
-      await options.heartbeatStartGate;
-      if (options.heartbeatStartFailure) throw new Error("heartbeat start failed");
-      this.live = true;
-    },
-    async stop() {
-      calls.push("heartbeat.stop");
-      this.live = false;
-      if (options.heartbeatStopFailure) {
-        throw new Error("heartbeat stop failed");
-      }
-    },
-  };
   const lifecycle = new GatewayLifecycle({
     bootId: "boot-1",
     state: {
@@ -131,7 +112,6 @@ const makeLifecycle = (
         calls.push(`scheduler.ready:${ready}`);
       },
     },
-    heartbeat,
     channels,
     inbound: async (event) => {
       ingested.push(event.message_id);
@@ -141,7 +121,7 @@ const makeLifecycle = (
     }),
     ...(options.shutdownTimeouts ? { shutdownTimeouts: options.shutdownTimeouts } : {}),
   });
-  return { lifecycle, calls, channels, heartbeat, runtime, ingested, logs };
+  return { lifecycle, calls, channels, runtime, ingested, logs };
 };
 
 describe("GatewayLifecycle", () => {
@@ -152,7 +132,6 @@ describe("GatewayLifecycle", () => {
     expect(calls).toEqual([
       "state.usable",
       "runtime.start",
-      "heartbeat.start",
       "channels.wire",
       "channels.start",
     ]);
@@ -185,13 +164,11 @@ describe("GatewayLifecycle", () => {
 
   test.each([
     ["runtime", { runtimeStartFailure: true }, "runtime start failed"],
-    ["heartbeat", { heartbeatStartFailure: true }, "heartbeat start failed"],
     ["channel", { channelFailure: true }, "channel failed"],
   ] as const)("best-effort teardown preserves the original %s startup error", async (_label, options, message) => {
     const { lifecycle, calls } = makeLifecycle(options);
     await expect(lifecycle.start()).rejects.toThrow(message);
     expect(calls).toContain("runtime.stop");
-    if ("heartbeatStartFailure" in options) expect(calls).toContain("heartbeat.stop");
   });
 
   test("shutdown order is explicit, rejects ingress, and is idempotent", async () => {
@@ -203,7 +180,6 @@ describe("GatewayLifecycle", () => {
 
     expect(calls).toEqual([
       "channels.stop",
-      "heartbeat.stop",
       "scheduler.ready:false",
       "runtime.fail-active",
       "runtime.stop",
@@ -217,7 +193,6 @@ describe("GatewayLifecycle", () => {
   test("shutdown continues through every cleanup step when earlier steps fail", async () => {
     const { lifecycle, calls } = makeLifecycle({
       channelStopFailure: true,
-      heartbeatStopFailure: true,
       runtimeStopFailure: true,
     });
     await lifecycle.start();
@@ -226,7 +201,6 @@ describe("GatewayLifecycle", () => {
 
     expect(calls).toEqual([
       "channels.stop",
-      "heartbeat.stop",
       "scheduler.ready:false",
       "runtime.fail-active",
       "runtime.stop",
@@ -240,7 +214,6 @@ describe("GatewayLifecycle", () => {
       channelStopGate: never,
       shutdownTimeouts: {
         channelsMs: 5,
-        heartbeatMs: 5,
         schedulerMs: 5,
         activeRunsMs: 5,
         runtimeMs: 5,
@@ -252,7 +225,6 @@ describe("GatewayLifecycle", () => {
     const started = Date.now();
     await lifecycle.stop();
     expect(Date.now() - started).toBeLessThan(200);
-    expect(calls).toContain("heartbeat.stop");
     expect(calls).toContain("runtime.stop");
     expect((await lifecycle.healthSnapshot()).last_error).toContain("channels: timed out");
   });
@@ -266,31 +238,6 @@ describe("GatewayLifecycle", () => {
     runtime.isReady = true;
     channels.health = { test: { ready: false, error: "offline" } };
     expect((await lifecycle.healthSnapshot()).ready).toBe(false);
-  });
-
-  test("stop aborts a heartbeat-gated startup and waits for it to settle", async () => {
-    let releaseHeartbeat!: () => void;
-    const heartbeatGate = new Promise<void>((resolve) => {
-      releaseHeartbeat = resolve;
-    });
-    const { lifecycle, calls, heartbeat } = makeLifecycle({ heartbeatStartGate: heartbeatGate });
-    const starting = lifecycle.start().catch((error: unknown) => error);
-    while (!calls.includes("heartbeat.start")) await Bun.sleep(0);
-    let stopResolved = false;
-    const stopping = lifecycle.stop().then(() => {
-      stopResolved = true;
-    });
-    await Bun.sleep(0);
-    expect(stopResolved).toBe(false);
-
-    releaseHeartbeat();
-    expect(await starting).toBeInstanceOf(Error);
-    await stopping;
-    expect(calls.filter((call) => call === "heartbeat.stop")).toHaveLength(2);
-    expect(heartbeat.live).toBe(false);
-    expect(calls).not.toContain("channels.wire");
-    expect(calls).not.toContain("channels.start");
-    expect((await lifecycle.healthSnapshot()).shutdown_started).toBe(true);
   });
 
   test("stop aborts a channel-gated startup without allowing late readiness", async () => {

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 
-from services.agent_cli.mabang import analyze_store_msku_sales as cli
+from services.commands.mabang import analyze_store_msku_sales as cli
 from services.mabang.amazon.fba.store_msku_sales_analysis import StoreMskuSalesAnalysisResult
 
 
@@ -33,6 +33,7 @@ def test_success_returns_sales_analysis_report_path(monkeypatch, capsys) -> None
         "msku_count": 180,
         "report_xlsx_path": "artifacts/mabang_store_msku_analysis/202605251530-Amazon-Lerxiuer-FR_销量分析.xlsx",
         "source": "mabang_store_msku_sales_analysis",
+        "warnings": [],
     }
 
 

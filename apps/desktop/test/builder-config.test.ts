@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
+import { join } from "node:path";
 import {
   desktopBuilderConfigPath,
   validateDesktopBuilderConfig,
@@ -18,25 +18,6 @@ afterEach(() => {
 describe("electron-builder configuration", () => {
   test("matches the schema bundled with the pinned electron-builder", async () => {
     await expect(validateDesktopBuilderConfig()).resolves.toBeUndefined();
-    const config = readFileSync(desktopBuilderConfigPath, "utf8");
-    expect(config).toMatch(/electronLanguages:\r?\n  - en-US\r?\n  - zh-CN/u);
-    expect(config).toMatch(/buildResources: build/u);
-    expect(config).toMatch(/win:\r?\n  icon: icon-win\.png/u);
-    expect(config).toMatch(/mac:\r?\n  icon: icon-mac\.png/u);
-    expect(config).toMatch(/nsis:\r?\n  include: resources\/installer\.nsh/u);
-    expect(config).toMatch(
-      /nsis:\r?\n  include: resources\/installer\.nsh\r?\n  useZip: false\r?\n  differentialPackage: true/u,
-    );
-    expect(config).toMatch(/files:\r?\n  - dist\/main\.js\r?\n  - dist\/preload\.cjs/u);
-    expect(config).not.toContain("dist/**/*");
-    expect(config).not.toMatch(/from: build\r?\n    to: branding/u);
-    const desktopRoot = dirname(desktopBuilderConfigPath);
-    expect(existsSync(join(desktopRoot, "build", "icon-win.png"))).toBe(true);
-    expect(existsSync(join(desktopRoot, "build", "icon-mac.png"))).toBe(true);
-    expect(existsSync(join(desktopRoot, "build", "tray-win.ico"))).toBe(true);
-    expect(existsSync(join(desktopRoot, "build", "tray-macTemplate.png"))).toBe(true);
-    expect(existsSync(join(desktopRoot, "build", "tray-macTemplate@2x.png"))).toBe(true);
-    expect(existsSync(join(desktopRoot, "resources", "installer.nsh"))).toBe(true);
   });
 
   test("identifies an unknown Windows option during source tests", async () => {

@@ -181,7 +181,6 @@ test("runtime starts the title on the first main request, finishes chat independ
     if (request.auxiliary) return new Promise(resolve => { finish = resolve; });
     return messageFixture({ content: [{ type: "text", text: "Main answer" }], usage: { input_tokens: 7, output_tokens: 3 } });
   });
-  await f.store.appendPendingEvent("s1", { text: "Private system event", event_id: "e1", job_id: "j1" });
   const runtime = new TypeScriptAgentRuntime({ store: f.store, sessionTitles: f.service,
     providerManager: { acquire: () => f.snapshot, reconfigure: async () => { throw Error("must not change settings"); } },
     permissionPolicy: new PermissionPolicyService(), tools: new ToolRegistry(), systemPrompt: "System instructions",
@@ -190,12 +189,15 @@ test("runtime starts the title on the first main request, finishes chat independ
   await runtime.start();
   const result = await runtime.runTurn({ job_id: "j1", session_id: "s1", session_key: "agent:main:desktop:dm:c1", response_route_id: "r1",
     user_id: "u1", conversation_id: "c1", is_group: false, message_id: "m1", user_input: "Fix a bug", job_kind: "turn", sender_nick: "Tester",
-    source: { platform: "desktop" }, raw_data: {}, user_content_blocks: [], diagnostics: [], workspace: testWorkspace,
+    source: { platform: "desktop" }, raw_data: {}, user_content_blocks: [], workspace: testWorkspace,
+    diagnostics: [{ type: "operation_failure", provider: "fixture", operation: "open", stage: "parse",
+      error_name: "SyntaxError", observed_error: "Diagnostic for the main turn", redacted: false, truncated: false, cause_known: false }],
   }, { signal: new AbortController().signal, cancelled: false, drainSteering: () => [], registerProcess: () => () => {} });
   expect(result).toMatchObject({ status: "completed", reply: "Main answer", input_tokens: 7, output_tokens: 3 });
   await until(() => Boolean(finish));
   expect(requests.filter(request => request.auxiliary)).toHaveLength(1);
-  expect(JSON.stringify(requests.find(request => request.auxiliary)?.messages)).not.toContain("Private system event");
+  expect(JSON.stringify(requests.find(request => !request.auxiliary)?.messages)).toContain("Diagnostic for the main turn");
+  expect(JSON.stringify(requests.find(request => request.auxiliary)?.messages)).not.toContain("Diagnostic for the main turn");
   expect((await f.store.titleState("s1"))?.title).toBe("Fix a bug");
   finish(messageFixture({ content: [{ type: "text", text: "Fixed title" }], usage: { input_tokens: 999, output_tokens: 999 } }));
   await until(async () => (await f.store.titleState("s1"))?.title === "Fixed title");
@@ -233,4 +235,35 @@ test("a crash between the first input and its title does not retitle from the se
   expect(await f.store.titleState("s1")).toMatchObject({ title: "Original human text", input: { id: "m1", text: "Original human text" } });
   f.service.onMainRequest("s1", "m2", f.snapshot); await Bun.sleep(10);
   expect(requests).toBe(0);
+});
+
+test("standalone task titles share the tool-free provider request without touching session state", async () => {
+  const { TaskTitleService } = await import("../../src/state/session-title");
+  const requests: RuntimeProviderRequest[] = [];
+  const f = await fixture(async request => { requests.push(request); return response("**运营日报**"); });
+  const service = new TaskTitleService();
+  try {
+    expect(await service.generate("每天汇总运营数据", f.snapshot)).toBe("运营日报");
+    expect(requests).toHaveLength(1);
+    expect(requests[0]).toMatchObject({ tools: [], toolChoice: "none", auxiliary: { maxOutputTokens: 4096, reasoning: "minimum" } });
+    expect(requests[0]!.messages).toHaveLength(1);
+    expect(JSON.stringify(requests[0]!.messages)).toContain("每天汇总运营数据");
+    expect((await f.store.titleState("s1"))?.title).toBe("");
+    expect(await f.store.loadMessages("s1")).toHaveLength(0);
+  } finally { await service.stop(); }
+});
+
+test("standalone title timeout and service shutdown abort the provider, including providers that ignore cancellation", async () => {
+  const { TaskTitleService } = await import("../../src/state/session-title");
+  let signal!: AbortSignal;
+  const f = await fixture(async request => { signal = request.signal; return new Promise(() => {}); });
+  const timed = new TaskTitleService(10);
+  await expect(timed.generate("test", f.snapshot)).rejects.toThrow("timed out");
+  expect(signal.aborted).toBe(true);
+  const service = new TaskTitleService();
+  const call = service.generate("test", f.snapshot);
+  const rejected = call.catch(error => error);
+  await service.stop(); expect(String(await rejected)).toContain("service stopped");
+  expect(signal.aborted).toBe(true);
+  await expect(service.generate("test", f.snapshot)).rejects.toThrow("service stopped");
 });

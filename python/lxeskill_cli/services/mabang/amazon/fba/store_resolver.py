@@ -33,7 +33,7 @@ from ...errors import (
 DEFAULT_STORE_LIST_URL = "https://private-amz.mabangerp.com/index.php"
 DEFAULT_PRIVATE_AMZ_REFERER = "https://private-amz.mabangerp.com/"
 DEFAULT_OUTPUT_DIR = dataset_dir("replenish_store_resolver")
-AUTH_FAIL_STATUS = {401, 403}
+AUTH_FAIL_STATUS = {401}
 SOURCE = "mabang_fba_store_resolver"
 WHITESPACE_PATTERN = re.compile(r"\s+")
 ID_TYPE_FBA_WAREHOUSE = "fbaWarehouseIds[]"

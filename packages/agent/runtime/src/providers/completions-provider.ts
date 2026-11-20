@@ -1,3 +1,4 @@
+import { harnessFetch } from "../network/fetch";
 import { auxiliaryDescriptor } from "./provider";
 import { providerTemperature } from "./provider";
 import { canReplayMetadata, legacyMessage, completeTool, replayReasoningDetails } from "../messages/replay";
@@ -234,7 +235,7 @@ export class CompletionsRuntimeProvider implements RuntimeProvider {
       defaultHeaders: this.descriptor.defaultHeaders,
       fetch: async (input, init) => {
         onRequest?.(requestHeaders(input, init));
-        const response = await fetch(input, init);
+        const response = await harnessFetch(input, init);
         onResponse?.(response);
         return response;
       },
@@ -289,7 +290,7 @@ export class CompletionsRuntimeProvider implements RuntimeProvider {
         : watchdog.timedOut()
           ? new RuntimeProviderError(
               `provider request idle timed out after ${this.descriptor.requestIdleTimeoutMs}ms`,
-              this.descriptor.name, "请求超时", `${this.descriptor.name} 请求超时，请稍后重试。`, true,
+              this.descriptor.name, "请求超时", true,
             )
           : normalizeProviderError(failure, this.descriptor);
       wireError = String(classified instanceof Error ? classified.message : classified);
@@ -336,7 +337,6 @@ export class CompletionsRuntimeProvider implements RuntimeProvider {
           `provider request idle timed out after ${this.descriptor.requestIdleTimeoutMs}ms`,
           this.descriptor.name,
           "请求超时",
-          `${this.descriptor.name} 请求超时，请稍后重试。`,
           true,
         );
       }

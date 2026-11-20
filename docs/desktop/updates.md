@@ -14,7 +14,7 @@ bun run release:build
 bun run release:publish
 ```
 
-`release:build` 检查干净源码和版本说明，安装冻结的 Bun/Python 依赖、准备 fd，执行一次完整源码验证，再生成一次 NSIS 安装包。它不拉取、提交或推送 Git，也不自动递增版本。
+`release:build` 检查干净源码和版本说明，安装冻结的 Bun/Python 依赖、准备 fd 和随包运行时，为源码验证提供 Office Node/CLI 路径及 Python UTF-8 环境，再执行一次完整源码验证和一次 NSIS 打包。Office 重算测试因此可以使用真实随包引擎；打包阶段复用已准备的运行时。它不拉取、提交或推送 Git，也不自动递增版本。
 
 每次构建开始，`dist/desktop-candidates/current.json` 先变为 `building`，使旧候选不可被默认发布。只有整个流程成功才变为 `ready`，保存源码提交和候选相对路径；失败为 `failed`，中断可能保留 `building`。这些状态都不会自动回退发布旧包。历史安装包按下文规则清理，记录继续保留。
 
@@ -85,6 +85,8 @@ COS 布局：
 更新服务分别给安装包、新 blockmap 和旧 blockmap 签发有效期 600 秒的链接，客户端不能通过替换 URL 文件名来拼接链接。服务端一次请求计一次签发配额。客户端复用当前锁定版本 electron-updater 的差分算法，使用单区间 Range 请求，并保留最终 SHA-512 与已有发布者签名校验。
 
 安装成功后将安装包缓存到 `%LOCALAPPDATA%\lxe-agent-updater\installer.exe`。更新下载保存在同一缓存下的 `pending`。差分开始前按已安装的构建身份核对缓存；缓存被删除或损坏、历史 blockmap 缺失、服务器不支持 Range 时，记录实际原因并完整下载。过期对象链接最多自动重新签发一次；权限、限流和最终校验错误不会无限重试。日志不保存签名 URL。
+
+本机通常只常驻一份安装包。每次启动时，`pending` 里的下载若不比当前版本新（已安装、已被手动安装的更高版本取代，或记录无法识别），连同整个 `pending` 一起删除；比当前版本新、用户选了“稍后”的下载保留，安装时不必重下。2026-09 之前的版本使用 `%LOCALAPPDATA%\@lxedesktop-updater`，现已无人读取，启动时一并删除。`installer.exe` 是下次差分的底包，始终保留。清理失败只写日志，不影响启动；下载会等清理结束再开始。
 
 ## 安装与失败恢复
 

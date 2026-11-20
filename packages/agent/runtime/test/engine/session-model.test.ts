@@ -54,13 +54,13 @@ test("keeps every model request in a running turn fixed and restores independent
     await manager.reconfigure({ model: next.model, thinkingEffort: next.effort });
     release.resolve();
     expect((await running).status).toBe("completed");
-    expect(requests).toEqual([{ model: initial.model, effort: "low" }, { model: initial.model, effort: "low" }]);
+    expect(requests).toEqual([{ model: "deepseek-flash", effort: "low" }, { model: "deepseek-flash", effort: "low" }]);
     expect(toolsExecuted).toBe(1);
     expect((await store.getSession("a"))?.model_selection).toEqual(next);
     await runtime.stop(); await runtime.start();
     expect((await runtime.runTurn(makeJob("b", "second"), handle())).status).toBe("completed");
     expect((await runtime.runTurn(makeJob("a", "third"), handle())).status).toBe("completed");
-    expect(requests.slice(2)).toEqual([{ model: initial.model, effort: "low" }, { model: next.model, effort: "high" }]);
+    expect(requests.slice(2)).toEqual([{ model: "deepseek-flash", effort: "low" }, { model: next.model, effort: "high" }]);
   } finally {
     release.resolve();
     try { await running; } finally {

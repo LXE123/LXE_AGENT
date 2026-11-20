@@ -49,8 +49,6 @@ const storage = () => ({
   ensureSession: async () => undefined,
   upsertResponseRoute: async () => undefined,
   getSession: async () => ({ session_id: "s1", source: { platform: "test" }, workspace: testWorkspace }),
-  appendPendingEvent: async () => undefined,
-  hasPendingEvents: async () => false,
   getResponseRoute: async () => undefined,
   patchResponseRoute: async () => undefined,
 });
@@ -61,7 +59,6 @@ const waitFor = async (condition: () => boolean): Promise<void> => {
 };
 
 const resourcePaths = (root: string) => ({
-  agentSoulPath: join(root, "SOUL.md"),
   skillsRoot: join(root, "skills"),
   userSkillsRoot: join(root, "user-skills"),
   llmConfigRoot: join(root, "config", "llm"),

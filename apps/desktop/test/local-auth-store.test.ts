@@ -40,7 +40,9 @@ describe("DesktopLocalAuthStore", () => {
     expect(store.snapshot()).toEqual({
       configured: {
         deepseek: true,
+        google: false,
         kimi_coding: true,
+        openai: false,
         openrouter: false,
         zhipuai: false,
         zhipuai_coding_plan: false,
@@ -57,7 +59,9 @@ describe("DesktopLocalAuthStore", () => {
     store.delete("deepseek");
     expect(store.snapshot().configured).toEqual({
       deepseek: false,
+      google: false,
       kimi_coding: true,
+      openai: false,
       openrouter: false,
       zhipuai: false,
       zhipuai_coding_plan: false,
@@ -84,6 +88,7 @@ describe("DesktopLocalAuthStore", () => {
       configured: {
         deepseek: false,
         kimi_coding: false,
+        openai: false,
         openrouter: false,
         zhipuai: false,
         zhipuai_coding_plan: false,

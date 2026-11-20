@@ -2,6 +2,7 @@ import { createInterface } from "node:readline";
 import { createLogger } from "@lxe/core";
 import type { AgentServerOutput } from "@lxe/desktop-protocol";
 import { AgentProtocolServer } from "./server";
+import { runMcpCommand } from "./mcp-command";
 import { runExecCommand } from "./exec-command";
 import { relocateAgentData } from "@lxe/runtime";
 import { isAbsolute, resolve } from "node:path";
@@ -28,6 +29,11 @@ if (mode === "relocate-data") {
     process.exitCode = 2;
   } else void relocateAgentData(roots[0]!, roots[1]!, roots[2]!).catch(error => {
     process.stderr.write(`${error instanceof Error ? error.stack : error}\n`);
+    process.exitCode = 1;
+  });
+} else if (mode === "mcp") {
+  void runMcpCommand(arguments_.slice(1)).then(code => { process.exitCode = code; }).catch(error => {
+    process.stderr.write(`agent-cli mcp: ${error instanceof Error ? error.message : String(error)}\n`);
     process.exitCode = 1;
   });
 } else if (mode === "exec") {

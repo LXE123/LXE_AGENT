@@ -20,6 +20,8 @@ bun run --cwd apps/dashboard typecheck
 
 测试覆盖以下场景：
 
+- **流式 Markdown（5）**：持续追加和完成后保留旧节点、文字选区与表格横向滚动；过程文本与最终正文都接收流式状态；完成、错误和取消释放暂存文本；未完成 Mermaid/公式显示源码，闭合后沿用原有渲染；后文引用定义、文本替换及新消息不复用过期内容。用 `--test-name-pattern streaming-markdown` 定向运行。
+
 - **工作区删除（7）**：确认、取消、防重复提交、实际错误及重试、删除后焦点恢复；保留当前运行会话、排队消息和草稿；未分组分页；同目录重新登记获得新身份，不接回旧会话；最后一个工作区删除及刷新后不恢复；无工作区时先选目录再新建，取消保留草稿；迟到的新建、改名和列表结果不能恢复已删除分组。可用 `--test-name-pattern workspace-deletion` 定向运行，设置 `LXE_WORKSPACE_DELETE_SCREENSHOT=/tmp/workspace-delete.png` 保存浅色和深色窄窗口截图。事务回滚、旧登记迁移和重启持久性由 Runtime 测试覆盖。
 
 - **会话标题（5）**：菜单、双击和快捷键入口；首次全选、中文输入法 Enter、保存期间防重复及禁止关闭；真实错误和草稿保留、重试、同名保存；空白会话禁用、刷新与搜索同步；浅色、深色和窄窗口。可用 `--test-name-pattern session-titles` 定向运行，设置 `LXE_SESSION_TITLE_SCREENSHOT=/tmp/title.png` 保存布局截图。
@@ -31,8 +33,8 @@ bun run --cwd apps/dashboard typecheck
 - **越南备货设置（8）**：参数读取、保存、九表模板上传与当前模板导出；取消和错误、操作期间禁用按钮；导出保留参数草稿和文件状态，中英文及窄窗口换行，配置损坏或读取失败时仍可上传模板。通过 `--test-name-pattern vietnam-settings` 定向运行；`LXE_VIETNAM_SCREENSHOT=/tmp/vietnam.png` 可保存宽屏及中英文窄屏截图。系统保存对话框与文件写入由桌面桥接、Python 定向测试覆盖。
 - **弹窗（3）**：首次聚焦跳过隐藏及禁用控件，Tab 双向循环；嵌套弹窗只关闭最上层，
   并逐层恢复焦点；没有控件时焦点留在弹窗内。
-- **输入框（5）**：中文合成期间 Enter 不发送，Shift+Enter 换行，Enter 正常发送；
-  请求未完成时防止重复提交；运行中的按钮执行停止，Enter 仍可排队；模型及思考设置
+- **输入框（6）**：中文合成期间 Enter 不发送，Shift+Enter 换行，Enter 正常发送；
+  请求未完成时防止重复提交；运行中有草稿可点击或按 Enter 发送，空草稿可停止，停止中可单发附件；模型及思考设置
   保存期间禁止发送；离线时保留草稿、阻止发送及附件操作，恢复后可继续使用。
 - **启动与集成（5）**：首页、统计页、会话页分别覆盖两个进程的未就绪组合与恢复；
   实际设置弹窗关闭后恢复侧栏焦点；跳过引导并新建会话时不发统计请求，恢复后显示统计。
@@ -56,4 +58,6 @@ CompositionEvent 和带 `isComposing` 的 KeyboardEvent，覆盖 React 事件处
 `isComposing`、绕过当前模型查询的运行时开关、去掉欢迎页的 `enabled` 传递。
 这些临时变更已还原。
 
-新增 `dashboard-pages`（9）、`conversation-content`（4）、`conversation-window`（3）和 Markdown（6）场景，分别覆盖页面组装、会话内容、虚拟滚动和 Markdown 两个消费入口。源码断言的逐项迁移说明见 [architecture/README.md](../architecture/README.md)。
+新增 `dashboard-pages`（9）、`conversation-content`（4）、`conversation-window`（8）和 Markdown（7）场景，分别覆盖页面组装、会话内容、虚拟滚动和 Markdown 两个消费入口。源码断言的逐项迁移说明见 [architecture/README.md](../architecture/README.md)。
+
+`conversation-window` 在尺寸观测后的同一动画帧检查阅读位置和底部距离，捕捉“先偏移、下一帧恢复”的抖动；还检查流式追加时旧段落的 DOM、文字和阅读位置保持稳定。只检查最终位置会漏掉这类错帧。这些测试验证布局和节点变化，不代表已验证 GPU 字体绘制。

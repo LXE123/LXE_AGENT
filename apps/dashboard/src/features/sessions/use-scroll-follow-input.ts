@@ -24,24 +24,28 @@ export class BottomFollowGesture {
   }
 }
 
-function ownsScroll(root: HTMLElement, target: EventTarget | null, keyboard = false): boolean {
+function ownsScroll(root: HTMLElement, target: EventTarget | null, input: number | "keyboard"): boolean {
   if (!(target instanceof Element) || !root.contains(target)) return false;
   if (target.closest("input, textarea, select, [contenteditable]:not([contenteditable=false])")) return false;
-  if (keyboard && target.closest("button, a[href], [role=button], [role=slider]")) return false;
+  if (input === "keyboard" && target.closest("button, a[href], [role=button], [role=slider]")) return false;
   for (let node: Element | null = target; node && node !== root; node = node.parentElement) {
-    if (node.scrollHeight > node.clientHeight && /auto|scroll|overlay/.test(getComputedStyle(node).overflowY)) return false;
+    if (node.scrollHeight <= node.clientHeight) continue;
+    const style = getComputedStyle(node);
+    if (!/auto|scroll|overlay/.test(style.overflowY)) continue;
+    // At the top, the browser can chain an upward gesture to the transcript.
+    if (input === "keyboard" || input >= 0 || node.scrollTop > 0 || style.overscrollBehaviorY !== "auto") return false;
   }
   return true;
 }
 
-export function useScrollFollowInput(root: RefObject<HTMLDivElement | null>, latest: boolean, onRead: () => void, onBottom: () => void) {
+export function useScrollFollowInput(root: RefObject<HTMLDivElement | null>, latest: boolean, onRead: () => void, onBottom: () => void, onInput?: () => void) {
   const gesture = useRef(new BottomFollowGesture());
   const drag = useRef<number | undefined>(undefined);
   const touch = useRef<number | undefined>(undefined);
   const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const frame = useRef<number | undefined>(undefined);
-  const callbacks = useRef({ latest, onRead, onBottom });
-  callbacks.current = { latest, onRead, onBottom };
+  const callbacks = useRef({ latest, onRead, onBottom, onInput });
+  callbacks.current = { latest, onRead, onBottom, onInput };
   const clearGesture = () => {
     gesture.current.clear();
     if (timer.current !== undefined) clearTimeout(timer.current);
@@ -71,8 +75,12 @@ export function useScrollFollowInput(root: RefObject<HTMLDivElement | null>, lat
     // no scrolling, and older engines without scrollend support.
     if (gesture.current.active) keepAlive();
   };
-  const read = () => { clear(); callbacks.current.onRead(); };
-  const direction = (delta: number) => { if (delta < 0) read(); else if (delta > 0) down(); };
+  const read = () => { clear(); callbacks.current.onInput?.(); callbacks.current.onRead(); };
+  const direction = (delta: number, target: EventTarget | null) => {
+    if (!root.current || !delta || !ownsScroll(root.current, target, delta)) return;
+    if (delta < 0) read();
+    else { callbacks.current.onInput?.(); down(); }
+  };
   useEffect(() => {
     const finishDrag = () => {
       if (drag.current === undefined) return;
@@ -112,22 +120,25 @@ export function useScrollFollowInput(root: RefObject<HTMLDivElement | null>, lat
     },
     handlers: {
       onWheelCapture(event: React.WheelEvent<HTMLDivElement>) {
-        if (!root.current || event.ctrlKey || Math.abs(event.deltaX) > Math.abs(event.deltaY) || !ownsScroll(root.current, event.target)) return;
-        direction(event.deltaY);
+        if (event.ctrlKey || Math.abs(event.deltaX) > Math.abs(event.deltaY)) return;
+        direction(event.deltaY, event.target);
       },
       onTouchStartCapture(event: React.TouchEvent<HTMLDivElement>) {
         clear();
-        if (root.current && event.touches.length === 1 && ownsScroll(root.current, event.target)) touch.current = event.touches[0]!.clientY;
+        if (event.touches.length === 1) touch.current = event.touches[0]!.clientY;
       },
       onTouchMoveCapture(event: React.TouchEvent<HTMLDivElement>) {
         if (event.touches.length !== 1) { clear(); return; }
         const y = event.touches[0]!.clientY;
-        if (touch.current !== undefined) { const delta = touch.current - y; direction(delta); touch.current = y; }
+        if (touch.current !== undefined) {
+          direction(touch.current - y, event.target);
+          touch.current = y;
+        }
       },
       onTouchEndCapture() { touch.current = undefined; },
       onTouchCancelCapture: clear,
       onKeyDownCapture(event: React.KeyboardEvent<HTMLDivElement>) {
-        if (!root.current || !ownsScroll(root.current, event.target, true)) return;
+        if (!root.current || !ownsScroll(root.current, event.target, "keyboard")) return;
         const up = ["ArrowUp", "PageUp", "Home"].includes(event.key) || event.key === " " && event.shiftKey;
         const downKey = ["ArrowDown", "PageDown", "End", " "].includes(event.key);
         if (!up && !downKey) return;

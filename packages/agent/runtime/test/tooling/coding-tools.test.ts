@@ -134,7 +134,7 @@ describe("native coding tools", () => {
       expect(processId).toMatch(/^exec_/);
       if (!processId) throw new Error("missing background process id");
       expect(String((await registry.execute("wait", { exec_id: processId, terminate: true }, contextB)).content[0]?.text))
-        .toContain("不存在");
+        .toContain("does not exist");
       await registry.execute("wait", { exec_id: processId, terminate: true }, contextA);
     } finally {
       process.chdir(previousCwd);
@@ -142,14 +142,14 @@ describe("native coding tools", () => {
     }
   }, 30_000);
 
-  test("exposes compatible coding schemas and uses the workspace only as the default path base", async () => {
+  test("can opt in to standalone search and uses the workspace only as the default path base", async () => {
     const root = mkdtempSync(join(tmpdir(), "lxe-coding-"));
     const outsideRoot = mkdtempSync(join(tmpdir(), "lxe-coding-outside-"));
     const outsidePath = join(outsideRoot, "outside.txt");
     roots.push(root, outsideRoot);
     writeFileSync(outsidePath, "outside\n", "utf8");
     const registry = new ToolRegistry();
-    const processes = registerCodingTools(registry, {});
+    const processes = registerCodingTools(registry, { includeSearchTools: true });
     expect(registry.schemas().map((item) => item.name)).toEqual([
       "read", "write", "edit", "grep", "find", "ls", "send_files", "exec", "wait",
     ]);
@@ -168,7 +168,6 @@ describe("native coding tools", () => {
     for (const name of ["read", "write", "edit", "grep", "find", "ls", "send_files"]) {
       expect(registry.definition(name)?.supportsParallelCalls).not.toBe(true);
     }
-    expect(registry.definition("send_file")).toBeUndefined();
     expect(registry.definition("send_files")?.input_schema).toEqual({
       type: "object",
       properties: {
@@ -231,7 +230,7 @@ describe("native coding tools", () => {
       find: async () => { calls.push("find"); return "lease find"; },
     } as unknown as WorkspaceSearchService;
     const registry = new ToolRegistry();
-    const processes = registerCodingTools(registry, {});
+    const processes = registerCodingTools(registry, { includeSearchTools: true });
     const leasedContext = { ...context(root), workspaceSearch };
     expect((await registry.execute("grep", { pattern: "x" }, leasedContext)).content[0]?.text)
       .toContain("lease grep");
@@ -277,6 +276,7 @@ describe("native coding tools", () => {
       repositorySkillsRoot,
       userSkillsRoot: join(home, ".agents", "skills"),
       homeDirectory: home,
+      includeSearchTools: true,
       ripgrepPath: null,
     });
     const activated: string[] = [];
@@ -385,27 +385,22 @@ describe("native coding tools", () => {
     }
   });
 
-  test("executes lxeskill with current environment and can retry after a failed command", async () => {
-    const root = mkdtempSync(join(tmpdir(), "lxe-coding-lxeskill-retry-"));
+  test("executes a subsequent command after a failed command", async () => {
+    const root = mkdtempSync(join(tmpdir(), "lxe-coding-exec-after-failure-"));
     roots.push(root);
     const registry = new ToolRegistry();
-    let command = evalCommand("console.error('fixture CLI failure');process.exit(7)");
-    class FixtureShell extends ExecShellAdapter {
-      override normalizeCommand(cwd: string, input: string): string {
-        return input === "lxeskill list" ? command : super.normalizeCommand(cwd, input);
-      }
-    }
-    const processes = registerCodingTools(registry, {
-      execShell: new FixtureShell(),
-    });
+    const processes = registerCodingTools(registry, {});
     try {
-      const failed = String((await registry.execute("exec", { command: "lxeskill list" }, context(root))).content[0]?.text);
-      expect(failed).toContain("fixture CLI failure");
+      const failed = String((await registry.execute("exec", {
+        command: evalCommand("console.error('fixture command failure');process.exit(7)"),
+      }, context(root))).content[0]?.text);
+      expect(failed).toContain("fixture command failure");
       expect(failed).toContain("exit_code: 7");
-      command = evalCommand("console.log('fixture CLI repaired')");
-      const repaired = String((await registry.execute("exec", { command: "lxeskill list" }, context(root))).content[0]?.text);
-      expect(repaired).toContain("status: completed");
-      expect(repaired).toContain("fixture CLI repaired");
+      const succeeded = String((await registry.execute("exec", {
+        command: evalCommand("console.log('fixture command success')"),
+      }, context(root))).content[0]?.text);
+      expect(succeeded).toContain("status: completed");
+      expect(succeeded).toContain("fixture command success");
       expect(processes.snapshots()).toHaveLength(2);
     } finally {
       await processes.stop();
@@ -422,7 +417,7 @@ describe("native coding tools", () => {
     }
     const registry = new ToolRegistry();
     const processes = registerCodingTools(registry, { execShell: new FixtureShell() });
-    const commands = ["python -m lxeskill list", "python -m services.agent_cli.demo",
+    const commands = ["python -m lxeskill list", "python -m services.commands.demo",
       "lxeskill demo run && echo done", "lxeskill demo run > report.txt", "cd . && lxeskill list"];
     try {
       for (const command of commands) {
@@ -468,7 +463,7 @@ describe("native coding tools", () => {
       tool_call_id: "tool-exec-1",
     })]);
     expect(String((await registry.execute("wait", { exec_id: execId }, context(root))).content[0]?.text))
-      .toContain("已经关闭");
+      .toContain("has already closed");
 
     const completedText = String((await registry.execute("exec", {
       command: "python -c \"print('x' * 3000)\"",
@@ -512,6 +507,7 @@ describe("native coding tools", () => {
     expect(oversized).toContain("observation_truncated: true");
     expect(oversized).toContain("output_file_covers_captured: true");
     expect(oversized).toContain("output_file_truncated: false");
+    expect(oversized).toContain("Use exec to search the saved file or read with offset/limit");
     expect(oversized).toContain("最终失败：缺少依赖");
     expect(oversized).not.toContain("第 0 行");
     expect(oversized).not.toContain("�");
@@ -530,12 +526,6 @@ describe("native coding tools", () => {
     expect(interleaved).toContain("warn");
     expect(interleaved).toContain("step 2");
 
-    // Commands outside the attribution map still run: the CLI owns
-    // authorization and list is always known to it.
-    const lxeskillList = String((await registry.execute("exec", {
-      command: "lxeskill list",
-    }, context(root))).content[0]?.text);
-    expect(lxeskillList).toContain("status: completed");
     await processes.stop();
   }, 30_000);
 
@@ -590,7 +580,7 @@ describe("native coding tools", () => {
     expect((await processes.wait({
       execId: polled, sessionId: "s1", yieldMs: 200, terminate: false,
       signal: new AbortController().signal,
-    })).error).toContain("已经关闭");
+    })).error).toContain("has already closed");
 
     const killed = await start("python -c \"import time; print('ready', flush=True); time.sleep(60)\"");
     await waitForProcess(processes, killed, (snapshot) => String(snapshot.output_tail ?? "").includes("ready"));
@@ -735,7 +725,7 @@ describe("native coding tools", () => {
     expect(performance.now() - terminateStarted).toBeLessThan(5_000);
     expect(activeResult.status).toBe("killed");
     expect(terminateResult.status).toBe("killed");
-    expect(queuedResult.error).toContain("已经关闭");
+    expect(queuedResult.error).toContain("has already closed");
     expect(order).toEqual(["active", "terminate", "queued"]);
     await processes.stop();
   }, 15_000);
@@ -796,24 +786,25 @@ describe("native coding tools", () => {
     await processes.stop();
   }, 30_000);
 
-  test("exec forwards host env so lxeskill enforces the injected skill scope", async () => {
+  test("exec forwards host env derived from the active skills to the child process", async () => {
     const root = projectRoot;
     const registry = new ToolRegistry();
     const receivedSkillNames: Array<readonly string[]> = [];
     const processes = registerCodingTools(registry, {
+      execShell: new ExecShellAdapter({ environment: { ...process.env, TEST_ACTIVE_SKILLS: "stale" } }),
       execEnv: ({ skillNames }) => {
         receivedSkillNames.push(skillNames);
-        return { LXESKILL_SKILL_SCOPE: skillNames.join(",") };
+        return { TEST_ACTIVE_SKILLS: skillNames.join(",") };
       },
     });
-    const listed = String((await registry.execute("exec", {
-      command: "lxeskill list",
-    }, { ...context(root), skill_names: ["replenishment-store-resolve"] })).content[0]?.text);
-    expect(listed).toContain("replenish store resolve");
-    expect(listed).not.toContain("fba customs fill");
-    expect(listed).toContain("mabang auth refresh");
-    expect(receivedSkillNames).toEqual([["replenishment-store-resolve"]]);
-    await processes.stop();
+    try {
+      const result = String((await registry.execute("exec", {
+        command: evalCommand("console.log('active-skills:' + process.env.TEST_ACTIVE_SKILLS)"),
+      }, { ...context(root), skill_names: ["demo", "another"] })).content[0]?.text);
+      expect(result).toContain("status: completed");
+      expect(result).toContain("active-skills:demo,another");
+      expect(receivedSkillNames).toEqual([["demo", "another"]]);
+    } finally { await processes.stop(); }
   });
 
   test("terminates the complete exec process tree", async () => {
@@ -920,12 +911,12 @@ describe("native coding tools", () => {
     const processes = registerCodingTools(registry, {});
     await expect(registry.execute("edit", {
       path: "existing.txt", edits: [{ oldText: "v1", newText: "v2" }],
-    }, context(root))).rejects.toThrow("先用 read");
+    }, context(root))).rejects.toThrow("Use read before modifying");
     await registry.execute("read", { path: "existing.txt" }, context(root));
     writeFileSync(join(root, "existing.txt"), "external\n", "utf8");
     await expect(registry.execute("write", {
       file_path: "existing.txt", content: "blind overwrite\n",
-    }, context(root))).rejects.toThrow("重新 read");
+    }, context(root))).rejects.toThrow("Read it again");
     await registry.execute("write", { file_path: ".env", content: "SECRET=x" }, context(root));
     await registry.execute("write", {
       file_path: "var/db/sessions.json", content: "{}",
@@ -956,8 +947,7 @@ describe("native coding tools", () => {
   test("returns a decodable PNG with a bounded Base64 payload and accurate coordinates after resizing", async () => {
     const root = mkdtempSync(join(tmpdir(), "lxe-coding-image-resize-"));
     roots.push(root);
-    const fixture = readFileSync(join(projectRoot,
-      "skills/replenishment-amazon-restock-inventory-snapshot/assets/amazon_restock_inventory_download_step_1_menu.jpg"));
+    const fixture = readFileSync(join(import.meta.dir, "../fixtures/color-pattern.jpg"));
     const oversized = await new Bun.Image(fixture).resize(2_600, 2_600, { fit: "inside" }).jpeg({ quality: 95 }).bytes();
     const original = await new Bun.Image(oversized).metadata();
     writeFileSync(join(root, "screenshot.data"), oversized);
@@ -997,7 +987,7 @@ describe("native coding tools", () => {
   });
 
   for (const lineCount of [150, 3_000]) {
-    test(`reads all ${lineCount} lines through contiguous character-budget pages`, async () => {
+    test(`reads all ${lineCount} lines through contiguous UTF-8 byte-budget pages`, async () => {
       const root = mkdtempSync(join(tmpdir(), "lxe-coding-read-pages-"));
       roots.push(root);
       const lines = Array.from({ length: lineCount }, (_, index) => `line-${index + 1} 中文🙂 ${"x".repeat(190)}`);
@@ -1010,20 +1000,20 @@ describe("native coding tools", () => {
         while (offset <= lineCount) {
           const result = await registry.execute("read", { path: "pages.txt", offset }, context(root));
           const output = String(result.content[0]?.text);
-          expect(output.length).toBeLessThanOrEqual(10_000);
           const rows = output.split("\n").filter((line) => /^\s*\d+\t/u.test(line));
           expect(rows.length).toBeGreaterThan(0);
+          expect(Buffer.byteLength(lines.slice(offset - 1, offset - 1 + rows.length).join("\r\n"))).toBeLessThanOrEqual(50 * 1024);
           expect(rows).toEqual(lines.slice(offset - 1, offset - 1 + rows.length)
             .map((line, index) => `${String(offset + index).padStart(6, " ")}\t${line}`));
           readLines += rows.length;
-          const next = output.match(/使用 offset=(\d+) 继续/u);
+          const next = output.match(/Use offset=(\d+) to continue/u);
           if (!next) break;
           expect(Number(next[1])).toBe(offset + rows.length);
           offset = Number(next[1]);
         }
         expect(readLines).toBe(lineCount);
-        await expect(registry.execute("read", { path: "pages.txt", offset: lineCount + 1 }, context(root)))
-          .rejects.toThrow(`Offset ${lineCount + 1} is beyond end of file (${lineCount} lines total)`);
+        await expect(registry.execute("read", { path: "pages.txt", offset: lineCount + 2 }, context(root)))
+          .rejects.toThrow(`Offset ${lineCount + 2} is beyond end of file (${lineCount + 1} lines total)`);
       } finally { await processes.stop(); }
     });
   }
@@ -1037,42 +1027,39 @@ describe("native coding tools", () => {
     const processes = registerCodingTools(registry, {});
     try {
       expect((await registry.execute("read", { path: "small.txt", limit: 2 }, context(root))).content)
-        .toEqual([{ type: "text", text: "     1\tone\n     2\ttwo\n... (更多内容，使用 offset=3 继续)" }]);
+        .toEqual([{ type: "text", text: "     1\tone\n     2\ttwo\n\n[2 more lines in file. Use offset=3 to continue.]" }]);
       expect((await registry.execute("read", { path: "small.txt", offset: 3, limit: 1 }, context(root))).content)
-        .toEqual([{ type: "text", text: "     3\tthree" }]);
+        .toEqual([{ type: "text", text: "     3\tthree\n\n[1 more lines in file. Use offset=4 to continue.]" }]);
       expect((await registry.execute("read", { path: "empty.txt" }, context(root))).content)
         .toEqual([{ type: "text", text: "" }]);
-      await expect(registry.execute("read", { path: "small.txt", offset: 4 }, context(root)))
-        .rejects.toThrow("Offset 4 is beyond end of file (3 lines total)");
+      await expect(registry.execute("read", { path: "small.txt", offset: 5 }, context(root)))
+        .rejects.toThrow("Offset 5 is beyond end of file (4 lines total)");
       await expect(registry.execute("read", { path: "empty.txt", offset: 2 }, context(root)))
-        .rejects.toThrow("Offset 2 is beyond end of file (0 lines total)");
+        .rejects.toThrow("Offset 2 is beyond end of file (1 lines total)");
       writeFileSync(join(root, "unread.txt"), "one\n");
-      await expect(registry.execute("read", { path: "unread.txt", offset: 2 }, context(root))).rejects.toThrow("beyond end of file");
+      await expect(registry.execute("read", { path: "unread.txt", offset: 3 }, context(root))).rejects.toThrow("beyond end of file");
       await expect(registry.execute("edit", {
         path: "unread.txt", edits: [{ oldText: "one", newText: "two" }],
-      }, context(root))).rejects.toThrow("请先用 read");
+      }, context(root))).rejects.toThrow("Use read before modifying");
     } finally { await processes.stop(); }
   });
 
-  test("bounds oversized lines in small files without skipping their unread remainder", async () => {
+  test("reports the byte limit and actual size of an oversized line without returning a fragment", async () => {
     const root = mkdtempSync(join(tmpdir(), "lxe-coding-read-small-long-line-"));
     roots.push(root);
-    writeFileSync(join(root, "long.txt"), `first\n${"x".repeat(15_000)}\nlast\n`);
+    writeFileSync(join(root, "long.txt"), `first\n${"x".repeat(60_000)}\nlast\n`);
     const registry = new ToolRegistry();
     const processes = registerCodingTools(registry, {});
     try {
       expect((await registry.execute("read", { path: "long.txt" }, context(root))).content)
-        .toEqual([{ type: "text", text: "     1\tfirst\n... (更多内容，使用 offset=2 继续)" }]);
+        .toEqual([{ type: "text", text: "     1\tfirst\n\n[Showing lines 1-1 of 4 (50.0KB limit). Use offset=2 to continue.]" }]);
       const result = await registry.execute("read", { path: "long.txt", offset: 2 }, context(root));
       const output = String(result.content[0]?.text);
-      expect(output.length).toBeLessThanOrEqual(10_000);
-      expect(output).toContain("第 2 行超过本次 9840 字符正文预算（含行号）");
-      expect(output).not.toContain("使用 offset=");
-      expect(output).not.toContain("last");
+      expect(output).toBe("[Line 2 is 58.6KB, exceeds 50.0KB limit. Use exec to read this line in byte ranges.]");
     } finally { await processes.stop(); }
   });
 
-  test("reads a range from a large file without scanning to EOF", async () => {
+  test("reports the remaining line count for a selected range in a large file", async () => {
     const root = mkdtempSync(join(tmpdir(), "lxe-coding-large-read-"));
     roots.push(root);
     // ~2 MiB file, 20k lines.
@@ -1087,11 +1074,12 @@ describe("native coding tools", () => {
     expect(text).toContain("   102\tline-102");
     expect(text).not.toContain("line-103");
     expect(text).not.toContain("line-1 ");
+    expect(text).toContain("[19899 more lines in file. Use offset=103 to continue.]");
 
     // A default read (no limit) must page rather than dump the whole file.
     const capped = await registry.execute("read", { path: "big.txt" }, context(root));
     const cappedText = String(capped.content[0]?.text ?? "");
-    const nextOffset = Number(cappedText.match(/使用 offset=(\d+) 继续/u)?.[1] ?? 0);
+    const nextOffset = Number(cappedText.match(/Use offset=(\d+) to continue/u)?.[1] ?? 0);
     expect(nextOffset).toBeGreaterThan(1);
     expect(cappedText).toContain(`${String(nextOffset - 1).padStart(6, " ")}\tline-${nextOffset - 1} ${"x".repeat(90)}`);
     await processes.stop();
@@ -1106,9 +1094,7 @@ describe("native coding tools", () => {
 
     const result = await registry.execute("read", { path: "giant.txt" }, context(root));
     const output = String(result.content[0]?.text ?? "");
-    expect(output.length).toBeLessThanOrEqual(10_000);
-    expect(output).toContain("第 1 行超过本次 9840 字符正文预算（含行号）");
-    expect(output).not.toContain("使用 offset=");
+    expect(output).toBe("[Line 1 is 6.0MB, exceeds 50.0KB limit. Use exec to read this line in byte ranges.]");
     await processes.stop();
   });
 
@@ -1125,14 +1111,14 @@ describe("native coding tools", () => {
         path: "changing.txt",
         offset: 1_999_999,
         limit: 1,
-      }, context(root))).rejects.toThrow("read 期间文件发生变化");
+      }, context(root))).rejects.toThrow("File changed during read");
     } finally {
       clearInterval(mutation);
     }
     await expect(registry.execute("edit", {
       path: "changing.txt",
       edits: [{ oldText: "old", newText: "new" }],
-    }, context(root))).rejects.toThrow("请先用 read");
+    }, context(root))).rejects.toThrow("Use read before modifying");
     await processes.stop();
   });
 
@@ -1147,7 +1133,7 @@ describe("native coding tools", () => {
     await expect(registry.execute("read", { path: "cancelled.txt" }, context(root, controller))).rejects.toThrow("cancelled");
     await expect(registry.execute("edit", {
       path: "cancelled.txt", edits: [{ oldText: "content", newText: "changed" }],
-    }, context(root))).rejects.toThrow("请先用 read");
+    }, context(root))).rejects.toThrow("Use read before modifying");
     await processes.stop();
   });
 
@@ -1155,7 +1141,7 @@ describe("native coding tools", () => {
     const root = mkdtempSync(join(tmpdir(), "lxe-coding-contract-"));
     roots.push(root);
     const registry = new ToolRegistry();
-    const processes = registerCodingTools(registry, {});
+    const processes = registerCodingTools(registry, { includeSearchTools: true });
     await registry.execute("write", { file_path: "src/a.py", content: "alpha\nbeta\nbeta\n" }, context(root));
     const count = await registry.execute("grep", {
       pattern: "beta", path: "src", output_mode: "count", type: "py",
@@ -1165,15 +1151,14 @@ describe("native coding tools", () => {
       .toEqual([join(root, "src", "a.py")]);
     await registry.execute("write", { file_path: "artifacts/a.txt", content: "ok" }, context(root));
     expect((await registry.execute("send_files", { paths: ["artifacts/a.txt"] }, context(root))).files).toHaveLength(1);
-    // Unknown commands pass through: authorization belongs to the CLI, which
-    // rejects them with a structured error. Here the temp root has neither a
-    // managed Python nor .venv, so normalization fails before any spawn.
-    await expect(registry.execute("exec", {
-      command: "lxeskill unknown command",
-    }, context(root))).rejects.toThrow("project Python is unavailable");
-    await expect(registry.execute("exec", {
-      command: "lxeskill.cmd unknown command",
-    }, context(root))).rejects.toThrow("project Python is unavailable");
+    // The shell/CLI reports missing or unknown commands; no Python prerequisite
+    // is imposed by the harness, even in a workspace without a .venv.
+    for (const command of ["lxeskill unknown command", "lxeskill.cmd unknown command"]) {
+      const result = await registry.execute("exec", { command }, context(root));
+      const output = String(result.content[0]?.text);
+      expect(output).toMatch(/exit_code: [1-9]\d*/u);
+      expect(output).not.toContain("project Python is unavailable");
+    }
     await expect(registry.execute("exec", {
       command: "lxeskill replenish store resolve",
       "yield-time-ms": 120_000,
@@ -1193,10 +1178,16 @@ describe("native coding tools", () => {
   test("tool search discovers tools by name, description, and parameters", async () => {
     const root = projectRoot;
     const registry = new ToolRegistry();
-    registry.register({ name: "inventory_lookup", description: "Find stock by SKU", input_schema: { type: "object", properties: { sku: { type: "string" } } }, execute: async () => ({ content: [] }) });
+    registry.register({ name: "inventory_lookup", exposure: "deferred", description: "Find stock by SKU\nMore details here.",
+      input_schema: { type: "object", properties: { sku: { type: "string" } } }, execute: async () => ({ content: [] }) });
     registerToolSearch(registry);
-    const found = await registry.execute("tool_search", { query: "stock sku" }, context(root));
-    expect(JSON.parse(String(found.content[0]?.text)).tools).toEqual([expect.objectContaining({ name: "inventory_lookup" })]);
+    const exposureState = registry.createExposureState();
+    expect(exposureState.isExposed("inventory_lookup")).toBe(false);
+    const found = await registry.execute("tool_search", { query: "stock sku" }, { ...context(root), exposureState });
+    expect(found.content).toEqual([{ type: "text", text: "- inventory_lookup: Find stock by SKU" }]);
+    expect(exposureState.isExposed("inventory_lookup")).toBe(true);
+    const again = await registry.execute("tool_search", { query: "stock sku" }, { ...context(root), exposureState });
+    expect(again.content).toEqual([{ type: "text", text: "No matching tools found." }]);
   });
 });
 

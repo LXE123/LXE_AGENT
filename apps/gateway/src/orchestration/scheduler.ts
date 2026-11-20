@@ -1,13 +1,9 @@
 import { randomUUID } from "node:crypto";
-import type { AgentJob, JsonObject, JsonValue, WorkspaceContext } from "@lxe/protocol";
+import type { AgentJob, AgentSteeringMessage, JsonObject, JsonValue } from "@lxe/protocol";
 import { createLogger, runWithLogContext } from "@lxe/core";
-import { SessionSource } from "../state/session-bindings";
 
-export interface SteeringMessage {
-  text: string;
-  response_route_id?: string;
-  message_id?: string;
-}
+export type SteeringMessage = AgentSteeringMessage;
+export type RoutedSteeringMessage = SteeringMessage & { response_route_id: string; message_id: string };
 
 export interface ManagedProcess {
   kill(): void | Promise<void>;
@@ -89,7 +85,7 @@ export class RunHandle {
 export interface RuntimePort {
   startTurn(job: AgentJob, handle: RunHandle): Promise<void>;
   cancelTurn(handle: RunHandle, reason?: "user_stop"): Promise<void>;
-  steerTurn(handle: RunHandle, message: Required<SteeringMessage>): Promise<void>;
+  steerTurn(handle: RunHandle, message: RoutedSteeringMessage): Promise<void>;
 }
 
 export type SchedulerJobState = "queued" | "running" | "stopping" | "completed" | "cancelled" | "error" | "cleared";
@@ -117,6 +113,8 @@ const objectValue = (value: JsonValue | undefined): JsonObject | undefined =>
   value !== null && typeof value === "object" && !Array.isArray(value)
     ? (value as JsonObject)
     : undefined;
+
+export class SchedulerBusyError extends Error {}
 
 export class SessionScheduler {
   private readonly logger = createLogger("gateway.scheduler");
@@ -174,7 +172,7 @@ export class SessionScheduler {
     if (!wasReady && ready) this.drain();
   }
 
-  async enqueue(job: AgentJob, options: { front?: boolean; beforeAccept?: () => Promise<void> } = {}): Promise<void> {
+  async enqueue(job: AgentJob, options: { front?: boolean; beforeAccept?: () => Promise<void>; onlyIfIdle?: boolean; assertCurrent?: () => void } = {}): Promise<void> {
     if (this.updateFenced) throw new Error("Application update is preparing; new tasks are blocked");
     const sessionId = clean(job.session_id);
     if (!sessionId) throw new Error("session_id required");
@@ -191,6 +189,11 @@ export class SessionScheduler {
         else this.admissions.delete(sessionId);
       }
     }
+    options.assertCurrent?.();
+    if (options.onlyIfIdle && (!this.runtimeReady || this.hasInflightWork(sessionId))) {
+      throw new SchedulerBusyError("会话正在使用中，稍后再试");
+    }
+    if (options.onlyIfIdle && (this.updateFenced || this.sessionDeletionFences.has(sessionId))) throw new SchedulerBusyError("应用更新或会话删除正在进行");
     const queue = this.pending.get(sessionId) ?? [];
     if (options.front) queue.unshift(job);
     else queue.push(job);
@@ -301,13 +304,14 @@ export class SessionScheduler {
     return request;
   }
 
-  async steerActive(sessionId: string, message: SteeringMessage): Promise<boolean> {
+  async steerActive(sessionId: string, message: SteeringMessage, expectedTurnId?: string): Promise<boolean> {
     if (this.updateFenced) throw new Error("Application update is preparing; new input is blocked");
     const handle = this.activeRun(sessionId);
     const text = clean(message.text);
-    if (!handle || handle.closing || handle.cancelRequested || handle.cancelRequest || !text) return false;
-    const safeMessage: Required<SteeringMessage> = {
-      text,
+    if (!handle || (expectedTurnId && handle.jobId !== expectedTurnId) || handle.closing || handle.cancelRequested || handle.cancelRequest
+      || (!text && !message.user_content_blocks?.length)) return false;
+    const safeMessage: RoutedSteeringMessage = {
+      ...message, text,
       response_route_id: clean(message.response_route_id),
       message_id: clean(message.message_id),
     };
@@ -358,17 +362,38 @@ export class SessionScheduler {
 
   private requeueRemainingSteering(handle: RunHandle, raw: JsonValue | undefined): void {
     if (!Array.isArray(raw)) return;
-    const messages: Required<SteeringMessage>[] = [];
+    const messages: RoutedSteeringMessage[] = [];
+    const desktopJobs: AgentJob[] = [];
     for (const value of raw) {
       const item = objectValue(value);
       if (!item) continue;
       const text = clean(item.text);
+      if (handle.originJob.source.platform === "desktop" && typeof item.client_message_id === "string") {
+        const jobId = this.id();
+        const blocks = Array.isArray(item.user_content_blocks) ? item.user_content_blocks.flatMap(value => {
+          const block = objectValue(value);
+          return block ? [block.type === "local_file" ? { ...block, turn_id: jobId } : block] : [];
+        }) : [];
+        if (text || blocks.length) desktopJobs.push({
+          ...handle.originJob, job_id: jobId, job_kind: "turn",
+          message_id: clean(item.message_id), response_route_id: clean(item.response_route_id),
+          user_input: text, user_content_blocks: blocks, diagnostics: [],
+          raw_data: { origin: "desktop", client_message_id: item.client_message_id, steering_fallback: true },
+        });
+        continue;
+      }
       if (!text) continue;
       messages.push({
         text,
         response_route_id: clean(item.response_route_id),
         message_id: clean(item.message_id),
       });
+    }
+    if (desktopJobs.length) {
+      const queue = this.pending.get(handle.sessionId) ?? [];
+      queue.unshift(...desktopJobs);
+      this.pending.set(handle.sessionId, queue);
+      for (const job of desktopJobs) this.publishJobState("queued", job);
     }
     if (messages.length === 0) return;
     const origin = handle.originJob;
@@ -462,165 +487,5 @@ export class SessionScheduler {
         error,
       });
     }
-  }
-}
-
-export interface HeartbeatWakeRequest {
-  session_id: string;
-  reason?: string;
-  response_route_id?: string;
-}
-
-export type HeartbeatScheduleKind = "none" | "normal" | "retry";
-
-export interface RuntimeSessionRecord {
-  session_id: string;
-  source: JsonObject;
-  workspace: WorkspaceContext;
-}
-
-export interface HeartbeatOptions {
-  scheduler: SessionScheduler;
-  /** Reads pending events from the in-process Runtime store. */
-  hasPendingEvents: (sessionId: string) => Promise<boolean>;
-  /** Reads the session from the in-process Runtime store. */
-  loadSession: (sessionId: string) => Promise<RuntimeSessionRecord | undefined>;
-  isSuspended: (sessionId: string) => boolean;
-  id?: () => string;
-}
-
-const wakePriority = (reason: string): number => (reason === "retry" ? 0 : 1);
-
-export class HeartbeatWakeQueue {
-  private readonly logger = createLogger("gateway.heartbeat");
-  private readonly pending = new Map<string, Required<HeartbeatWakeRequest>>();
-  private flushing = false;
-  private readonly id: () => string;
-
-  constructor(private readonly options: HeartbeatOptions) {
-    this.id = options.id ?? (() => `heartbeat-${randomUUID().replaceAll("-", "")}`);
-  }
-
-  get pendingCount(): number {
-    return this.pending.size;
-  }
-
-  peek(sessionId: string): Required<HeartbeatWakeRequest> | undefined {
-    return this.pending.get(clean(sessionId));
-  }
-
-  request(request: HeartbeatWakeRequest): void {
-    const sessionId = clean(request.session_id);
-    if (!sessionId) throw new Error("session_id required");
-    const next: Required<HeartbeatWakeRequest> = {
-      session_id: sessionId,
-      reason: clean(request.reason) || "pending-event",
-      response_route_id: clean(request.response_route_id),
-    };
-    const previous = this.pending.get(sessionId);
-    this.logger.debug("heartbeat_requested", {
-      session_id: sessionId,
-      heartbeat_reason: next.reason,
-      pending_count: this.pending.size,
-    });
-    if (!previous || wakePriority(next.reason) >= wakePriority(previous.reason)) {
-      if (!next.response_route_id) next.response_route_id = previous?.response_route_id ?? "";
-      this.pending.set(sessionId, next);
-      if (previous) this.logger.debug("heartbeat_deduplicated", {
-        session_id: sessionId,
-        previous_reason: previous.reason,
-        next_reason: next.reason,
-      });
-    }
-  }
-
-  async flush(): Promise<HeartbeatScheduleKind> {
-    if (this.flushing) return this.pendingScheduleKind();
-    const batch = [...this.pending.values()];
-    if (batch.length === 0) return "none";
-    this.pending.clear();
-    this.flushing = true;
-    try {
-      for (const wake of batch) await this.process(wake);
-    } finally {
-      this.flushing = false;
-    }
-    return this.pendingScheduleKind();
-  }
-
-  private pendingScheduleKind(): HeartbeatScheduleKind {
-    if (this.pending.size === 0) return "none";
-    return [...this.pending.values()].every((wake) => wake.reason === "retry")
-      ? "retry"
-      : "normal";
-  }
-
-  private async process(wake: Required<HeartbeatWakeRequest>): Promise<void> {
-    if (this.options.scheduler.isSessionDeletionFenced(wake.session_id)) {
-      this.logger.debug("heartbeat_deferred", { session_id: wake.session_id, reason: "session_deleting" });
-      this.request({ ...wake, reason: "retry" });
-      return;
-    }
-    if (this.options.isSuspended(wake.session_id)) {
-      this.logger.debug("heartbeat_dropped", { session_id: wake.session_id, reason: "autonomy_suspended" });
-      return;
-    }
-    if (!(await this.options.hasPendingEvents(wake.session_id))) {
-      this.logger.debug("heartbeat_dropped", { session_id: wake.session_id, reason: "no_pending_events" });
-      return;
-    }
-    if (this.options.scheduler.hasInflightWork(wake.session_id)) {
-      this.logger.debug("heartbeat_deferred", { session_id: wake.session_id, reason: "session_busy" });
-      this.request({ ...wake, reason: "retry" });
-      return;
-    }
-    const session = await this.options.loadSession(wake.session_id);
-    if (!session) {
-      this.logger.warn("heartbeat_dropped", { session_id: wake.session_id, reason: "session_missing" });
-      return;
-    }
-    const source = SessionSource.from(session.source);
-    let sessionKey: string;
-    try {
-      sessionKey = source.sessionKey;
-    } catch (error) {
-      if (error instanceof Error && (error.message.startsWith("session source ") || error.message.startsWith("group session source "))) {
-        this.logger.warn("heartbeat_dropped", { session_id: wake.session_id, reason: "invalid_source", error });
-        return;
-      }
-      throw error;
-    }
-    const job: AgentJob = {
-      job_id: this.id(),
-      session_id: wake.session_id,
-      session_key: sessionKey,
-      response_route_id: wake.response_route_id,
-      user_id: source.userKey,
-      conversation_id: source.chat_id,
-      is_group: source.chat_type === "group",
-      message_id: "",
-      user_input: "",
-      job_kind: "heartbeat",
-      sender_nick: source.user_name,
-      workspace: session.workspace,
-      source: { ...session.source },
-      raw_data: {
-        heartbeat_reason: wake.reason,
-        session_key: sessionKey,
-        source: { ...session.source },
-      },
-      user_content_blocks: [],
-      diagnostics: [],
-    };
-    await runWithLogContext({
-      session_id: job.session_id,
-      turn_id: job.job_id,
-      response_route_id: job.response_route_id,
-    }, () => this.options.scheduler.enqueue(job));
-    this.logger.info("heartbeat_enqueued", {
-      session_id: job.session_id,
-      turn_id: job.job_id,
-      heartbeat_reason: wake.reason,
-    });
   }
 }

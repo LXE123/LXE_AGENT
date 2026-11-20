@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 import logging
+import os
+import re
+import sys
 from collections.abc import Iterable
 from contextvars import ContextVar, Token
 from datetime import datetime
@@ -25,8 +28,6 @@ _BROWSER_AUTH_LOGGER_PREFIXES = (
     "services.mabang.amazon.fba.wms",
 )
 _LOG_CONTEXT: ContextVar[tuple[str, str]] = ContextVar("lxe_agent_log_context", default=("", ""))
-
-logger = logging.getLogger("bot_logger")
 
 
 def get_logger(name: str | None = None) -> logging.Logger:
@@ -99,26 +100,6 @@ class _LoggerPrefixFilter(logging.Filter):
         return any(name == prefix or name.startswith(f"{prefix}.") for prefix in self._prefixes)
 
 
-class _ConsoleAccessFilter(logging.Filter):
-    def filter(self, record: logging.LogRecord) -> bool:
-        if record.name != "uvicorn.access":
-            return True
-        args = record.args
-        if not isinstance(args, tuple) or len(args) < 5:
-            return True
-        method = str(args[1] or "").strip().upper()
-        path = str(args[2] or "").partition("?")[0]
-        try:
-            status_code = int(args[4])
-        except (TypeError, ValueError):
-            return True
-        return not (
-            method == "GET"
-            and path == "/api/channels/health"
-            and 200 <= status_code < 300
-        )
-
-
 class _HumanReadableFormatter(logging.Formatter):
     def format(self, record: logging.LogRecord) -> str:
         if not hasattr(record, "display_name"):
@@ -189,7 +170,6 @@ def _build_stderr_handler() -> logging.Handler:
     setattr(handler, _MANAGED_HANDLER_ATTR, True)
     handler.setLevel(_console_level())
     handler.addFilter(_LogContextFilter())
-    handler.addFilter(_ConsoleAccessFilter())
     handler.setFormatter(_console_formatter())
     return handler
 
@@ -206,12 +186,55 @@ def _browser_auth_log_path() -> Path:
 
 def _build_runtime_file_handler(path: Path) -> logging.Handler:
     path.parent.mkdir(parents=True, exist_ok=True)
-    handler = logging.FileHandler(path, encoding="utf-8")
+    handler = _ResilientFileHandler(path, encoding="utf-8")
     setattr(handler, _MANAGED_HANDLER_ATTR, True)
     handler.setLevel(_runtime_level())
     handler.addFilter(_LogContextFilter())
     handler.setFormatter(_runtime_formatter())
     return handler
+
+
+def _report_file_failure(path: Path | str, error: BaseException) -> None:
+    # Do not include the failed log record: it may contain business payloads.
+    # Report the actual filesystem exception, bounded and without recursion
+    # through the broken handler. stderr remains separate from CLI stdout.
+    message = f"logging_sink_failed: {path}: {type(error).__name__}: {error}"
+    for name, value in os.environ.items():
+        if len(value) >= 6 and re.search(r"password|secret|token|cookie|api.?key|authorization", name, re.I):
+            message = message.replace(value, "[REDACTED]")
+    message = message.replace("\r", "\\r").replace("\n", "\\n")
+    if len(message) > 2048:
+        message = message[:2048] + " [truncated]"
+    try:
+        sys.stderr.write(message + "\n")
+    except (OSError, ValueError):
+        pass  # A closed stderr cannot be used to report its own failure.
+
+
+class _ResilientFileHandler(logging.FileHandler):
+    _failed = False
+
+    def emit(self, record: logging.LogRecord) -> None:
+        if self._failed:
+            return
+        try:
+            super().emit(record)
+        except OSError:
+            self.handleError(record)
+
+    def handleError(self, record: logging.LogRecord) -> None:
+        error = sys.exception()
+        if not isinstance(error, OSError):
+            super().handleError(record)
+            return
+        if self._failed:
+            return
+        self._failed = True
+        try:
+            self.close()
+        except OSError:
+            pass
+        _report_file_failure(self.baseFilename, error)
 
 
 def _build_browser_auth_file_handler(path: Path) -> logging.Handler:
@@ -225,22 +248,22 @@ def setup_logging() -> None:
 
     _remove_managed_handlers(root)
     managed_handlers = [_build_stderr_handler()]
-    runtime_log_path = _runtime_log_path()
     from shared.log_retention import cleanup_local_logs
 
-    cleanup_local_logs(state_root_path=_state_root())
+    try:
+        cleanup_local_logs(state_root_path=_state_root())
+    except OSError as exc:
+        _report_file_failure(_state_root() / "logs", exc)
     if local_logs_enabled():
-        managed_handlers.append(_build_runtime_file_handler(runtime_log_path))
-    browser_auth_log_path = _browser_auth_log_path()
-    if local_logs_enabled():
-        managed_handlers.append(_build_browser_auth_file_handler(browser_auth_log_path))
+        for path, factory in [(_runtime_log_path(), _build_runtime_file_handler),
+                              (_browser_auth_log_path(), _build_browser_auth_file_handler)]:
+            try:
+                managed_handlers.append(factory(path))
+            except OSError as exc:
+                _report_file_failure(path, exc)
     for handler in managed_handlers:
         root.addHandler(handler)
     root.setLevel(min(handler.level for handler in managed_handlers))
-
-    logger.propagate = True
-    logger.setLevel(logging.NOTSET)
-    _remove_managed_handlers(logger)
 
     for name in _THIRD_PARTY_LOGGERS:
         logging.getLogger(name).setLevel(logging.WARNING)
@@ -249,4 +272,4 @@ def setup_logging() -> None:
         logging.getLogger(name).setLevel(level)
 
 
-__all__ = ["get_logger", "logger", "reset_log_context", "set_log_context", "setup_logging"]
+__all__ = ["get_logger", "reset_log_context", "set_log_context", "setup_logging"]

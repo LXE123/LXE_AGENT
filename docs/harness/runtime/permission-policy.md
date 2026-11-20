@@ -18,7 +18,7 @@ Runtime 在 `agent_sessions.permission_mode` 保存会话权限模式，不写�
 
 `PermissionPolicyService.resolve` 只返回模式、固定 `workspace.directory` 和会话 ID，不访问文件系统、不创建目录、不审批、不修改会话。边界不扩大到 Git 根或命令 cwd；`workspace.worktree` 仍用于指令加载、Git 和开发环境 `.venv` 定位。
 
-`ExecutionPaths` 单独推导产物、命令输出和临时路径，不提前访问或创建产物目录。工作区里 `.lxeagent` 是普通文件时，只在实际使用其产物目录的操作上报错。数据库、日志和配置目录不另设统一写保护；选整个项目作为工作区时，其中的应用私有文件也进入工作区写入范围。
+`ExecutionPaths` 单独推导产物、命令输出和临时路径，不提前访问或创建产物目录。工作区里 `.lxeagent` 是普通文件时，只在实际使用其产物或日志目录的操作上报错。数据库、日志和配置目录不另设统一写保护；选整个项目作为工作区时，其中的应用私有文件也进入工作区写入范围。
 
 下表的 `<data-root>` 表示宿主实际使用的数据目录，默认位置和 `LXE_DATA_ROOT` 配置见 [程序与用户数据](../../desktop/data-location.md)。这里只列与执行路径相关的目录。
 
@@ -27,10 +27,13 @@ Runtime 在 `agent_sessions.permission_mode` 保存会话权限模式，不写�
 | `<data-root>/workspace/` | 默认工作区 |
 | `<data-root>/tmp/exec/<session hash>/` | 宿主保存命令输出，不依赖 Git 根或 cwd |
 | `<workspace>/.lxeagent/artifacts/` | 当前工作区产物，按现有业务模块和数据集结构组织 |
+| `<workspace>/.lxeagent/logs/runtime/<日期>/mcp-cli.log` | 独立 MCP 命令的诊断日志，启用本地日志时写入 |
 
 同工作区的会话共享产物，不同工作区不自动共享。模型的 `artifact_root`、文件工具目录识别与 lxeskillCLI 的业务输出使用同一产物路径规则。子进程 `LXE_WORKSPACE_ROOT` 指向选中的目录；命令解释器的选择不改变工作区边界。独立 lxeskillCLI 未指定工作区时使用调用者 cwd，无会话的宿主调用显式传入默认工作区。
 
 宿主命令输出不单独授予工具写权限；如果它本来就在所选工作区或平台允许的临时区域内，就按该区域的普通内容处理。
+
+命令输出只是临时转储，保留 7 天。Runtime 第一次执行命令时扫一遍整个 `tmp/exec/`，之后执行命令时按间隔补扫，两次扫描至少相隔 1 小时。清理超过 7 天的 `.log`，包括旧版直接放在 `tmp/exec/` 下的文件。当前 Runtime 仍在运行的命令所持有的转储保留到命令结束。会话目录清理后为空，且清理前 7 天没有新增或删除文件，才删除该目录。清理从解析后的数据根出发，跳过下方各级的符号链接和 Windows junction。
 
 ## 临时目录与执行后端
 
@@ -81,7 +84,7 @@ Desktop 升级启动时，把实际数据目录下的旧 `<data-root>/artifacts/
 
 Windows 原生沙箱测试需设置 `LXE_EXEC_SANDBOX_NATIVE_TEST=1` 并提供 Node 和已构建的 runner；使用独立工作区及专用夹具，不对真实业务目录修改 ACL。
 
-验证范围与执行要求统一遵循 [AGENTS.md](../../../AGENTS.md#工具链)，以上是按改动选用的测试入口。
+验证范围与执行要求统一遵循 [AGENTS.md](../../../AGENTS.md#工具链与验证)，以上是按改动选用的测试入口。
 
 ## 实现入口
 

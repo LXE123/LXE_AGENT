@@ -577,7 +577,7 @@ def test_download_store_unlinked_shipments_refreshes_once_after_mid_flow_auth_fa
     async def fake_run(clean_store_name: str, **kwargs) -> ship.StoreUnlinkedShipmentDownloadResult:
         run_calls.append(clean_store_name)
         if len(run_calls) == 1:
-            raise ship.BatchDeliveryApiAuthError("查询WMS待装箱发货单鉴权失败(status=403)")
+            raise ship.BatchDeliveryApiAuthError("查询WMS待装箱发货单鉴权失败(status=401)")
         return ship.StoreUnlinkedShipmentDownloadResult(
             store_name=clean_store_name,
             store_id=697476809,

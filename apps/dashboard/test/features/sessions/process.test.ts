@@ -46,6 +46,27 @@ test("a final-only reply has no empty process toggle",()=>{
   expect(processHeaders(rows)).toHaveLength(0);
 });
 
+test("a reply without process keeps its status above the answer through completion and history handoff",()=>{
+  const turn = {turn_id:"turn",message_id:"user",client_message_id:"client",text:"question",created_at:1000,started_at:1000,settled_at:0,state:"running",stream:{display_metrics:{phase:"generating_answer"},process_parts:[
+    {type:"text",part_id:"answer:0",sequence:0,text:"only answer",status:"streaming",presentation:"final"},
+  ]}} as unknown as import("../../../src/api/payloads").DesktopConversationTurnPayload;
+  const saved = [
+    {id:"user",role:"user",client_message_id:"client",content:"question"},
+    {id:"answer",role:"assistant",content:[{type:"text",text:"only answer"}]},
+  ].map(message=>({...message,display_group_id:"group",created_at:1,turn:{turn_id:"turn",status:"completed",elapsed_ms:24000}})) as SessionMessage[];
+  const completed = {...turn,state:"completed" as const,settled_at:25000};
+  for(const [messages,turns] of [[[],[turn]],[[],[completed]],[saved,[completed]],[saved,[]]] as [SessionMessage[],typeof turn[]][]){
+    const rows=conversationRows(messages,turns,[]);
+    const headers=processHeaders(rows);
+    expect(headers).toHaveLength(0);
+    expect(visibleProcessRows(rows,headers,new Map()).map(row=>row.id)).toEqual([
+      "user:client","status:turn","answer:0","answer-meta:turn:turn",
+    ]);
+    expect(rows.find(row=>row.kind==="status")?.status).toBe(turns[0]?.state ?? "completed");
+    if(turns[0]?.state!=="running") expect(rows.find(row=>row.kind==="status")?.elapsedMs).toBe(24000);
+  }
+});
+
 test("live classification wins over partial history and preserves failed attempts through handoff",()=>{
   const turn = {turn_id:"turn",message_id:"server",client_message_id:"client",text:"question",created_at:1,started_at:1,settled_at:0,state:"running",stream:{display_metrics:{phase:"generating_answer"},process_parts:[
     {type:"text",part_id:"retry:0",sequence:0,text:"failed partial",status:"error",presentation:"process"},

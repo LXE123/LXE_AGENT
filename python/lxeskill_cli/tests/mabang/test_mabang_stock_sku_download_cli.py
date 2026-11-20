@@ -3,7 +3,7 @@ from __future__ import annotations
 import os
 from types import SimpleNamespace
 
-from services.agent_cli.mabang import download_stock_sku_excel as cli
+from services.commands.mabang import download_stock_sku_excel as cli
 
 
 def _write_delivery_csv(path, rows: list[dict[str, str]], *, columns: list[str] | None = None) -> None:

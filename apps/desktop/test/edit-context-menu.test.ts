@@ -1,7 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import { readFileSync } from "node:fs";
 
-import { editableContextMenuTemplate } from "../src/main/edit-context-menu";
+import { editContextMenuTemplate } from "../src/main/edit-context-menu";
 
 const editFlags = {
   canUndo: false,
@@ -14,22 +13,19 @@ const editFlags = {
   canEditRichly: false,
 };
 
-describe("editable context menu", () => {
-  test("does not open outside editable controls", () => {
-    expect(editableContextMenuTemplate({ isEditable: false, editFlags })).toEqual([]);
+describe("edit context menu", () => {
+  test("offers native copy for a selection in read-only text", () => {
+    const params = { isEditable: false, selectionText: "Windows x64", editFlags: { ...editFlags, canCopy: true } };
+    expect(editContextMenuTemplate(params)).toEqual([{ role: "copy" }]);
+    expect(editContextMenuTemplate({ ...params, selectionText: "" })).toEqual([]);
+    expect(editContextMenuTemplate({ ...params, editFlags })).toEqual([]);
   });
 
   test("contains only native cut, copy, and paste roles with truthful states", () => {
-    expect(editableContextMenuTemplate({ isEditable: true, editFlags })).toEqual([
+    expect(editContextMenuTemplate({ isEditable: true, selectionText: "", editFlags })).toEqual([
       { role: "cut", enabled: true },
       { role: "copy", enabled: false },
       { role: "paste", enabled: true },
     ]);
-  });
-
-  test("is registered on the main window web contents", () => {
-    const source = readFileSync(new URL("../src/main.ts", import.meta.url), "utf8");
-    expect(source).toMatch(/webContents\.on\("context-menu"/);
-    expect(source).toMatch(/Menu\.buildFromTemplate\(template\)\.popup\(\{ window: ownerWindow \}\)/);
   });
 });

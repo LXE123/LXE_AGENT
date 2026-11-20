@@ -1,6 +1,6 @@
 # Streaming Adapter
 
-三类 Provider 使用各自的协议适配器，将响应归一化为共享 AssistantMessage 和流事件。选择入口见 [LLM 适配](README.md)，完整内容索引与事件契约见 [统一模型消息流](assistant-message-stream.md)。
+各 Provider 使用各自的协议适配器，将响应归一化为共享 AssistantMessage 和流事件。选择入口见 [LLM 适配](README.md)，完整内容索引与事件契约见 [统一模型消息流](assistant-message-stream.md)。
 
 ## 输入与输出
 
@@ -9,6 +9,8 @@
 协议事件累计为文本、思考和工具调用内容，保留稳定的内容索引、调用 ID、参数、usage 和停止原因。Runtime 消费统一事件生成桌面或渠道展示，收到完整消息后再进入工具执行或 final。
 
 ## 协议专属处理
+
+- **Google GenerateContent** 使用 `streamGenerateContent?alt=sse`。适配器将 `thought: true` 的文本转为思考事件。带工具调用的 `STOP` 触发工具执行，`MAX_TOKENS` 结束于长度限制。缓存输入单列，思考 token 计入输出。
 
 - **Anthropic Messages**：消费 SDK 的原始 streamEvent，包括 content_block_start 和后续 delta；由 AnthropicMessagesStreamAdapter 累计 block，保留该协议允许的 signature 和 redacted thinking。这个事件名称不适用于 OpenAI 两类接口。
 - **OpenAI Completions**：累计增量正文、推理字段和按 index 分段的 tool_calls；reasoning 字段差异由已验证的模型描述控制。

@@ -24,6 +24,7 @@ import { DesktopSetupService } from "./setup";
 import { DesktopConfigValidation } from "./validation";
 
 export class DesktopConfigStore {
+  private readonly repository: DesktopConfigRepository;
   private readonly setup: DesktopSetupService;
   private readonly cloud: DesktopCloudConfigService;
 
@@ -37,6 +38,7 @@ export class DesktopConfigStore {
     const llmConfigRoot = options.llmConfigRoot ?? join(process.cwd(), "config", "llm");
     const catalog = loadLlmProviderCatalog(llmConfigRoot);
     const repository = new DesktopConfigRepository(dataRoot, safeStorage, validation.platform, catalog);
+    this.repository = repository;
     const auth = new DesktopLocalAuthStore(
       dataRoot,
       validation.platform,

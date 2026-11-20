@@ -105,7 +105,7 @@ export class DeepSeekImageRequest {
     }
     if (bytes > this.limits.bodyBytes) throw new RuntimeProviderError(
       `DeepSeek request body is ${bytes} bytes after omitting all images; limit is ${this.limits.bodyBytes} bytes`,
-      this.descriptor.name, "请求体过大", "DeepSeek 请求体超过字节上限，省略图片后仍过大，请压缩文字和工具历史。", false, 413,
+      this.descriptor.name, "请求体过大", false, 413,
     );
     this.diagnostic("deepseek.image_projection", { mode: this.inline ? "base64" : "files",
       images: this.images.length, omitted: this.omittedCount, body_bytes: bytes });

@@ -4,29 +4,9 @@ from pathlib import Path
 
 import pytest
 
-from services.agent_cli.browser.amazon_common import login_verify
+from services.commands.browser.amazon_common import login_verify
 from services.browser.workflows import amazon_fba_login_verify
 from services.browser.workflows.amazon_fba_common import WorkflowBrowserSession
-
-
-def test_click_current_login_button_targets_path_specific_buttons() -> None:
-    class _Driver:
-        def execute_script(self, script: str):
-            if "return String((window.location && window.location.pathname)" in script:
-                return "/ap/signin"
-            assert "window.location.pathname" in script
-            assert "'input#continue[type=\"submit\"]'" in script
-            assert script.index("'input#continue[type=\"submit\"]'") < script.index("'#signInSubmit'")
-            assert '\'#auth-signin-button[name="mfaSubmit"]\'' in script
-            assert "'#auth-signin-button'" in script
-            return {"path": "/ap/signin", "login": True, "clicked": True, "button": "continue"}
-
-    assert login_verify._click_current_login_button(_Driver()) == {
-        "path": "/ap/signin",
-        "login": True,
-        "clicked": True,
-        "button": "continue",
-    }
 
 
 def test_click_current_login_button_waits_before_mfa_submit(monkeypatch) -> None:

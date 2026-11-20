@@ -248,7 +248,7 @@ const runRipgrep = async (
     const exitCode = await child.exited;
     const stderr = await stderrPromise;
     if (signal?.aborted) throw abortReason(signal);
-    if (timedOut) throw new Error(`grep 超时（${RIPGREP_TIMEOUT_MS / 1_000}s），请缩小搜索范围`);
+    if (timedOut) throw new Error(`grep timed out after ${RIPGREP_TIMEOUT_MS / 1_000}s. Narrow the search scope.`);
     return { exitCode, lines, stderr, stopReason };
   } finally {
     clearTimeout(timeout);
@@ -329,18 +329,18 @@ export class WorkspaceSearchService {
     // A non-trivial exit with no output and no early stop is a real rg failure;
     // an early stop legitimately kills rg, so its non-zero exit is expected.
     if (result.exitCode !== 0 && result.exitCode !== 1 && result.lines.length === 0 && !result.stopReason) {
-      throw new Error(`ripgrep 失败 (exit ${result.exitCode}): ${result.stderr.trim().slice(0, 500)}`);
+      throw new Error(`ripgrep failed (exit ${result.exitCode}): ${result.stderr.trim().slice(0, 500)}`);
     }
     if (result.lines.length === 0) {
       return result.stopReason === "budget"
-        ? `... (单行输出超过 ${RIPGREP_OUTPUT_BYTE_BUDGET / 1_024 / 1_024} MiB 安全上限，已提前停止，请缩小搜索范围)`
+        ? `... (One output line exceeded the ${RIPGREP_OUTPUT_BYTE_BUDGET / 1_024 / 1_024} MiB limit. Search stopped early. Narrow the search scope.)`
         : "No matches found.";
     }
     const lines = result.lines.map((line) => line.replace(/^\.[/\\]/u, ""));
     if (result.stopReason === "budget") {
-      lines.push(`... (输出超过 ${RIPGREP_OUTPUT_BYTE_BUDGET / 1_024 / 1_024} MiB 安全上限，已提前停止，请缩小搜索范围)`);
+      lines.push(`... (Output exceeded the ${RIPGREP_OUTPUT_BYTE_BUDGET / 1_024 / 1_024} MiB limit. Search stopped early. Narrow the search scope.)`);
     } else if (result.stopReason === "limit") {
-      lines.push(`... (更多匹配未显示，提高 head_limit 或缩小搜索范围)`);
+      lines.push(`... (More matches omitted. Increase head_limit or narrow the search scope.)`);
     }
     return lines.join("\n");
   }
@@ -348,7 +348,7 @@ export class WorkspaceSearchService {
   private async grepFallback(request: WorkspaceGrepRequest): Promise<string> {
     const typeExtensions = request.fileType ? TYPE_EXTENSIONS[request.fileType] : undefined;
     if (request.fileType && !typeExtensions) {
-      throw new Error(`未知 type: ${request.fileType}（无 ripgrep 时支持: ${Object.keys(TYPE_EXTENSIONS).sort().join(", ")}），或改用 glob 过滤`);
+      throw new Error(`Unknown type: ${request.fileType}. Without ripgrep, supported types are ${Object.keys(TYPE_EXTENSIONS).sort().join(", ")}. You can also filter with glob.`);
     }
     // Compile before touching the workspace so invalid expressions fail immediately.
     // Escape regex syntax only: identity escapes such as \- are invalid in Unicode mode.

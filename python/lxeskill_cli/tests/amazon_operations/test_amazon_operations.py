@@ -6,11 +6,11 @@ from types import SimpleNamespace
 import pytest
 import requests
 
-from services.agent_cli.amazon_operations import _shared
-from services.agent_cli.amazon_operations import analyze_listing
-from services.agent_cli.amazon_operations import analyze_reviews
-from services.agent_cli.amazon_operations import research_competitors
-from services.agent_cli.amazon_operations import research_keywords
+from services.commands.amazon_operations import _shared
+from services.commands.amazon_operations import analyze_listing
+from services.commands.amazon_operations import analyze_reviews
+from services.commands.amazon_operations import research_competitors
+from services.commands.amazon_operations import research_keywords
 
 
 COMPLETE_LISTING_HTML = """

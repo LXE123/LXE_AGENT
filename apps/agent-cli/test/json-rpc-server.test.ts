@@ -7,7 +7,7 @@ import type { AgentJob } from "@lxe/protocol";
 
 const initialize = {
   protocol_version: AGENT_PROTOCOL_VERSION,
-  agent_soul_path: "/soul", skills_root: "/skills", user_skills_root: "/user-skills",
+  skills_root: "/skills", user_skills_root: "/user-skills",
   llm_config_root: "/llm", data_root: process.cwd(),
   legacy_workspace: { directory: process.cwd(), worktree: process.cwd() },
 };
@@ -25,12 +25,38 @@ const setup = (host: Record<string, unknown> = {}) => {
   });
   servers.push(server);
   const call = (method: string, params?: unknown, id: unknown = "request") => server.accept(JSON.stringify({ jsonrpc: "2.0", id, method, ...(params === undefined ? {} : { params }) }));
-  const responses = (): AgentResponse[] => output.flatMap((item) => Array.isArray(item) ? item : "id" in item ? [item] : []);
+  const responses = (): AgentResponse[] => output.flatMap(item => Array.isArray(item) ? item : "method" in item ? [] : [item]);
   return { server, output, call, responses, creates: () => creates };
 };
 afterEach(async () => { for (const server of servers.splice(0)) await server.shutdown(); });
 
 describe("JSON-RPC server semantics", () => {
+  test("MCP preset synchronization validates inputs and preserves actual host errors", async () => {
+    const received: unknown[] = [];
+    const { call, responses } = setup({ syncMcpServerPresets: async (servers: unknown) => {
+      received.push(servers);
+      if (received.length > 1) throw new Error("MCP servers must be an object");
+      return { added: ["skills"], updated: [] };
+    } });
+    const params = { servers: [{ name: "skills", enabled: true, transport: "streamable-http",
+      url: "https://example.com/mcp", connector_description: "Find team skills." }] };
+    await call("sync_mcp_server_presets", params, "early");
+    expect(responses().at(-1)).toMatchObject({ error: { code: -32001 } });
+    await call("initialize", initialize);
+    await call("sync_mcp_server_presets", params, "sync");
+    expect(responses().at(-1)).toMatchObject({ result: { added: ["skills"], updated: [] } });
+    for (const invalid of [{}, { servers: {} }, { ...params, unexpected: true },
+      { servers: [{ ...params.servers[0], enabled: "true" }] },
+      { servers: [{ ...params.servers[0], connector_description: 42 }] },
+      { servers: [{ ...params.servers[0], url: "not-a-url" }] },
+      { servers: [params.servers[0], params.servers[0]] }]) {
+      await call("sync_mcp_server_presets", invalid, "invalid");
+      expect(responses().at(-1)).toMatchObject({ error: { code: -32602 } });
+    }
+    expect(received).toEqual([params.servers]);
+    await call("sync_mcp_server_presets", params, "failure");
+    expect(responses().at(-1)).toMatchObject({ error: { message: "MCP servers must be an object" } });
+  });
   test.each([undefined, "user_stop"] as const)("cancel reason %s targets only the matching active turn", async reason => {
     const ready = Promise.withResolvers<AgentRunHandle>();
     const { call, responses } = setup({ runTurn: async (_job: AgentJob, handle: AgentRunHandle) => {
@@ -78,7 +104,7 @@ describe("JSON-RPC server semantics", () => {
     await call("missing_method", {}, "missing");
     await call("cancel_turn", {}, "params");
     await call("cancel_turn", { run_id: "run" }, "not-ready");
-    await call("initialize", { ...initialize, protocol_version: 21 }, "version");
+    await call("initialize", { ...initialize, protocol_version: 26 }, "version");
     const { protocol_version: _version, ...missingVersion } = initialize;
     await call("initialize", missingVersion, "missing-version");
     expect(responses().map((response) => [response.id, "error" in response ? response.error.code : 0])).toEqual([
@@ -98,7 +124,7 @@ describe("JSON-RPC server semantics", () => {
     started();
     await Promise.all([first, second]);
     await call("initialize", initialize, "repeat");
-    await call("initialize", { ...initialize, protocol_version: 21 }, "wrong-version");
+    await call("initialize", { ...initialize, protocol_version: 26 }, "wrong-version");
     expect(creates()).toBe(1);
     expect(responses().find((r) => r.id === "early")).toMatchObject({ error: { code: -32001 } });
     for (const id of ["first", "second", "repeat"]) expect(responses().find((r) => r.id === id)).toMatchObject({ result: { protocol_version: AGENT_PROTOCOL_VERSION } });

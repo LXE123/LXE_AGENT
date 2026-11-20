@@ -1,7 +1,7 @@
 import React, { useState } from "react";
 import { useModelActions } from "../../src/api/model-actions";
 import { useMcpActions } from "../../src/api/mcp-actions";
-import { useCurrentModelQuery, useModelsQuery, useToolsetsQuery, useConversationActivityQuery } from "../../src/api/queries";
+import { useCurrentModelQuery, useModelsQuery, useMcpServersQuery, useConversationActivityQuery } from "../../src/api/queries";
 import { useConversationEvents } from "../../src/features/sessions/use-conversation-events";
 import { ConversationComposer } from "../../src/features/sessions/view";
 import { McpServicesView } from "../../src/features/integrations/view";
@@ -27,7 +27,7 @@ export const actionFixture = {
   reset() {
     this.active = true; current = models()[0]!; failure = ""; held = ""; release = undefined; sends = 0; activities.clear();
     sessionModels.clear();
-    server = { name: "fixture-mcp", enabled: true, transport: "stdio", status: "ready", tool_count: 0, error: "", server_title: "Fixture MCP", connector_id: "", connector_name: "", connector_description: "", exposure: "", tools: [] };
+    server = { name: "fixture-mcp", enabled: true, transport: "stdio", server_title: "Fixture MCP", connector_id: "", connector_name: "", connector_description: "", exposure: "" };
   },
   fail(operation: string) { failure = operation; },
   hold(operation: string) { held = operation; },
@@ -83,8 +83,9 @@ export const actionFixture = {
         if (id) sessionModels.set(id, selected); else current = selected;
         return structuredClone(selected);
       }
-      case "toolsets.list": return { items: [{ name: "mcp", label: "MCP", enabled: true, tools: [], servers: [structuredClone(server)] }] };
-      case "mcp.servers.update": server = { ...server, enabled: Boolean(call.input.enabled), status: call.input.enabled ? "ready" : "disabled" }; return structuredClone(server);
+      case "toolsets.list": return { items: [{ name: `mcp:${server.name}`, label: "MCP", enabled: server.enabled, tools: [] }] };
+      case "mcp.servers.list": return { items: [structuredClone(server)], total: 1 };
+      case "mcp.servers.update": server = { ...server, enabled: Boolean(call.input.enabled) }; return structuredClone(server);
       case "sessions.activity": return structuredClone(activities.get(String(call.input.session_id)) ?? { session_id: call.input.session_id, active: null, latest: null, queued: [] });
       case "sessions.detail": return { session: { session_id: call.input.session_id, permission_mode: "workspace-write" } };
       case "sessions.execTasks": return { items: [] };
@@ -101,7 +102,7 @@ function ActionControls({ sessionId }: { sessionId?: string }) {
   const [error, setError] = useState("");
   const currentQuery = useCurrentModelQuery(true, sessionId);
   const modelsQuery = useModelsQuery();
-  const toolsQuery = useToolsetsQuery();
+  const serversQuery = useMcpServersQuery();
   const activity = useConversationActivityQuery("event-session");
   const otherActivity = useConversationActivityQuery("other-session");
   const actions = useModelActions({ current: currentQuery.data, sessionId, models: modelsQuery.data?.items ?? [], onError: setError });
@@ -113,7 +114,7 @@ function ActionControls({ sessionId }: { sessionId?: string }) {
       models: modelsQuery.data?.items.map(item => ({ model: item.model, source: item.credential_source })),
       activity: activity.data, otherActivity: otherActivity.data })}</output>
     <output id="action-error">{error}</output>
-    <McpServicesView mcpError="" mcpSavingId={mcp.savingId} mcpToolset={toolsQuery.data?.items[0]} onToggleMcpServer={mcp.toggleMcpServer} />
+    <McpServicesView mcpError="" mcpSavingId={mcp.savingId} mcpServers={serversQuery.data?.items ?? []} onToggleMcpServer={mcp.toggleMcpServer} />
     <ConversationComposer contextDetail={null} activity={null} conversationKey="actions" currentModel={currentQuery.data ?? null}
       models={modelsQuery.data?.items ?? []} modelLoading={currentQuery.isPending || modelsQuery.isPending}
       modelSaving={actions.modelSaving} thinkingSaving={actions.thinkingSaving} runtimeReady runtimeUnavailableMessage=""

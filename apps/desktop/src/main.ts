@@ -1,7 +1,9 @@
 import { DesktopVietnamSettingsService } from "./main/vietnam-settings";
+import { DesktopAmazonV2SettingsService } from "./main/amazon-v2-settings";
 import { sendEditingShortcut, titlebarMenuTemplate } from "./main/titlebar-menu";
 import { WINDOWS_TITLEBAR_COLOURS } from "./main/window-options";
 import type { DesktopTitlebarAction } from "@lxe/desktop-protocol";
+import { registerTeamSkillsGuest } from "./main/team-skills-view";
 import { ManualToolsService } from "./main/manual-tools/service";
 import { dirname } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -11,6 +13,8 @@ import { readFileSync } from "node:fs";
 import { prepareUpdate } from "./main/update-preparation";
 import { DesktopUpdateService } from "./main/update-service";
 import { ElectronUpdateInstaller } from "./main/update-electron";
+import { cleanUpdateCache } from "./main/update-cache";
+import { getAppCacheDir } from "electron-updater/out/AppAdapter";
 import { DesktopUpdateApi, UpdateConnectionMonitor, updateConnectionReady } from "./main/update-api";
 import { join } from "node:path";
 import {
@@ -18,6 +22,7 @@ import {
   BrowserWindow,
   dialog,
   Menu,
+  nativeTheme,
   powerMonitor,
   protocol,
   safeStorage,
@@ -71,7 +76,7 @@ import {
 import { DesktopGateway } from "./main/desktop-gateway";
 import { AuthBrowserHost } from "./main/auth-browser-host";
 import { ElectronAuthBrowserSession } from "./main/auth-browser-session";
-import { editableContextMenuTemplate } from "./main/edit-context-menu";
+import { editContextMenuTemplate } from "./main/edit-context-menu";
 import { DesktopLoggingManager } from "./main/logging";
 import { MacOSWireGuardProvisioner } from "./main/macos-wireguard-provisioner";
 import { registerDesktopIpc, type DesktopIpcApplication } from "./main/ipc";
@@ -82,7 +87,7 @@ import {
   usesPackagedRuntime,
   usesProductionRenderer,
 } from "./main/launch-mode";
-import { bootstrapDesktopState, migrateLegacyArtifacts } from "./main/migration";
+import { migrateLegacyArtifacts } from "./main/migration";
 import { resolveDesktopPaths } from "./main/paths";
 import { configureElectronRuntimeState, prepareDesktopRuntimeState } from "./main/runtime-state";
 import { reportDesktopStartupFailure } from "./main/startup-failure";
@@ -252,7 +257,6 @@ async function bootstrap(): Promise<void> {
     resourcesPath: process.resourcesPath,
     sourceRoot: paths.sourceRoot,
   });
-  bootstrapDesktopState(paths.mcpDefaultPath, paths.dataRoot);
   await migrateLegacyArtifacts(paths.dataRoot);
   const sourceEnvironment = packagedRuntime
     ? {}
@@ -397,7 +401,7 @@ async function bootstrap(): Promise<void> {
     enrollments: new DesktopCloudEnrollmentManager(),
     logger: cloudLogger,
     provisioner: cloudProvisioner,
-    contextClient: new DesktopCloudContextClient({ pythonPath: paths.managedPythonPath, cwd: paths.dataRoot }),
+    contextClient: new DesktopCloudContextClient({ executablePath: paths.lxeskillExecutablePath, cwd: paths.dataRoot }),
     onConfigured: async () => {
       await gateway.restart();
       invalidations.push(ALL_DASHBOARD_DATA_DOMAINS);
@@ -418,7 +422,7 @@ async function bootstrap(): Promise<void> {
   activeCloud = cloud;
   const syntheticPerformer = new DesktopSyntheticPerformerService({
     platform: process.platform,
-    pythonPath: paths.managedPythonPath,
+    executablePath: paths.lxeskillExecutablePath,
     exifToolPath: paths.exifToolPath,
     dataRoot: paths.dataRoot,
     managedPath: paths.managedPath,
@@ -430,12 +434,16 @@ async function bootstrap(): Promise<void> {
   activeSyntheticPerformer = syntheticPerformer;
   const inputAssets = new DesktopInputAssetsService({
     platform: process.platform,
-    pythonPath: paths.managedPythonPath,
+    executablePath: paths.lxeskillExecutablePath,
     dataRoot: paths.dataRoot,
     managedPath: paths.managedPath,
   });
   const vietnamSettings = new DesktopVietnamSettingsService({
-    platform: process.platform, pythonPath: paths.managedPythonPath,
+    platform: process.platform, executablePath: paths.lxeskillExecutablePath,
+    dataRoot: paths.dataRoot, managedPath: paths.managedPath,
+  });
+  const amazonV2Settings = new DesktopAmazonV2SettingsService({
+    platform: process.platform, executablePath: paths.lxeskillExecutablePath,
     dataRoot: paths.dataRoot, managedPath: paths.managedPath,
   });
   const checkCloudAfterResume = (): void => { void cloud.check(); activeUpdates?.wake(); };
@@ -445,6 +453,10 @@ async function bootstrap(): Promise<void> {
   const updateJournal = new UpdateJournal(join(paths.dataRoot, "updates", "last-attempt.json"));
   const installedBuild = updateSupported ? JSON.parse(readFileSync(join(app.getAppPath(), "package.json"), "utf8")).lxeBuildId as string | undefined : undefined;
   const lastAttempt = updateJournal.previous(app.getVersion(), installedBuild);
+  const updateCacheCleanup = updateSupported ? cleanUpdateCache(getAppCacheDir(), app.getVersion()).then(({removed, failed}) => {
+    if (removed.length) logger.info("desktop_update_cache_removed", {removed});
+    if (failed.length) logger.error("desktop_update_cache_cleanup_failed", {failed});
+  }) : Promise.resolve();
   let gatewayStopStarted = false;
   const updates = new DesktopUpdateService({
     ...(lastAttempt ? {lastAttempt} : {}),
@@ -453,7 +465,7 @@ async function bootstrap(): Promise<void> {
     supported: updateSupported,
     configured: () => updateConnectionReady(cloud.state()),
     api: new DesktopUpdateApi(() => cloud.state(), app.getVersion(), installedBuild),
-    installer: updateSupported ? new ElectronUpdateInstaller(error => activeUpdates?.recordFailure(error), message => logger.info("desktop_update_download", {message})) : {
+    installer: updateSupported ? new ElectronUpdateInstaller(error => activeUpdates?.recordFailure(error), message => logger.info("desktop_update_download", {message}), updateCacheCleanup) : {
       download: async () => { throw new Error("Updates unsupported"); },
       verify: async () => {}, install: () => {},
     },
@@ -530,20 +542,21 @@ async function bootstrap(): Promise<void> {
     checkForUpdate: () => updates.check(),
     downloadUpdate: target => updates.download(target),
     installUpdate: target => updates.install(target),
-    // The renderer paints its own surface but not the frame around it. macOS
-    // draws its controls from the system appearance and needs nothing; Windows
-    // holds whatever colour it was handed at construction, so the caption strip
-    // has to be repainted here or it stays light behind a dark page.
+    // Native chrome and webContents (including team skills) share this preference.
+    // Keep "system" intact so later OS changes still reach media-query listeners.
     applyAppearance: (appearance) => {
-      const palette = DESKTOP_TITLEBAR_COLOURS[appearance];
+      nativeTheme.themeSource = appearance;
+      const resolved = nativeTheme.shouldUseDarkColors ? "dark" : "light";
+      const palette = DESKTOP_TITLEBAR_COLOURS[resolved];
       if (!window || window.isDestroyed()) return;
       window.setBackgroundColor(palette.color);
       if (desktopPlatform === "darwin") return;
-      window.setTitleBarOverlay({ ...(desktopPlatform === "win32" ? WINDOWS_TITLEBAR_COLOURS[appearance] : palette), height: DESKTOP_TITLEBAR_HEIGHT });
+      window.setTitleBarOverlay({ ...(desktopPlatform === "win32" ? WINDOWS_TITLEBAR_COLOURS[resolved] : palette), height: DESKTOP_TITLEBAR_HEIGHT });
     },
     dashboardCall: async <O extends DashboardRpcOperation>(
       call: DashboardRpcCall<O>,
     ): Promise<DashboardRpcResult<O>> => {
+      if (call.operation === "skills.team.install") throw new Error("请从团队技能库卡片安装");
       const result = await gateway.dashboardCall(call);
       invalidations.push(dashboardDomainsForMutation(call.operation));
       return result;
@@ -637,6 +650,8 @@ async function bootstrap(): Promise<void> {
     listInputAssets: () => inputAssets.list(),
     inputAssetSlotDirectory: (slot) => inputAssets.directoryFor(slot),
     getVietnamSettings: () => vietnamSettings.read(),
+    getAmazonV2Settings: () => amazonV2Settings.read(),
+    saveAmazonV2Settings: input => amazonV2Settings.save(input),
     saveVietnamParameters: input => vietnamSettings.save(input),
     installVietnamTemplate: sourcePath => vietnamSettings.uploadTemplate(sourcePath),
     exportVietnamTemplate: path => vietnamSettings.exportTemplate(path),
@@ -644,6 +659,7 @@ async function bootstrap(): Promise<void> {
     registerPastedConversationFiles: (input) => conversationAttachments.registerPaste(input),
     isTrustedFileSender: event => !!window && event.sender === window.webContents && event.senderFrame === window.webContents.mainFrame,
     fileCall: call => gateway.fileCall(call),
+    clickedFileLink: (session, path) => gateway.clickedFileLink(session, path),
     fileRead: (handle, relativeImage) => gateway.fileRead(handle, relativeImage),
     fileReadText: (handle, range) => gateway.fileReadText(handle, range),
     previewDraftConversationFile: async (attachmentId, variant = "expanded") => {
@@ -689,19 +705,42 @@ async function bootstrap(): Promise<void> {
     minWidth: 960,
     minHeight: 640,
     show: false,
-    backgroundColor: "#faf8f5",
+    backgroundColor: DESKTOP_TITLEBAR_COLOURS.light.color,
     webPreferences: {
       preload: join(import.meta.dirname, "preload.cjs"),
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: true,
       webSecurity: true,
+      webviewTag: true,
     },
   });
   if (desktopPlatform !== "darwin") window.setMenuBarVisibility(false);
+  const catalogWindow = window;
+  registerTeamSkillsGuest(catalogWindow.webContents, manualTools?.browsers, {
+    preload: join(import.meta.dirname, "team-skills-preload.cjs"),
+    versions: ids => gateway.dashboardCall({ operation: "skills.team.versions", input: { ids } }),
+    install: (ticket, replaceLocalName) => gateway.dashboardCall({ operation: "skills.team.install", input: { ticket, ...(replaceLocalName && { replaceLocalName }) } }),
+    uninstallTarget: (id, version) => gateway.dashboardCall({ operation: "skills.team.uninstallTarget", input: { id, version } }),
+    useTarget: id => gateway.dashboardCall({ operation: "skills.team.useTarget", input: { id } }),
+    confirmUninstall: async (name, version) => (await dialog.showMessageBox(catalogWindow, {
+      type: "question", title: "从本机卸载", message: `从这台电脑卸载「${name}」v${version}？`,
+      detail: "LXE 会将本机技能文件夹和其中的修改一起移入回收目录。团队成员仍可使用技能库中的版本。",
+      buttons: ["取消", "从本机卸载"], defaultId: 0, cancelId: 0, noLink: true,
+    })).response === 1,
+    recycle: async ({ id, version }) => {
+      await gateway.dashboardCall({ operation: "skills.user.delete", input: { id, version } });
+      invalidations.push(["skills"]);
+    },
+    confirmOverwrite: async name => (await dialog.showMessageBox(catalogWindow, {
+      type: "question", title: "覆盖安装", message: `用户 Skill 目录中已有同名技能「${name}」。`,
+      detail: `是否用飞书技能库版本替换整个「${name}/」文件夹？`,
+      buttons: ["取消", "覆盖安装"], defaultId: 0, cancelId: 0, noLink: true,
+    })).response === 1,
+  });
   trackFilePreviewLifecycle(window.webContents, () => gateway.releaseFilePreviews());
   window.webContents.on("context-menu", (_event, params) => {
-    const template = editableContextMenuTemplate(params);
+    const template = editContextMenuTemplate(params);
     const ownerWindow = window;
     if (!ownerWindow || !template.length) return;
     Menu.buildFromTemplate(template).popup({ window: ownerWindow });
@@ -723,8 +762,6 @@ async function bootstrap(): Promise<void> {
     event.preventDefault();
     window?.hide();
   });
-  window.on("hide", () => manualTools?.browsers.hide());
-  window.webContents.on("did-start-navigation", (_event, _url, _inPlace, main) => { if (main) manualTools?.browsers.hide(); });
   window.on("closed", () => { window = undefined; });
   window.once("ready-to-show", () => window?.show());
   await window.loadURL(

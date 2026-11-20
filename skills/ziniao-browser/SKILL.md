@@ -1,23 +1,23 @@
 ---
 name: ziniao-browser
-description: 通过受控 lxeskill 命令管理紫鸟店铺会话，用于登录和操作电商平台的卖家店铺后台。用户要求打开、查看或退出紫鸟店铺，读取后台网页结构或截图，或执行点击、输入、滚动和跳转时使用。
+description: 管理紫鸟浏览器会话，供查询、打开或退出店铺时使用。通过本机 Node.js 控制脚本截取当前页面，或运行业务 Skill 的固定网页流程。
 type: ziniao_browser
 commands:
   - lxeskill browser store
-  - lxeskill browser page
+  - lxeskill browser script run
 ---
 
 # 紫鸟浏览器
 
-紫鸟在本项目中只用于登录和操作电商平台的卖家店铺后台，如 Amazon Seller Central。
+紫鸟在本项目中只用于登录和操作电商平台的卖家店铺后台，如 Amazon Seller Central。已有业务命令的流程按对应 Skill 执行。例如，创建 FBA 货件时，先用 `browser store` 取得 `store_id`，再按 `fba-shipment-create` 执行四阶段命令。
 
 ## 输入与依赖
 
-- 通过 `exec` 调用 frontmatter 声明的两个 lxeskill 命令，页面操作由 CLI 内部的官方配对 Selenium 链路完成。
+- 通过 `exec` 调用 frontmatter 声明的 lxeskill 命令，页面操作由 CLI 内部的官方配对 Selenium 链路完成。
 - 命令依赖当前 Agent 会话提供的 `LXE_AGENT_SESSION_ID` 和紫鸟客户端。
 - `store_id` 来自用户输入或 `get_status` 的真实结果；页面操作使用已运行店铺的同一个 ID。
 
-读取最后一条 `type="result"` 作为 terminal：先检查 `ok`，成功时读取 `data`，失败时按下文“错误处理”处理。
+读取最后一条 `type="result"`，成功时查看 `data`，失败时报告 `error.message`。
 
 ## 店铺生命周期
 
@@ -39,54 +39,43 @@ lxeskill browser store --action open_store --store-id <store_id>
 lxeskill browser store --action exit_store --store-id <store_id>
 ```
 
-## 页面观察与操作
+## 运行紫鸟浏览器自动化脚本
 
-所有页面命令都带 `store_id`。先执行 `browser_snapshot` 获取页面和元素 `ref`；单步导航、点击、输入或滚动后，下次交互前重新获取快照。店铺重启后同样重新观察。批量模式的快照处理见下一节。
-
-| action | 参数 | 用途与约束 |
-|---|---|---|
-| `browser_snapshot` | 可选 `--full` | 返回页面 URL、标题、文本和可交互元素引用；`--full` 增加快照内容。 |
-| `browser_vision` | 无额外参数 | 生成截图，读取方式见“截图”。 |
-| `browser_navigate` | `--url <url>` | 跳转到指定 URL。 |
-| `browser_click` | `--ref <ref>` | 点击最近快照中的元素。 |
-| `browser_type` | `--ref <ref> --text <text>` | 向最近快照的输入元素写入用户指定文本。 |
-| `browser_scroll` | `--direction up|down --pixels 100..4000` | 按方向和像素数滚动。 |
-
-示例：
+为可复用的固定流程编写控制脚本，并随业务 Skill 提供。执行时传入运行中会话的 `store_id` 和流程需要的参数文件。
 
 ```text
-lxeskill browser page --action browser_snapshot --store-id <store_id>
-lxeskill browser page --action browser_click --store-id <store_id> --ref <ref>
-lxeskill browser page --action browser_snapshot --store-id <store_id>
+lxeskill browser script run --store-id <ID> --script-file workflow.js --params-file params.json
 ```
 
-## 批量页面操作（steps）
+入口文件是异步函数体，直接使用 `browser`、`params`、`await`、`return`。`params.json` 为 JSON 对象，可省略，默认 `{}`。脚本和参数文件相对于命令执行目录解析。独立安装 CLI 时，PATH 中需要有 Node.js；桌面安装包提供 Node。控制脚本拥有本地进程的权限。
 
-已从当前快照确定目标的连续交互优先使用批量模式，共用一次浏览器附着以降低延迟。需要观察前一步结果才能决定后续操作时，分次执行。
+单页读取可写成一行：
 
-- `--steps` 与 `--action` 互斥；每个 `--steps` 值是一个紧凑单行 JSON 对象，最多 20 步。
-- `ref` 来自上一次调用返回的 snapshot；批执行后结果会自动附带最新页面快照，无需再单独 snapshot。
-- `browser_vision` 只能作为最后一步。
-- 检查 `data.content` 中逐步标注的 ✓/✗；某步失败时批停止，附失败原因与可用的当前页面快照。已完成步骤不会回滚，后续按“错误处理”核对现场。
-
-示例（填写表单并确认）：
-
-```text
-lxeskill browser page --store-id <store_id> --steps '{"action":"browser_click","ref":"aid-5"}' --steps '{"action":"browser_type","ref":"aid-7","text":"<text>"}' --steps '{"action":"browser_click","ref":"aid-9"}'
+```javascript
+return await browser.evaluate(({ selector }) => deepQuerySelector(selector)?.textContent ?? null, params);
 ```
 
-## 截图
+需要截图时，在控制脚本中执行下面这一行。它通过 Selenium 截取当前标签页可见的网页区域，返回 PNG 文件的绝对路径。可以用 `read` 查看，用户索要图片时用 `send_files` 交付。
 
-执行：
-
-```text
-lxeskill browser page --action browser_vision --store-id <store_id>
+```javascript
+return await browser.screenshot();
 ```
 
-成功后，用 `read` 读取 terminal `data.screenshot_path` 指向的图片，再根据画面判断。CLI 会校验截图路径和文件；截图默认供模型观察，用户明确索要截图文件时再用 `send_files` 交付。
+跨页时，由控制脚本等待每个步骤，并判断页面显示的业务结果。例如，在 `params` 中传入目标 URL、上传文件路径和文件输入框的选择器：
 
-## 错误处理
+```javascript
+await browser.navigate(params.formUrl);
+await browser.runScriptFile("./fill.js", params);
+await browser.uploadFile(params.fileInputSelector, params.uploadPath);
+await browser.navigate(params.reportsUrl);
+const path = await browser.download(() => browser.runScriptFile("./download-report.js", params));
+return { path };
+```
 
-`ok=false` 时保留 `error.message`，批内失败时保留 `data.content` 中的失败步骤与原因，并暂停当前交互；失败步骤可能已产生页面变化。
+- `navigate(url)` 等待导航完成。动态组件的就绪状态由页面脚本按实际条件检查。
+- `evaluate(fn, args)` 把函数发到当前页面执行。所需数据通过第二个参数传入，函数无法访问 Node 闭包。页面支持 `document`、`deepQuerySelector`、`deepQuerySelectorAll` 和 `deepClosest`。
+- `runScriptFile(path, args)` 把独立 JS 函数体放入页面执行，以 `params` 读取传入对象。页面脚本遇到整页跳转可能中断，后续步骤放在控制脚本中。两个页面接口均可等待 Promise。
+- `uploadFile(selector, path)` 定位唯一匹配的文件输入框。流程中的页面脚本路径和上传路径相对于控制脚本目录解析，也接受绝对路径。
+- `download(trigger)` 按店铺下载目录的变化识别文件，沿用浏览器保存的文件名并返回归档路径。每次回调只触发一个下载，等待期间避免在同一店铺同时下载其他文件，以免取错文件或因出现多个候选而报错。
 
-继续前确认会话与客户端可用，用 `get_status` 核对店铺状态，再从运行中的店铺获取 `browser_snapshot`。根据实际结果和用户授权确定下一步；需要重启店铺或重做提交时，先取得用户明确授权。
+命令选取第一个普通网页标签，整次运行共用同一个连接和店铺锁。成功时，`data.result` 是脚本返回的 JSON 值，`data.downloads` 和 `data.screenshots` 分别列出下载文件和截图，`files` 包含两类附件。总时限默认 180 秒，使用 `--timeout-sec` 调整至 1～600 秒。超时或取消后，已发起的页面操作可能已经生效。如需重启店铺或重新提交业务操作，先核对实际状态并取得用户明确授权。

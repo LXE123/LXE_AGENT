@@ -320,12 +320,12 @@ def test_download_fba_delivery_csv_does_not_retry_more_than_once(monkeypatch, tm
 
     async def fake_run(target: str, **kwargs) -> batch_delivery.BatchDeliveryCsvResult:
         run_calls.append(target)
-        raise batch_delivery.BatchDeliveryApiAuthError("查询FBA发货单鉴权失败(status=403)")
+        raise batch_delivery.BatchDeliveryApiAuthError("查询FBA发货单鉴权失败(status=401)")
 
     monkeypatch.setattr(batch_delivery, "refresh_mabang_auth", fake_refresh)
     monkeypatch.setattr(batch_delivery, "_download_fba_delivery_csv_once", fake_run)
 
-    with pytest.raises(batch_delivery.BatchDeliveryApiAuthError, match="status=403"):
+    with pytest.raises(batch_delivery.BatchDeliveryApiAuthError, match="status=401"):
         asyncio.run(batch_delivery.download_fba_delivery_csv("SP260529005", output_dir=tmp_path))
 
     assert refresh_calls == ["fba_delivery_csv_download_auth_retry"]

@@ -23,7 +23,7 @@
 
 本记录早期使用的“安装目录 `var`”和全局产物目录已被后续数据目录分离与工作区产物方案取代。`LXE_DATA_ROOT` 表示应用实际数据目录，Desktop 解析后向所需子进程传递该绝对路径；当前默认位置、配置及旧目录迁移见 [程序与用户数据](../desktop/data-location.md)。
 
-数据库布局见 [本地状态与数据库](../database/local_agent.md)，配置和日志分别见 [桌面配置](../desktop/README.md#桌面配置与安全)及 [日志与诊断](../logging.md)。产物使用所选工作区的 `.lxeagent/artifacts/`，执行路径与写入限制见 [权限专题](../harness/runtime/permission-policy.md)。
+数据库布局见 [本地数据与存储](../storage/README.md)，配置和日志分别见 [桌面配置](../desktop/README.md#桌面配置与安全)及 [日志与诊断](../logging.md)。产物使用所选工作区的 `.lxeagent/artifacts/`，执行路径与写入限制见 [权限专题](../harness/runtime/permission-policy.md)。
 
 业务模板由桌面上传并登记到 catalog 的 `input_assets`，保存于 `<data-root>/inputs/<slot>/current/`，保留一个 `previous/` 版本。仓库不再设 `data/` 模板目录，不通过手工向源码目录复制 Excel 配置业务。
 

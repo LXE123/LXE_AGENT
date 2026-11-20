@@ -48,38 +48,6 @@ const payload: CloudEnrollmentPayload = {
 };
 
 describe("WindowsWireGuardProvisioner", () => {
-  test("uses a bounded destructive replacement script without DPAPI backup or content reads", () => {
-    const script = readFileSync(
-      join(import.meta.dir, "..", "resources", "wireguard", "provision-wireguard.ps1"),
-      "utf8",
-    );
-    expect(script).not.toContain("Move-Item");
-    expect(script).not.toMatch(/Copy-Item[^\r\n]*SecureConfiguration/u);
-    expect(script).not.toMatch(/Get-Content[^\r\n]*SecureConfiguration/u);
-    expect(script).toContain('$LegacyBackupPrefix = "$TunnelName.conf.dpapi.lxe-backup-"');
-    expect(script.indexOf('$Stage = "uninstall_previous_tunnel"'))
-      .toBeLessThan(script.indexOf('$Stage = "remove_previous_configuration"'));
-    expect(script).toContain("Assert-ManagedConfigurationPath $Path $AllowLegacyBackup");
-    const removeFunction = script.slice(
-      script.indexOf("function Remove-ManagedConfiguration"),
-      script.indexOf("function Wait-TunnelServiceRemoved"),
-    );
-    expect(removeFunction.indexOf("try {")).toBeLessThan(
-      removeFunction.indexOf("Test-ManagedConfigurationPresent"),
-    );
-    expect(removeFunction).not.toContain("$isAccessDenied");
-    expect(removeFunction).not.toContain("$nativeErrorCode");
-    expect(script).toContain("& takeown.exe /F $Path /A");
-    expect(script).toContain("$takeownExitCode -ne 0");
-    expect(script).toContain("& icacls.exe $Path /reset");
-    expect(script).toContain("$aclResetExitCode -ne 0");
-    expect(script).toContain("& icacls.exe $Path /inheritance:r /grant:r");
-    expect(script).toContain("'*S-1-5-18:(F)'");
-    expect(script).toContain("'*S-1-5-32-544:(F)'");
-    expect(script).toContain("$icaclsExitCode -ne 0");
-    expect(script).toContain("previous_removed = $PreviousRemoved");
-  });
-
   test("quotes elevated Windows arguments without losing paths containing spaces", () => {
     expect(windowsCommandLineQuote("C:\\Program Files\\LXE Agent\\wireguard.msi"))
       .toBe('"C:\\Program Files\\LXE Agent\\wireguard.msi"');

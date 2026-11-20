@@ -6,6 +6,7 @@ import type {
 } from "@lxe/desktop-protocol";
 
 export const ALL_DASHBOARD_DATA_DOMAINS: readonly DesktopDashboardDataDomain[] = [
+  "automations",
   "sessions",
   "stats",
   "channels",
@@ -52,8 +53,10 @@ export function dashboardDomainsForMutation(operation: DashboardRpcOperation): D
     case "models.update":
     case "models.thinking.update":
       return ["models"];
+    case "mcp.servers.add":
     case "mcp.servers.update":
       return ["tools"];
+    case "sessions.fork":
     case "sessions.create":
     case "sessions.send":
     case "sessions.answer":

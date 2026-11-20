@@ -23,14 +23,12 @@ const DEFAULT_SWEEP_INTERVAL_MS = 5 * 60_000;
 const DEFAULT_MAX_INSTANCES = 32;
 const MAX_INSTRUCTION_FILE_BYTES = 256 * 1_024;
 const MAX_INSTRUCTION_TOTAL_BYTES = 512 * 1_024;
-const MAX_SOUL_BYTES = 256 * 1_024;
 
 export interface WorkspaceSnapshot {
   readonly generation: number;
   readonly loaded_at: number;
   readonly instructions_prompt: string;
   readonly skills: WorkspaceSkillSnapshot;
-  readonly soul: string;
 }
 
 export type WorkspaceSkillSnapshot = SkillCatalogSnapshot;
@@ -51,7 +49,6 @@ export interface WorkspaceReloadResult extends JsonObject {
 }
 
 export interface WorkspaceInstanceManagerOptions {
-  soulPath: string;
   skillCatalog: SkillCatalog;
   skillOptions?: () => SkillPromptOptions;
   checkIntervalMs?: number;
@@ -224,25 +221,15 @@ export class WorkspaceInstanceManager {
   private readonly logger: Logger;
   private readonly now: () => number;
   private readonly instances = new Map<string, WorkspaceInstance>();
-  private readonly globalWatchers: WorkspaceWatcher[] = [];
   private readonly checkIntervalMs: number;
   private readonly debounceMs: number;
   private readonly idleTtlMs: number;
   private readonly sweepIntervalMs: number;
   private readonly maxInstances: number;
-  private readonly soulPath: string;
-  private soul = "";
-  private soulFingerprint = "";
-  private soulSignature = "";
-  private globalInitialized = false;
   private lastSkillRevision = 0;
-  private nextGlobalCheckAt = 0;
   private generation = 0;
   private loadCount = 0;
   private reloadFailures = 0;
-  private globalWatchersStarted = false;
-  private globalRefresh: Promise<boolean> | undefined;
-  private globalRefreshForced = false;
   private debounceTimer: ReturnType<typeof setTimeout> | undefined;
   private sweepTimer: ReturnType<typeof setInterval> | undefined;
 
@@ -254,7 +241,6 @@ export class WorkspaceInstanceManager {
     this.idleTtlMs = Math.max(0, Math.trunc(options.idleTtlMs ?? DEFAULT_IDLE_TTL_MS));
     this.sweepIntervalMs = Math.max(0, Math.trunc(options.sweepIntervalMs ?? DEFAULT_SWEEP_INTERVAL_MS));
     this.maxInstances = Math.max(1, Math.trunc(options.maxInstances ?? DEFAULT_MAX_INSTANCES));
-    this.soulPath = resolve(options.soulPath);
   }
 
   async acquire(workspace: WorkspaceContext): Promise<WorkspaceLease> {
@@ -315,8 +301,7 @@ export class WorkspaceInstanceManager {
     const view = this.viewFor(instance, workspace);
     try {
       await this.options.skillCatalog.refreshForUse();
-      const changedGlobally = await this.refreshGlobal(true);
-      if (changedGlobally) this.markAllDirty();
+      this.refreshSkillRevision();
       return await this.reloadCurrentView(instance, view, true);
     } catch (error) {
       this.reloadFailures += 1;
@@ -346,8 +331,6 @@ export class WorkspaceInstanceManager {
     this.debounceTimer = undefined;
     if (this.sweepTimer) clearInterval(this.sweepTimer);
     this.sweepTimer = undefined;
-    for (const watcher of this.globalWatchers.splice(0)) watcher.close();
-    this.globalWatchersStarted = false;
     for (const instance of [...this.instances.values()]) this.removeInstance(instance, reason);
   }
 
@@ -381,7 +364,6 @@ export class WorkspaceInstanceManager {
   }
 
   private ensureLifecycle(): void {
-    if (!this.globalWatchersStarted) this.startGlobalWatchers();
     if (!this.sweepTimer && this.sweepIntervalMs > 0) {
       this.sweepTimer = setInterval(() => this.sweepIdle(), this.sweepIntervalMs);
       this.sweepTimer.unref?.();
@@ -434,8 +416,7 @@ export class WorkspaceInstanceManager {
 
   private async checkForChanges(view: WorkspaceView): Promise<void> {
     await this.options.skillCatalog.refreshForUse();
-    const changedGlobally = await this.refreshGlobal(false);
-    if (changedGlobally) this.markAllDirty();
+    this.refreshSkillRevision();
     const now = this.now();
     if (view.snapshot && now < view.nextCheckAt) return;
     const fingerprint = instructionFingerprint(view.workspace);
@@ -446,48 +427,13 @@ export class WorkspaceInstanceManager {
     view.nextCheckAt = now + this.checkIntervalMs;
   }
 
-  private async refreshGlobal(force: boolean): Promise<boolean> {
-    if (this.globalRefresh) {
-      if (!force || this.globalRefreshForced) return this.globalRefresh;
-      await this.globalRefresh;
-      return this.refreshGlobal(true);
-    }
-    const operation = this.loadGlobal(force);
-    this.globalRefreshForced = force;
-    const tracked = operation.finally(() => {
-      if (this.globalRefresh === tracked) {
-        this.globalRefresh = undefined;
-        this.globalRefreshForced = false;
-      }
-    });
-    this.globalRefresh = tracked;
-    return tracked;
-  }
-
-  private async loadGlobal(force: boolean): Promise<boolean> {
-    const checkedAt = this.now();
-    const previousRevision = this.lastSkillRevision;
+  private refreshSkillRevision(): void {
     // Skill discovery belongs to turn acquisition and explicit reload, never watcher callbacks.
-    this.lastSkillRevision = this.options.skillCatalog.revision();
-    if (!force && this.globalInitialized && checkedAt < this.nextGlobalCheckAt) {
-      return previousRevision !== this.lastSkillRevision;
+    const revision = this.options.skillCatalog.revision();
+    if (revision !== this.lastSkillRevision) {
+      this.lastSkillRevision = revision;
+      this.markAllDirty();
     }
-
-    const fingerprint = cheapFileFingerprint(this.soulPath);
-    let soulChanged = false;
-    if (force || !this.globalInitialized || fingerprint !== this.soulFingerprint) {
-      if (!existsSync(this.soulPath)) throw new Error(`SOUL.md is missing: ${this.soulPath}`);
-      const soul = (await readUtf8File(this.soulPath, MAX_SOUL_BYTES, "SOUL.md")).trim();
-      if (!soul) throw new Error(`SOUL.md must not be empty: ${this.soulPath}`);
-      const signature = sha256(soul);
-      soulChanged = !this.globalInitialized || signature !== this.soulSignature;
-      this.soul = soul;
-      this.soulSignature = signature;
-      this.soulFingerprint = fingerprint;
-    }
-    this.globalInitialized = true;
-    this.nextGlobalCheckAt = checkedAt + this.checkIntervalMs;
-    return soulChanged || previousRevision !== this.lastSkillRevision;
   }
 
   private reloadView(
@@ -505,7 +451,7 @@ export class WorkspaceInstanceManager {
         this.options.skillOptions?.() ?? {},
         view.workspace,
       );
-      const signature = sha256(this.soul, prompt, skillSnapshotSignature(skills));
+      const signature = sha256(prompt, skillSnapshotSignature(skills));
       const changed = !view.snapshot || signature !== view.signature;
       view.instructionFingerprint = fingerprint;
       view.dirty = view.dirtyRevision !== dirtyRevision;
@@ -518,7 +464,6 @@ export class WorkspaceInstanceManager {
           loaded_at: Math.trunc(Date.now() / 1_000),
           instructions_prompt: prompt,
           skills,
-          soul: this.soul,
         });
         this.logger.info("workspace_snapshot_loaded", {
           worktree: view.workspace.worktree,
@@ -573,14 +518,7 @@ export class WorkspaceInstanceManager {
   }
 
   private async reloadDirty(reason: string): Promise<void> {
-    try {
-      const changed = await this.refreshGlobal(true);
-      if (changed) this.markAllDirty();
-    } catch (error) {
-      this.reloadFailures += 1;
-      this.logger.warn("workspace_global_reload_failed", { reason, error });
-      return;
-    }
+    this.refreshSkillRevision();
     const reloads: Promise<WorkspaceReloadResult>[] = [];
     for (const instance of this.instances.values()) {
       for (const view of instance.views.values()) {
@@ -593,32 +531,6 @@ export class WorkspaceInstanceManager {
         this.reloadFailures += 1;
         this.logger.warn("workspace_reload_failed", { reason, error: result.reason });
       }
-    }
-  }
-
-  private startGlobalWatchers(): void {
-    this.globalWatchersStarted = true;
-    this.addWatcher(dirname(this.soulPath), false, (filename) =>
-      !filename || filename.toLowerCase() === basename(this.soulPath).toLowerCase());
-  }
-
-  private addWatcher(
-    path: string,
-    recursive: boolean,
-    relevant: (filename: string) => boolean = () => true,
-  ): boolean {
-    if (!existsSync(path)) return false;
-    try {
-      const watcher = this.watchPath(path, recursive, (filename) => {
-        const name = filename.replaceAll("\\", "/");
-        if (relevant(name)) this.markDirtyAndSchedule("filesystem_watch");
-      });
-      watcher.unref?.();
-      this.globalWatchers.push(watcher);
-      return true;
-    } catch (error) {
-      this.logger.debug("workspace_watch_unavailable", { path, recursive, error });
-      return false;
     }
   }
 

@@ -86,7 +86,7 @@ export function UpdateControl({manual=false,checkRequest=0}:{manual?:boolean;che
      {ready?<span className="lxe-update-label">{t.update}</span>:null}
     </button>
    </span>:null}
-  {open?createPortal(<div className={"modal-backdrop lxe-update-backdrop"+(manual?" desktop-settings-theme":"")} onMouseDown={event=>{if(event.target===event.currentTarget){event.preventDefault();close();}}}>
+  {open?createPortal(<div className="modal-backdrop lxe-update-backdrop desktop-settings-theme" onMouseDown={event=>{if(event.target===event.currentTarget){event.preventDefault();close();}}}>
    <div ref={dialog} role="dialog" aria-modal="true" aria-label={t.title} tabIndex={-1} className="lxe-update-dialog">
     <h2>{t.title}{state.release?" · "+state.release.version:""}</h2>
     {state.release?<p className="lxe-update-notes">{state.release.notes}</p>:null}

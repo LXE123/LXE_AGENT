@@ -3,7 +3,7 @@ import { existsSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { relocateStoredPath } from "@lxe/core";
 import { SqliteRuntimeStore } from "./storage";
-import { parseDocument } from "yaml";
+import { readMcpConfigDocument, writeMcpConfigDocument } from "../tooling/mcp/config";
 import { readSkillStates } from "../tooling/skill-files";
 
 /** Operates only on an offline COPY. Never opens the source database. */
@@ -14,20 +14,15 @@ export async function relocateAgentData(copy: string, source: string, target: st
     const disabled = Object.keys(readSkillStates(skillState)).map(relocate);
     writeFileSync(skillState, JSON.stringify({version: 1, disabled}, null, 2) + "\n");
   }
-  const mcp = join(copy, "config", "mcp_servers.local.yaml");
+  const mcp = join(copy, "config", "mcp_servers.local.json");
   if (existsSync(mcp)) {
-    const document = parseDocument(readFileSync(mcp, "utf8"));
-    if (document.errors.length) throw document.errors[0];
-    const config = document.toJS();
+    const config = readMcpConfigDocument(mcp);
     const servers = config?.mcpServers ?? config?.servers;
-    if (servers && typeof servers === "object") for (const [key, server] of Object.entries(servers) as [string, any][]) {
-      const base = [config.mcpServers ? "mcpServers" : "servers", key];
-      for (const field of ["cwd", "command"]) if (typeof server?.[field] === "string") document.setIn([...base, field], relocate(server[field]));
-      if (Array.isArray(server?.args)) server.args.forEach((arg: unknown, index: number) => {
-        if (typeof arg === "string") document.setIn([...base, "args", index], relocate(arg));
-      });
+    if (servers && typeof servers === "object") for (const server of Object.values(servers) as Record<string, unknown>[]) {
+      for (const field of ["cwd", "command"]) if (typeof server[field] === "string") server[field] = relocate(server[field]);
+      if (Array.isArray(server.args)) server.args = server.args.map(arg => typeof arg === "string" ? relocate(arg) : arg);
     }
-    writeFileSync(mcp, document.toString());
+    writeMcpConfigDocument(mcp, config);
   }
   const message = (value: any): void => {
     if (!value || typeof value !== "object") return;

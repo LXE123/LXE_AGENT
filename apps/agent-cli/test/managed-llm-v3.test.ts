@@ -1,4 +1,4 @@
-import { withV3Definitions } from "../../../packages/foundation/core/test/managed-v3-fixtures";
+import { modelDefinition, withV3Definitions } from "../../../packages/foundation/core/test/managed-v3-fixtures";
 import { test, expect } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -6,6 +6,36 @@ import { join } from "node:path";
 import { repositoryRoot, type ManagedLlmState } from "@lxe/core";
 import { SqliteRuntimeStore, ToolRegistry, AtomicRuntimeProviderManager } from "@lxe/runtime";
 import { DashboardService } from "../src/dashboard-service";
+
+test("cloud model queries order effort levels without changing the selected level", async () => {
+  const root = mkdtempSync(join(tmpdir(), "lxe-managed-effort-"));
+  const repo = repositoryRoot(import.meta.dir);
+  const definition = modelDefinition("deepseek", "deepseek-v4-flash");
+  definition.thinkingLevelMap = { low: "low", max: "max", off: "off", high: "high" };
+  const target = { provider: definition.provider, model: definition.model };
+  const state: ManagedLlmState = { model_schema: 3, revision: 1, default_target: target,
+    models: [{ ...target, available: true, credential_revision: "a".repeat(64), configuration_revision: "b".repeat(64), definition }],
+    credentials: [{ ...target, api_key: "fixture-key", credential_revision: "a".repeat(64), fetched_at: 1, invalid_revision: "" }] };
+  const environment = { AGENT_LLM_PROVIDER: target.provider, AGENT_LLM_MODEL: target.model,
+    AGENT_LLM_CREDENTIAL_SOURCE: "cloud", AGENT_LLM_THINKING_ENABLED: "0", AGENT_LLM_THINKING_EFFORT: "off" };
+  const store = new SqliteRuntimeStore(join(root, "test.sqlite3"));
+  try {
+    await store.start();
+    const service = new DashboardService({ stateRoot: root, llmConfigRoot: join(repo, "config/llm"),
+      skillsRoot: join(root, "skills"), userSkillsRoot: join(root, "user-skills"), environment, store,
+      tools: new ToolRegistry(), mcpConfig: { servers: [] }, managedLlmState: () => state });
+    const current = await service.call({ operation: "models.current", input: {} });
+    const list = await service.call({ operation: "models.list", input: {} });
+    const cloud = list.items.find(model => model.credential_source === "cloud");
+    for (const model of [current, cloud]) {
+      expect(model?.thinking_levels).toEqual(["off", "low", "high", "max"]);
+      expect(model?.model_options[0]?.thinking_levels).toEqual(["off", "low", "high", "max"]);
+      expect(model?.thinking_state).toEqual({ enabled: false, level: "off", editable: true });
+      expect(model?.thinking_default).toBe("low");
+    }
+    expect(definition.thinkingLevelMap).toEqual({ low: "low", max: "max", off: "off", high: "high" });
+  } finally { await store.stop(); rmSync(root, { recursive: true, force: true }); }
+});
 
 test("published alternatives enforce model membership and freeze each acquired turn's credentials", async () => {
   const root = mkdtempSync(join(tmpdir(), "lxe-managed-runtime-")); const repo = repositoryRoot(import.meta.dir);

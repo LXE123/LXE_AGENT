@@ -36,7 +36,7 @@ export class ManualToolsService {
     const { sessionId, id } = call.input;
     switch (call.operation) {
       case "terminal.create": case "browser.create": {
-        const key = `${call.operation}:${id}`;
+        const key = call.operation === "terminal.create" ? `terminal.create:${id}` : JSON.stringify([call.operation, sessionId, id]);
         let pending = this.creating.get(key);
         if (!pending) {
           pending = this.directory(sessionId).then<unknown>(directory => call.operation === "terminal.create"
@@ -44,8 +44,8 @@ export class ManualToolsService {
             : this.browsers.create(sessionId, id, directory, call.input.url)).finally(() => this.creating.delete(key));
           this.creating.set(key, pending);
         }
-        await pending;
-        return call.operation === "terminal.create" ? this.terminals.get(sessionId, id) : this.browsers.get(sessionId, id);
+        const created = await pending;
+        return call.operation === "terminal.create" ? this.terminals.get(sessionId, id) : created;
       }
       case "terminal.get": await this.creating.get(`terminal.create:${id}`); return this.terminals.get(sessionId, id);
       case "terminal.write": return this.terminals.write(sessionId, id, call.input.data);
@@ -54,8 +54,8 @@ export class ManualToolsService {
       case "browser.get": return this.browsers.get(sessionId, id);
       case "browser.navigate": return this.browsers.navigate(sessionId, id, call.input.url);
       case "browser.command": return this.browsers.command(sessionId, id, call.input.command);
-      case "browser.present": return this.browsers.present(sessionId, id, call.input.bounds);
-      case "browser.close": await this.creating.get(`browser.create:${id}`)?.catch(() => {}); return this.browsers.close(sessionId, id);
+      case "browser.visible": return this.browsers.visible(sessionId, id, call.input.mountSrc, call.input.visible);
+      case "browser.close": await this.creating.get(JSON.stringify(["browser.create", sessionId, id]))?.catch(() => {}); return this.browsers.close(sessionId, id);
     }
   }
   async closeSession(sessionId?: string): Promise<void> {

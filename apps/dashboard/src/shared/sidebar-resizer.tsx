@@ -19,12 +19,11 @@ export function SidebarResizer({ expanded, storage }: { expanded: boolean; stora
   const width = Math.min(preference, maximum);
 
   useLayoutEffect(() => {
-    const shell = handle.current!.parentElement!;
-    const measure = () => setRoom(shell.clientWidth
-      - (shell.querySelector(".app-navigation")?.getBoundingClientRect().width ?? 0));
+    const shell = handle.current!.closest<HTMLElement>(".app-shell")!;
+    const measure = () => setRoom(handle.current!.parentElement!.clientWidth);
     measure();
     const observer = new ResizeObserver(measure);
-    observer.observe(shell);
+    observer.observe(handle.current!.parentElement!);
     return () => {
       observer.disconnect();
       shell.style.removeProperty("--app-sidebar-width");
@@ -33,7 +32,7 @@ export function SidebarResizer({ expanded, storage }: { expanded: boolean; stora
   }, []);
 
   useLayoutEffect(() => {
-    const shell = handle.current!.parentElement!;
+    const shell = handle.current!.closest<HTMLElement>(".app-shell")!;
     shell.style.setProperty("--app-sidebar-width", `${width}px`);
     shell.toggleAttribute("data-sidebar-resizing", dragging);
   }, [width, dragging]);

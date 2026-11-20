@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import logging
 
-from services.agent_cli.mabang import download_store_unlinked_shipments as cli
+from services.commands.mabang import download_store_unlinked_shipments as cli
 from services.mabang.amazon.fba.unlinked_shipments import (
     StoreUnlinkedShipmentDownloadResult,
     UnlinkedShipmentSnapshotResult,
@@ -11,7 +11,7 @@ from services.mabang.amazon.fba.unlinked_shipments import (
 
 
 def test_success_returns_status_results_and_snapshot(monkeypatch, capsys, caplog) -> None:
-    caplog.set_level(logging.INFO, logger="services.agent_cli.mabang.download_store_unlinked_shipments")
+    caplog.set_level(logging.INFO, logger="services.commands.mabang.download_store_unlinked_shipments")
 
     async def fake_download(
         store_name: str,
@@ -102,7 +102,7 @@ def test_success_returns_status_results_and_snapshot(monkeypatch, capsys, caplog
 
 
 def test_success_preserves_explicit_cli_options(monkeypatch, capsys, tmp_path, caplog) -> None:
-    caplog.set_level(logging.INFO, logger="services.agent_cli.mabang.download_store_unlinked_shipments")
+    caplog.set_level(logging.INFO, logger="services.commands.mabang.download_store_unlinked_shipments")
 
     async def fake_download(
         store_name: str,
@@ -189,7 +189,7 @@ def test_success_builds_snapshot_from_multiple_current_raw_files(monkeypatch, ca
 
 
 def test_snapshot_error_returns_failure_json_with_download_result(monkeypatch, capsys, caplog) -> None:
-    caplog.set_level(logging.INFO, logger="services.agent_cli.mabang.download_store_unlinked_shipments")
+    caplog.set_level(logging.INFO, logger="services.commands.mabang.download_store_unlinked_shipments")
 
     async def fake_download(
         store_name: str,

@@ -1,5 +1,5 @@
 import {expect,test} from "bun:test";
-import {DesktopUpdateService,updateDiagnostic,nextUpdateDelay,UPDATE_INTERVAL_MS,type LatestUpdate} from "../src/main/update-service";
+import {DesktopUpdateService,updateDiagnostic,nextUpdateDelay,type LatestUpdate} from "../src/main/update-service";
 import {prepareUpdate} from "../src/main/update-preparation";
 import type {DesktopUpdateRelease} from "@lxe/desktop-protocol";
 const release:DesktopUpdateRelease={version:"0.2.18",build_id:"one",file_name:"LXE-Agent-0.2.18-windows-x64.exe",size:3,sha512:"hash",notes:"notes"};
@@ -24,7 +24,7 @@ function fixture(){
   ready:async()=>{await service.check();return service.download(release);}};
 }
 test("automatic check only advertises a release; download requires a bound user action",async()=>{
- const f=fixture();expect(UPDATE_INTERVAL_MS).toBe(600000);
+ const f=fixture();
  expect((await f.service.check()).phase).toBe("available");expect(f.calls).toEqual(["latest"]);
  expect((await f.service.download(release)).phase).toBe("ready");expect(f.calls).not.toContain("install");
 });

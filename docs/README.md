@@ -30,6 +30,7 @@
 - [Desktop 技术手册](desktop/README.md)：桌面开发、配置与专题入口。
 - [构建、打包、安装与启动](desktop/packaging-pipeline.md)、[Windows 更新与发布](desktop/updates.md)：构建链路、发布操作和客户端更新。
 - [工作区与对话](desktop/conversation-window.md)、[输入框引用](desktop/composer-references.md)、[会话状态](desktop/session-status.md)、[结构化提问](harness/runtime/tools/ask-user-question.md)：对话交互及对应技术机制。
+- [定时任务与桌面 MCP](desktop/automations.md)：两种会话方式、调度、持久化与本机工具接口。
 - [侧边栏与文件预览](desktop/file-preview.md)：文件查看、手动终端与浏览器。
 - [Gateway](desktop/gateway/README.md)、[生命周期](desktop/gateway/gateway_lifecycle.md)：渠道接入、路由、调度、结果交付和启停及进程关系。
 - [Gateway ↔ agentcli 协议](desktop/gateway/agent-protocol.md)：JSON-RPC、握手、事件和错误。
@@ -38,15 +39,17 @@
 
 ### agentcli
 
-- [Skill 手册](harness/skill/README.md)：发现、加载、用户管理和统计机制；业务指引正文位于 [skills/](../skills)，可从 [FBA](../skills/fba-workflow-map/SKILL.md)和 [补货](../skills/replenishment-workflow-map/SKILL.md)入口查找。
+- [Skill 手册](harness/skill/README.md)：发现、加载、用户管理和统计机制；业务指引正文位于 [skills/](../skills)，可从 [FBA](../skills/fba-workflow-map/SKILL.md)和 [补货](../skills/amazon-replenishment/SKILL.md)入口查找。
 - [Runtime](harness/runtime/README.md)、[执行流程](harness/runtime/turn_execution.md)：宿主装配与回合执行。
 - [上下文](harness/runtime/context/README.md)：消息、组装、压缩与持久化。
 - [工具](harness/runtime/tools/README.md)、[权限专题](harness/runtime/permission-policy.md)：注册、执行、写入范围与单次审批。
 - [LLM 适配](harness/llm/README.md)、[模型目录与选择](harness/llm/provider_catalog.md)：协议适配、流式响应及本地／公司模型配置。
 - [Agent CLI exec](harness/runtime/agent_cli_exec.md)：一次性终端调用与独立会话存储。
-- [统计上传](harness/runtime/native-statistics-upload.md)：用量同步、确认和失败恢复；[赛狐 MCP](saihu-device-access.md)：连接配置与设备鉴权。
+- [统计上传](harness/runtime/native-statistics-upload.md)：用量同步、确认和失败恢复；[赛狐 MCP 停用](saihu-device-access.md)：专用接入撤下、共享能力及后续接回边界。
 
 ### lxeskillCLI
+
+- [lxeskill 命令手册](lxeskill-cli/commands.md)：按 FBA、备货、运营查找命令，查看用途、典型示例和参数帮助入口。
 
 - [马帮浏览器认证](../python/lxeskill_cli/browser_auth_service/README.md)：桌面认证窗口、独立 CLI 浏览器绑定和排障。
 - [CLI 云端通信与自检](lxeskill-cli/cloud-access.md)：权限查询、连接诊断、公共 HTTP 模块和业务请求。
@@ -54,7 +57,7 @@
 ### 共享能力与诊断
 
 - [Office 文件能力](office-runtime.md)：Electron、模型与业务 CLI 的 Office 接口及运行依赖。
-- [本地状态与数据库](database/local_agent.md)、[日志与诊断](logging.md)：存储布局、备份和排障。
+- [本地数据与存储](storage/README.md)、[日志与诊断](logging.md)：存储布局、备份和排障。
 
 ### 参考资料
 

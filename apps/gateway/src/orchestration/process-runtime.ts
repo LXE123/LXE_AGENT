@@ -29,13 +29,14 @@ import {
   type DesktopLoggingSinkStatus,
   type ManagedLlmCredential,
   type ManagedLlmTarget,
+  type McpServerPreset,
 } from "@lxe/desktop-protocol";
 import { createLogger, type Logger } from "@lxe/core";
 import type {
   DirectAgentRuntime,
   DirectRuntimeOutcome,
 } from "./composition";
-import { RuntimeRequestError, type RunHandle, type SteeringMessage } from "./scheduler";
+import { RuntimeRequestError, type RunHandle, type RoutedSteeringMessage } from "./scheduler";
 
 type Environment = Record<string, string | undefined>;
 type ProcessState = "stopped" | "starting" | "ready" | "error";
@@ -52,7 +53,6 @@ export interface ProcessAgentRuntimeOptions {
   arguments?: string[];
   cwd: string;
   environment: Environment;
-  agentSoulPath: string;
   skillsRoot: string;
   userSkillsRoot: string;
   llmConfigRoot: string;
@@ -60,6 +60,7 @@ export interface ProcessAgentRuntimeOptions {
   legacyWorkspace: WorkspaceContext;
   allowedSkillTypes?: readonly string[];
   managedLlmState?: ManagedLlmState;
+  mcpServerPresets?: McpServerPreset[];
   requestTimeoutMs?: number;
   shutdownTimeoutMs?: number;
   restartDelaysMs?: readonly number[];
@@ -68,7 +69,6 @@ export interface ProcessAgentRuntimeOptions {
     request: Extract<AgentEvent, { type: "conversation.stream.delta" }>["payload"],
   ) => Promise<void> | void;
   onTyping?: (request: Extract<AgentEvent, { type: "typing.changed" }>["payload"]) => Promise<void> | void;
-  onWake?: (request: JsonObject) => Promise<void> | void;
   onEvent?: (event: AgentEvent) => Promise<void> | void;
   onStatus?: (status: AgentProcessStatus) => void;
   onStderr?: (line: string) => void;
@@ -226,7 +226,6 @@ export class ProcessAgentRuntime implements DirectAgentRuntime {
     try {
       this.remoteHealthSnapshot = objectValue(await this.request("initialize", {
         protocol_version: AGENT_PROTOCOL_VERSION,
-        agent_soul_path: this.options.agentSoulPath,
         skills_root: this.options.skillsRoot,
         user_skills_root: this.options.userSkillsRoot,
         llm_config_root: this.options.llmConfigRoot,
@@ -240,6 +239,17 @@ export class ProcessAgentRuntime implements DirectAgentRuntime {
         throw new AgentProcessError(`Unsupported agent protocol version: expected ${AGENT_PROTOCOL_VERSION}, received ${String(this.remoteHealthSnapshot.protocol_version)}`, "AgentProtocolVersionMismatch", -32002);
       }
       if (this.child !== child) throw new AgentProcessError("agent-cli connection changed during initialization");
+      if (this.options.mcpServerPresets?.length) {
+        // Presets only add optional services, so a user file that cannot be reconciled
+        // must not keep the agent from starting. Harness leaves that file untouched.
+        try {
+          await this.request("sync_mcp_server_presets", { servers: this.options.mcpServerPresets });
+        } catch (error) {
+          if (this.child !== child) throw error;
+          this.logger.warn("mcp_preset_sync_failed", { error });
+        }
+        if (this.child !== child) throw new AgentProcessError("agent-cli exited during MCP preset synchronization");
+      }
       this.setStatus("ready", "agent-cli is ready");
       this.restartAttempt = 0;
     } catch (cause) {
@@ -317,12 +327,10 @@ export class ProcessAgentRuntime implements DirectAgentRuntime {
     await this.cancelRun(handle.runId, reason);
   }
 
-  async steerTurn(handle: RunHandle, message: Required<SteeringMessage>): Promise<void> {
+  async steerTurn(handle: RunHandle, message: RoutedSteeringMessage): Promise<void> {
     const result = objectValue(await this.request("steer_turn", {
       run_id: handle.runId,
-      text: message.text,
-      response_route_id: message.response_route_id,
-      message_id: message.message_id,
+      ...message,
     }));
     if (result.accepted !== true) {
       throw new RuntimeRequestError("run_not_found", "agent-cli rejected steering");
@@ -376,14 +384,6 @@ export class ProcessAgentRuntime implements DirectAgentRuntime {
         "AgentProtocolError",
       );
     }
-  }
-
-  async appendPendingEvent(sessionId: string, event: JsonObject): Promise<void> {
-    await this.request("append_pending_event", { session_id: sessionId, event });
-  }
-
-  async hasPendingEvents(sessionId: string): Promise<boolean> {
-    return objectValue(await this.request("has_pending_events", { session_id: sessionId })).pending === true;
   }
 
   async resolveWorkspaceDirectory(sessionId: string): Promise<string> {
@@ -442,7 +442,9 @@ export class ProcessAgentRuntime implements DirectAgentRuntime {
   async dashboardCall<O extends AgentDashboardRpcOperation>(
     call: AgentDashboardRpcCall<O>,
   ): Promise<DashboardRpcResult<O>> {
-    return await this.request("dashboard_call", call) as DashboardRpcResult<O>;
+    // The signed ZIP request can take 60 seconds before extraction and catalog refresh.
+    const timeout = call.operation === "skills.team.install" ? Math.max(this.options.requestTimeoutMs ?? 0, 90_000) : undefined;
+    return await this.request("dashboard_call", call, timeout) as DashboardRpcResult<O>;
   }
   async sessionStatus(request: import("@lxe/desktop-protocol").SessionStatusRequest): Promise<import("@lxe/desktop-protocol").SessionRunSummary[]> {
     return await this.request("session_status", request) as import("@lxe/desktop-protocol").SessionRunSummary[];
@@ -554,7 +556,6 @@ export class ProcessAgentRuntime implements DirectAgentRuntime {
       if (event.type === "item.completed") await this.options.onEmit?.(event.payload);
       else if (event.type === "conversation.stream.delta") await this.options.onDesktopStream?.(event.payload);
       else if (event.type === "typing.changed") await this.options.onTyping?.(event.payload);
-      else if (event.type === "agent.wake") await this.options.onWake?.(event.payload);
       else if (event.type === "system.ready" || event.type === "system.status") {
         const status = loggingStatus(event.payload.logging);
         if (status) {
@@ -644,6 +645,9 @@ export class ProcessAgentRuntime implements DirectAgentRuntime {
       }
       this.treeTermination = undefined;
     }
+    // The exit handler may already have released this child. Do not advance the
+    // generation twice or discard a replacement process while finishing cleanup.
+    if (this.child !== child) return;
     this.child = undefined;
     this.generation += 1;
     this.notifications = Promise.resolve();

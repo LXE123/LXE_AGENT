@@ -1613,8 +1613,6 @@ export function DesktopShell({
       setHealth(await desktop.restartAgent());
       queryClient.clear();
       setAppGeneration((value) => value + 1);
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : String(cause));
     } finally {
       setRestarting(false);
     }
@@ -1830,7 +1828,7 @@ export function DesktopShell({
                   <DesktopStatusPanel
                     headingRef={sectionHeadingRef}
                     health={health}
-                    onRestart={() => { void restart(); }}
+                    onRestart={() => { void restart().catch(cause => setError(cause instanceof Error ? cause.message : String(cause))); }}
                     restarting={restarting}
                   />
                 ) : settingsBody}

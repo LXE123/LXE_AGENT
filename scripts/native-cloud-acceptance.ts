@@ -36,12 +36,12 @@ const instances=new Map<string,{cloud:DesktopCloudService,config:DesktopConfigSt
 for(const name of ["windows-dev","windows-installed","mac-dev"]){
   const data=join(temporary,name);mkdirSync(data);
   const config=new DesktopConfigStore(data,join(data,"workspace"),{isEncryptionAvailable:()=>true,encryptString:v=>Buffer.from(v),decryptString:v=>v.toString()},{platform:name==="mac-dev"?"darwin":"win32"});
-  const cli=new DesktopCloudContextClient({pythonPath:join(root,".venv/bin/python"),cwd:data});
+  const cli=new DesktopCloudContextClient({executablePath:join(root,".venv",process.platform==="win32"?"Scripts/lxeskill.exe":"bin/lxeskill"),cwd:data});
   const native=new DirectNativeCloudClient(),server="http://127.0.0.1:"+mock.port;
   const cloud=new DesktopCloudService({dataRoot:data,config,supported:name!=="windows-dev",
     logger:createLogger("native-acceptance"),enrollments:new DesktopCloudEnrollmentManager(),
     provisioner:{provision:async()=>{throw Error("Unexpected provision");}},onConfigured:async()=>{},
-    fetch:async()=>{throw Error("Unexpected credential identity request");},
+    fetch:Object.assign(async()=>{throw Error("Unexpected credential identity request");},{preconnect:()=>{throw Error("Unexpected identity preconnect");}}),
     contextClient:{query:(_url,signal)=>cli.query(server,signal)},
     accessClient:{request:(_url,path,signal,body)=>native.request(server,path,signal,body)}});
   instances.set(name,{cloud,config});
@@ -152,7 +152,8 @@ app.whenReady().then(async()=>{try{
  }catch(e){console.error(e);app.exit(1);}});
 `);
 try{
- const require=createRequire(join(root,"apps/desktop/package.json")),env={...process.env,NODE_PATH:join(root,"apps/desktop/node_modules")};
+ const require=createRequire(join(root,"apps/desktop/package.json"));
+ const env:NodeJS.ProcessEnv={...process.env,NODE_PATH:join(root,"apps/desktop/node_modules")};
  delete env.ELECTRON_RUN_AS_NODE;
  const child=Bun.spawn([require("electron"),runner],{env,stdout:"inherit",stderr:"inherit"});
  if(await child.exited)throw Error("Native cloud UI acceptance failed");

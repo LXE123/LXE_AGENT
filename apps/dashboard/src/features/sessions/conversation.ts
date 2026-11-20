@@ -162,7 +162,7 @@ export function hasLiveToolOperationDetails(step: unknown): boolean {
   const detail = String(step.detail ?? "").trim();
   const result = isRecord(step.result_block) ? String(step.result_block.content ?? "").trim() : "";
   const error = isRecord(step.error_block) ? String(step.error_block.content ?? "").trim() : "";
-  return Boolean(detail || result || error);
+  return Boolean(detail || isRecord(step.input_block) || result || error);
 }
 
 export type ToolAction =
@@ -527,7 +527,8 @@ export function finalResponseIndex(messages: SessionMessage[], status?: string |
   const terminalIsReply = status !== "error" && status !== "cancelled";
   return terminalIsReply
     ? messages.reduce((candidate, message, index) =>
-      roleLabel(message.role) === "assistant" && hasReaderFacingText(message) && !containsToolCall(message)
+      roleLabel(message.role) === "assistant" && message.stopReason !== "error" && message.stopReason !== "aborted"
+        && hasReaderFacingText(message) && !containsToolCall(message)
         ? index
         : candidate, -1)
     : -1;
