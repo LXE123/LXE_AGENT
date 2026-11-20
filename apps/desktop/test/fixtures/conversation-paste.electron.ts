@@ -1,5 +1,5 @@
 // Opt-in macOS Electron smoke. Restores every native pasteboard item after testing.
-import { app, BrowserWindow, clipboard, ipcMain, nativeImage } from "electron";
+import { app, BrowserWindow, clipboard, ClipboardItem, ipcMain, nativeImage } from "electron";
 import { spawn, spawnSync, type ChildProcess } from "node:child_process";
 import { strict as assert } from "node:assert";
 import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
@@ -120,7 +120,7 @@ async function run() {
     const jpegPath = join(root, "beauty.jpg"); writeFileSync(jpegPath, image.toJPEG(90));
     let staged: DesktopDraftAttachmentPayload[] = [];
     ipcMain.handle(IPC_CHANNELS.stagePastedConversationFiles, (_event, value) => { staged = service.registerPaste(value); return staged; });
-    ipcMain.handle(IPC_CHANNELS.readClipboardConversationFiles, () => { staged = service.register(readClipboardFilePaths()); return staged; });
+    ipcMain.handle(IPC_CHANNELS.readClipboardConversationFiles, async () => { staged = service.register(await readClipboardFilePaths()); return staged; });
     ipcMain.handle(IPC_CHANNELS.selectConversationFiles, () => { staged = service.register([jpegPath]); return staged; });
     ipcMain.handle(IPC_CHANNELS.previewDraftConversationFile, async (_event, id, value) => {
       const variant = validateDraftImagePreviewVariant(value);
@@ -191,7 +191,7 @@ async function run() {
     }
     for (const paths of [[input], [input, imagePath], [imagePath], [jpegPath]]) {
       writer?.kill(); writer = await writeFiles(paths);
-      assert.equal(readClipboardFilePaths().length, paths.length);
+      assert.equal((await readClipboardFilePaths()).length, paths.length);
       const pasted = await paste(); assert.equal(pasted.items.length, paths.length);
       const refs = service.resolve(pasted.items.map((item) => item.attachment_id));
       assert.deepEqual(refs.map((item) => item.path), paths.map((path) => resolve(path).replace(/^\/var\//, "/private/var/")));
@@ -199,7 +199,7 @@ async function run() {
       assert(prepareConversationAttachments(refs, () => { throw new Error("Reference image was read eagerly"); }).every((item) => !item.image_block));
       service.discard(pasted.items.map((item) => item.attachment_id));
     }
-    clipboard.write({ image, text: "截图说明" });
+    await clipboard.write([new ClipboardItem({ "image/png": new Blob([image.toPNG()], { type: "image/png" }), "text/plain": "截图说明" })]);
     const pasted = await paste(); assert.equal(pasted.items.length, 1); assert.equal(pasted.text, "截图说明");
     assert(pasted.items[0]!.preview_data_url?.startsWith("data:image/png;base64,"));
     const ids = pasted.items.map((item) => item.attachment_id);

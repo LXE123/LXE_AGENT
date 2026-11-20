@@ -753,7 +753,7 @@ app.whenReady().then(async () => {
         await key("z", [mod]); assert.equal(await draft(), "@销售");
         await key("z", [mod, "shift"]); assert.equal(await draft(), "@销售.md ");
         await key("a", [mod]); win.webContents.copy(); await settle();
-        assert.equal(require('electron').clipboard.readText(), "@销售.md ");
+        assert.equal(await require('electron').clipboard.readText(), "@销售.md ");
         await key("Backspace"); assert.equal(await draft(), "");
       });
       await step("draft session switches and remount keep canonical references and preview actions", async () => {
