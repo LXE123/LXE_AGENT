@@ -50,13 +50,15 @@ def running_info(client, store_id: str) -> dict:
 
 
 @contextmanager
-def running_browser(store_id: str, *, target_host: str = "", target_handle: str = ""):
+def running_browser(store_id: str, *, target_host: str = "", target_handle: str = "", allow_blank: bool = False):
     with store_lock(store_id, timeout_seconds=0):
         info = running_info(ZiniaoBrowserClient().client, store_id)
         driver = SeleniumRunner(driver_folder_path()).get_driver(info)
         try:
             if target_host:
                 select_unique_host_tab(driver, target_host, target_handle=target_handle)
+            elif allow_blank:
+                select_first_normal_tab(driver, allow_blank=True)
             else:
                 select_first_normal_tab(driver)
             yield driver, Path(info["downloadPath"])
@@ -102,12 +104,16 @@ def run_control(node: str, script: str, params: dict, operations: BrowserOperati
 def main(request: dict) -> dict:
     deadline = time.monotonic() + request["timeout"]
     target = {key: request[key] for key in ("target_host", "target_handle") if key in request}
+    python_script = Path(request["script"]).suffix.lower() == ".py"
+    if python_script:
+        # A preparation script can open the first page of a fresh store.
+        target["allow_blank"] = True
     with running_browser(request["store_id"], **target) as (driver, downloads):
         operations = BrowserOperations(driver, downloads=downloads, output=Path(request["output"]),
                                        deadline=deadline, store_id=request["store_id"],
                                        session_id=request.get("session_id", ""),
                                        state_directory=Path(request.get("state_directory", request["output"])))
-        if Path(request["script"]).suffix.lower() == ".py":
+        if python_script:
             # The existing supervised worker owns the connection and lifetime.
             # Add only the installed script's directory for its sibling modules.
             sys.path.insert(0, str(Path(request["script"]).parent))

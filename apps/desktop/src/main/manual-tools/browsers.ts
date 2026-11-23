@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 import type { BrowserMount, BrowserSnapshot, ManualToolEvent } from "@lxe/desktop-protocol";
 import { watchFavicons } from "./favicon";
 import { WindowTabBudget, type TrackedPage } from "./tab-budget";
+import { browserUrl } from "../browser-navigation";
 
 interface Browser {
   owner: WebContents;
@@ -16,13 +17,6 @@ interface Browser {
   attaching: boolean;
   restoring: boolean;
   budgetPage: TrackedPage;
-}
-
-export function browserUrl(raw: string): string {
-  const value = raw.trim();
-  const url = new URL(/^[a-z][a-z\d+.-]*:/i.test(value) ? value : `https://${value}`);
-  if (!["http:", "https:"].includes(url.protocol) || url.username || url.password) throw new Error("Browser URLs must use HTTP or HTTPS without embedded credentials");
-  return url.href;
 }
 
 export class ManualBrowsers {

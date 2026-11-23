@@ -10,6 +10,7 @@ from uuid import uuid4
 from services.browser.browser.actions import _is_incomplete_download, save_screenshot
 from services.browser.browser.shadow_dom import SHADOW_DOM_HELPERS_JS
 from services.browser.tools.driver_session import (
+    list_browser_tabs,
     select_unique_host_tab,
     validate_target_handle,
 )
@@ -43,12 +44,21 @@ class BrowserOperations:
     shadow_dom_helpers = SHADOW_DOM_HELPERS_JS
     validate_target_handle = staticmethod(validate_target_handle)
 
+    def temporary_browser(self):
+        from .temporary import temporary_browser
+
+        return temporary_browser(self.session_id)
+
+    def list_pages(self):
+        return list_browser_tabs(self.driver, strict=True)
+
     def select_page(self, host, handle=""):
         return select_unique_host_tab(self.driver, host, target_handle=handle)
 
     def request(self, key, parameters, operation, *, deduplicate=True):
         """Run an explicitly keyed request with the existing shared bookkeeping."""
         return run_request(key, parameters, operation, deduplicate=deduplicate)
+
     def __init__(self, driver, *, downloads: Path, output: Path, deadline: float, store_id: str = "",
                  session_id: str = "", state_directory: Path | None = None):
         self.driver = driver
