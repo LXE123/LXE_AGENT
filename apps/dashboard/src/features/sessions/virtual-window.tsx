@@ -15,6 +15,16 @@ function toolCardGroup(row: ConversationRow | undefined) {
   if (tool && tool.name !== "ask_user_question") return processId(row);
 }
 
+function rowBottomPadding(row: ConversationRow, next: ConversationRow | undefined) {
+  // The status control and the first text line already have vertical insets.
+  if (next && row.turnId === next.turnId) {
+    if ((row.kind === "process" || row.kind === "status") && next.presentation === "final") return 6;
+    if (row.presentation === "final" && next.kind === "artifacts") return 14;
+  }
+  if (row.kind === "process" || row.presentation === "final") return 8;
+  return row.presentation === "process" ? 6 : 12;
+}
+
 function isBlankToolSeparator(row: ConversationRow) {
   const message = row.message;
   if (row.kind !== "message" || message?.role !== "assistant" || row.status === "error"
@@ -308,12 +318,12 @@ export function ConversationWindow({ rows: sourceRows, renderRow, hasOlder, hasN
           const joinsPrevious = group !== undefined && group === toolCardGroup(rows[item.index - 1]);
           const joinsNext = group !== undefined && group === toolCardGroup(rows[item.index + 1]);
           const answer = answerId(row);
-          const paddingBottom = row.kind === "process" || row.presentation === "final" ? 8 : row.presentation === "process" ? 6 : 12;
+          const paddingBottom = joinsNext ? 0 : rowBottomPadding(row, rows[item.index + 1]);
           return <div key={item.key} ref={virtual.measureElement} data-index={item.index}
             data-conversation-row={row.id} data-display-group={row.groupId}
             data-tool-joins-previous={joinsPrevious || undefined} data-tool-joins-next={joinsNext || undefined}
             data-answer-id={answer} data-answer-active={Boolean(answer && (answer === hoveredAnswer || answer === focusedAnswer)) || undefined}
-            style={{ position: "absolute", left: 0, width: "100%", paddingBottom: joinsNext ? 0 : paddingBottom }}>
+            style={{ position: "absolute", left: 0, width: "100%", paddingBottom }}>
             {renderRow(row)}
           </div>;
         })}

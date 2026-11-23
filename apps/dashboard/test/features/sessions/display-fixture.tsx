@@ -439,10 +439,19 @@ function Fixture(){
     assert(footer===document.querySelector('[data-conversation-row="answer-meta:turn:footer-turn"]'),"late file remounted footer");
     const file=document.querySelector('[data-conversation-row="artifacts:turn:footer-turn"]')!;
     assert(file.getBoundingClientRect().bottom<=footer!.getBoundingClientRect().top,"footer appears above files");
-    const finalText=document.querySelector('[data-conversation-row="footer-answer:1"] .message-markdown > :last-child')!;
-    const firstCard=file.querySelector(".turn-file-item")!;
-    const gap=firstCard.getBoundingClientRect().top-finalText.getBoundingClientRect().bottom;
-    assert(gap>=0&&gap<=9,`final text to files gap is ${gap}px`);
+    file.dispatchEvent(new MouseEvent("mouseover",{bubbles:true}));await delay(180);
+    const textBounds=(element:Element)=>{
+      const range=document.createRange();
+      range.selectNodeContents(element);
+      return range.getBoundingClientRect();
+    };
+    const status=textBounds(document.querySelector(".conversation-process-toggle .live-progress-label")!);
+    const firstLine=textBounds(body!.querySelector(".message-markdown > :first-child")!);
+    const lastLine=textBounds(document.querySelector('[data-conversation-row="footer-answer:1"] .message-markdown > :last-child')!);
+    const card=file.querySelector(".turn-file-item")!.getBoundingClientRect();
+    const copyIcon=footer!.querySelector(".message-meta-copy svg")!.getBoundingClientRect();
+    const gaps=[firstLine.top-status.bottom,card.top-lastLine.bottom,copyIcon.top-card.bottom];
+    assert(Math.min(...gaps)>=12&&Math.max(...gaps)-Math.min(...gaps)<=3,`uneven answer section gaps: ${gaps.join(", ")}px`);
     assert(document.querySelectorAll('.answer-footer .message-meta-copy').length===1,"duplicate final copy buttons");
     assert(document.querySelectorAll('.response-final-answer + .message-meta').length===0,"metadata still nested with final body");
     const toggle=document.querySelector<HTMLButtonElement>('.conversation-process-toggle')!;toggle.click();await delay(180);
@@ -471,7 +480,7 @@ function Fixture(){
     assert(getComputedStyle(meta).opacity==="1","keyboard focus did not reveal actions");
     meta.querySelector<HTMLButtonElement>("button")!.blur();await delay(180);
     assert(getComputedStyle(meta).opacity==="0","actions stayed visible after focus left");
-    report(`Empty hint: plain text; late files: same body/footer nodes; order: final text → files → copy/time; copied final text only; gap ${gap}px; hover/focus reveal passed`);
+    report(`Empty hint: plain text; late files: same body/footer nodes; order: final text → files → copy/time; copied final text only; gaps ${gaps.join(", ")}px; hover/focus reveal passed`);
   };
   return <div style={{height:"100vh",display:"flex",flexDirection:"column"}}>
     <div style={{padding:8,display:"flex",gap:12}}><button disabled={busy} onClick={()=>void run(sendCases)}>Run send scenarios</button><button disabled={busy} onClick={()=>void run(longHistory)}>Run 1000 group history</button>
