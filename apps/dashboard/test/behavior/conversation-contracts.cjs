@@ -146,12 +146,15 @@ module.exports = async ({suite,win,url,js,step,load,waitFor,click,key,focus,sett
       await waitFor("(()=>{const e=document.querySelector('.conversation-transcript');return e.scrollHeight-e.scrollTop-e.clientHeight<=2})()",'following latest');
       const following=await js(`(async()=>{
         const root=document.querySelector('.conversation-transcript'),row=root.querySelector('[data-display-group=g999]'),samples=[];
-        const observer=new ResizeObserver(()=>requestAnimationFrame(()=>samples.push(root.scrollHeight-root.scrollTop-root.clientHeight)));
-        observer.observe(row,{box:'border-box'});
+        let observed=()=>{};
+        const observer=new ResizeObserver(()=>requestAnimationFrame(()=>{samples.push(root.scrollHeight-root.scrollTop-root.clientHeight);observed();}));
+        // Wait for each resize to be sampled. A fixed interval lets a slow
+        // machine coalesce two appends into one observation.
+        const sampled=()=>new Promise(resolve=>{observed=resolve;setTimeout(resolve,1000);});
         const append=[...document.querySelectorAll('button')].find(e=>e.textContent==='Stream text');
         try{
-          await new Promise(resolve=>setTimeout(resolve,80));
-          for(let i=0;i<8;i++){append.click();await new Promise(resolve=>setTimeout(resolve,80));}
+          let next=sampled();observer.observe(row,{box:'border-box'});await next;
+          for(let i=0;i<8;i++){next=sampled();append.click();await next;}
           return samples;
         }finally{observer.disconnect();}
       })()`);
