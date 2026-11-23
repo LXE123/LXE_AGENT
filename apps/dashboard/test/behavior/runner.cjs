@@ -1,5 +1,5 @@
 // Local Electron renderer only; this never connects to a store browser.
-const { app, BrowserWindow, session } = require("electron");
+const { app, BrowserWindow, clipboard, session } = require("electron");
 const assert = require("node:assert/strict");
 const [suite, profile, url] = process.argv.slice(2);
 // DOM/input regression tests must also run in remote Windows sessions without a GPU.
@@ -754,10 +754,10 @@ app.whenReady().then(async () => {
         await key("z", [mod]); assert.equal(await draft(), "@销售");
         await key("z", [mod, "shift"]); assert.equal(await draft(), "@销售.md ");
         // copy() completes asynchronously in the renderer; slow hosts need more than two frames.
-        require('electron').clipboard.clear();
+        clipboard.clear();
         await key("a", [mod]); win.webContents.copy();
-        for (let frame = 0; frame < 40 && !require('electron').clipboard.readText(); frame++) await settle();
-        assert.equal(require('electron').clipboard.readText(), "@销售.md ");
+        for (let frame = 0; frame < 40 && !(await clipboard.readText()); frame++) await settle();
+        assert.equal(await clipboard.readText(), "@销售.md ");
         await key("Backspace"); assert.equal(await draft(), "");
       });
       await step("draft session switches and remount keep canonical references and preview actions", async () => {

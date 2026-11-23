@@ -259,8 +259,8 @@ export function registerDesktopIpc(application: DesktopIpcApplication): () => vo
     application.registerConversationFiles(stringArray(paths, "dropped file paths")));
   ipcMain.handle(IPC_CHANNELS.stagePastedConversationFiles, (_event, input: unknown) =>
     application.registerPastedConversationFiles(input));
-  ipcMain.handle(IPC_CHANNELS.readClipboardConversationFiles, () =>
-    application.registerConversationFiles(readClipboardFilePaths()));
+  ipcMain.handle(IPC_CHANNELS.readClipboardConversationFiles, async () =>
+    application.registerConversationFiles(await readClipboardFilePaths()));
   ipcMain.handle(IPC_CHANNELS.previewDraftConversationFile, (_event, attachmentId: unknown, variant: unknown) => {
     if (typeof attachmentId !== "string" || !attachmentId.trim()) throw new Error("Invalid attachment ID");
     return application.previewDraftConversationFile(attachmentId, validateDraftImagePreviewVariant(variant));
