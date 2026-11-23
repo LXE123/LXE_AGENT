@@ -111,6 +111,7 @@ def _write_report(source, *, path: Path, headers, rows, source_sheet_name: str, 
 def build_reports(
     *, sales_path: Path, inventory_path: Path, tms_path: Path | None,
     output_dir: Path, report_date: date, tms_warehouse_name: str = "菲律宾PH1仓",
+    country_name: str = "菲律宾",
 ) -> dict:
     """Read the exported sources and write both reports, with no network calls.
 
@@ -118,8 +119,8 @@ def build_reports(
     Publication and temporary-directory cleanup belong to the outer workflow.
     """
     output_dir = filesystem_path(output_dir)
-    labels = (("inventory-sales", "菲律宾库存动销", "雅仓动销", "合并动销"),
-              ("inventory", "菲律宾库存列表", "雅仓库存", "合并库存"))
+    labels = (("inventory-sales", f"{country_name}库存动销", "雅仓动销", "合并动销"),
+              ("inventory", f"{country_name}库存列表", "雅仓库存", "合并库存"))
     paths = [output_dir / f"{label}-{report_date:%Y年%m月%d日}.xlsx" for _report, label, _source, _sheet in labels]
     with ExitStack() as stack:
         sales = load_yacang(Path(sales_path), "inventory-sales")

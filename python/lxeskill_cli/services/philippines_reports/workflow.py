@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import date, datetime
+from dataclasses import dataclass
 import hashlib
 import json
 import os
@@ -23,11 +24,19 @@ from .errors import PhilippinesReportError
 from .workbooks import build_reports
 
 
-_SOURCES = {
-    "sales": ("yacang", "inventory-sales", "PH8805"),
-    "inventory": ("yacang", "inventory", "PH8805"),
-    "tms": ("mabang-tms", "inventory-sales", "PH1"),
-}
+@dataclass(frozen=True)
+class ReportScope:
+    country: str
+    yacang: str
+    tms: str
+    tms_id: int
+    tms_name: str
+    dataset: str
+
+
+PHILIPPINES = ReportScope("菲律宾", "PH8805", "PH1", 12107, "菲律宾PH1仓", "philippines_reports")
+
+
 _SECRETS = ("LXE_YACANG_MOBILE", "LXE_YACANG_PASSWORD", "LXE_MABANG_TMS_ACCOUNT", "LXE_MABANG_TMS_PASSWORD")
 
 
@@ -56,11 +65,15 @@ def _failure(stage: str, exc: Exception, source_exports: list[dict] | None = Non
     }
 
 
-def _source(key: str, raw_path: str) -> tuple[Path, dict]:
+def _source(key: str, raw_path: str, scope: ReportScope = PHILIPPINES) -> tuple[Path, dict]:
     path = filesystem_path(resolve_workspace_input(raw_path))
     with path.open("rb") as stream:
         digest = hashlib.file_digest(stream, "sha256").hexdigest()
-    source, report, warehouse = _SOURCES[key]
+    source, report, warehouse = {
+        "sales": ("yacang", "inventory-sales", scope.yacang),
+        "inventory": ("yacang", "inventory", scope.yacang),
+        "tms": ("mabang-tms", "inventory-sales", scope.tms),
+    }[key]
     return path, {"source": source, "report": report, "warehouse": warehouse,
                   "path": str(display_path(path)), "sha256": digest}
 
@@ -68,8 +81,9 @@ def _source(key: str, raw_path: str) -> tuple[Path, dict]:
 def _merge_files(
     *, sales_file: str, inventory_file: str, tms_file: str | None,
     report_date: date, tms_warehouse_name: str, expected_counts: dict[str, int],
+    scope: ReportScope = PHILIPPINES,
 ) -> dict:
-    root = filesystem_path(dataset_dir("philippines_reports"))
+    root = filesystem_path(dataset_dir(scope.dataset))
     root.mkdir(parents=True, exist_ok=True)
     with TemporaryDirectory(prefix=".building-", dir=root) as temporary:
         temporary = Path(temporary)
@@ -80,11 +94,12 @@ def _merge_files(
             if key == "tms" and raw is None:
                 paths[key] = None
                 continue
-            paths[key], manifest = _source(key, raw)
+            paths[key], manifest = _source(key, raw, scope)
             sources.append(manifest)
         built = build_reports(
             sales_path=paths["sales"], inventory_path=paths["inventory"], tms_path=paths["tms"],
             output_dir=outputs, report_date=report_date, tms_warehouse_name=tms_warehouse_name,
+            country_name=scope.country,
         )
         for field, count in expected_counts.items():
             actual = built["statistics"].get(field)
@@ -99,7 +114,7 @@ def _merge_files(
         result = {
             **built, "success": True, "status": "completed",
             "report_date": report_date.isoformat(), "timezone": "Asia/Shanghai",
-            "warehouses": {"yacang": "PH8805", "mabang-tms": "PH1"},
+            "warehouses": {"yacang": scope.yacang, "mabang-tms": scope.tms},
             "artifacts": published, "source_files": sources,
             "tms_empty": tms_file is None,
             "source_scope": "雅仓与 TMS 来源均已完成导出，按返回文件校验并合并。",
@@ -130,17 +145,17 @@ def _count(value: object, field: str) -> int:
     return value
 
 
-def _yacang_files(result: dict) -> tuple[dict[str, str], dict[str, int]]:
+def _yacang_files(result: dict, scope: ReportScope = PHILIPPINES) -> tuple[dict[str, str], dict[str, int]]:
     artifacts = result.get("artifacts")
     if not isinstance(artifacts, list) or len(artifacts) != 2:
-        raise PhilippinesReportError("source_metadata_invalid", "雅仓应完整提供 PH8805 动销、当前库存两份文件")
+        raise PhilippinesReportError("source_metadata_invalid", f"雅仓应完整提供 {scope.yacang} 动销、当前库存两份文件")
     files, counts = {}, {}
     mapping = {"inventory-sales": ("sales_file", "yacang_sales_rows"),
                "inventory-current-snapshot": ("inventory_file", "yacang_inventory_rows")}
     for item in artifacts:
-        if (not isinstance(item, dict) or item.get("report") not in mapping or item.get("warehouse") != "PH8805"
+        if (not isinstance(item, dict) or item.get("report") not in mapping or item.get("warehouse") != scope.yacang
                 or item.get("created_date") is not None or item.get("source") != "yacang"):
-            raise PhilippinesReportError("source_metadata_invalid", "雅仓来源必须为未加创建日期筛选的 PH8805 两份报表")
+            raise PhilippinesReportError("source_metadata_invalid", f"雅仓来源必须为未加创建日期筛选的 {scope.yacang} 两份报表")
         key, count_key = mapping[item["report"]]
         path = item.get("path")
         if key in files or not isinstance(path, str) or not path.strip():
@@ -150,20 +165,20 @@ def _yacang_files(result: dict) -> tuple[dict[str, str], dict[str, int]]:
     return files, counts
 
 
-def _tms_file(result: dict) -> tuple[str | None, str, int]:
-    if (result.get("warehouse") != "PH1" or result.get("warehouse_id") != 12107
+def _tms_file(result: dict, scope: ReportScope = PHILIPPINES) -> tuple[str | None, str, int]:
+    if (result.get("warehouse") != scope.tms or result.get("warehouse_id") != scope.tms_id
             or result.get("warehouse_scope") != "selected_warehouse"):
-        raise PhilippinesReportError("source_metadata_invalid", "TMS 来源必须为单仓 PH1（12107）")
+        raise PhilippinesReportError("source_metadata_invalid", f"TMS 来源必须为单仓 {scope.tms}（{scope.tms_id}）")
     total = _count(result.get("reported_total"), "TMS reported_total")
     row_count = _count(result.get("row_count"), "TMS row_count")
     source_count = _count(result.get("source_row_count"), "TMS source_row_count")
     distinct = _count(result.get("distinct_skus"), "TMS distinct_skus")
     artifacts = result.get("artifacts")
     if total == 0 and row_count == source_count == distinct == 0 and artifacts == []:
-        return None, "菲律宾PH1仓", 0
+        return None, scope.tms_name, 0
     if (total == 0 or row_count == 0 or row_count != distinct or source_count < row_count
             or not isinstance(artifacts, list) or len(artifacts) != 1):
-        raise PhilippinesReportError("source_metadata_invalid", "TMS PH1 必须提供完整的每 SKU 一行汇总文件")
+        raise PhilippinesReportError("source_metadata_invalid", f"TMS {scope.tms} 必须提供完整的每 SKU 一行汇总文件")
     item = artifacts[0]
     if (not isinstance(item, dict) or not isinstance(item.get("path"), str) or not item["path"].strip()
             or not isinstance(item.get("warehouse"), str) or not item["warehouse"].strip()
@@ -181,11 +196,11 @@ def _save_progress(root: Path, resume_id: str | None, report_date: date, artifac
     return resume_id, path
 
 
-def export_reports(on_event: Callable[[dict], None] = lambda _event: None, *, resume_id: str | None = None) -> dict:
-    """Export the fixed PH sources once, then merge their validated current paths."""
+def export_reports(on_event: Callable[[dict], None] = lambda _event: None, *, resume_id: str | None = None, scope: ReportScope = PHILIPPINES) -> dict:
+    """Export the selected fixed sources once, then merge their validated current paths."""
     stage, source_exports, continuation = "yacang_export", [], None
     try:
-        root = filesystem_path(dataset_dir("philippines_reports"))
+        root = filesystem_path(dataset_dir(scope.dataset))
         reports = ["inventory-sales", "inventory-current-snapshot"]
         completed = []
         submitted = False
@@ -198,9 +213,9 @@ def export_reports(on_event: Callable[[dict], None] = lambda _event: None, *, re
             submitted = progress["submitted_in_run"]
         else:
             report_date = _today()
-        on_event({"stage": stage, "message": "菲律宾报表：取得雅仓 PH8805 库存动销和当前库存"})
+        on_event({"stage": stage, "message": f"{scope.country}报表：取得雅仓 {scope.yacang} 库存动销和当前库存"})
         yacang = yacang_workflow.run({"params": {
-            "reports": reports, "warehouses": ["PH8805"],
+            "reports": reports, "warehouses": [scope.yacang],
         }}, require_fresh=not submitted) if reports else {"success": True, "status": "completed", "artifacts": []}
         yacang["artifacts"] = completed + yacang.get("artifacts", [])
         source_exports.append(_source_summary("yacang", yacang))
@@ -208,18 +223,18 @@ def export_reports(on_event: Callable[[dict], None] = lambda _event: None, *, re
             submitted = submitted or any(task.get("submitted_in_run") for task in yacang.get("tasks", []))
             resume_id, continuation = _save_progress(root, resume_id, report_date, yacang["artifacts"], submitted)
         _complete(yacang, "雅仓")
-        files, counts = _yacang_files(yacang)
+        files, counts = _yacang_files(yacang, scope)
         resume_id, continuation = _save_progress(root, resume_id, report_date, yacang["artifacts"], False)
         stage = "tms_export"
-        on_event({"stage": stage, "message": "菲律宾报表：取得马帮 TMS PH1 SKU 汇总"})
-        tms = tms_workflow.run_with_events({"warehouse": "PH1"}, on_event)
+        on_event({"stage": stage, "message": f"{scope.country}报表：取得马帮 TMS {scope.tms} SKU 汇总"})
+        tms = tms_workflow.run_with_events({"warehouse": scope.tms}, on_event)
         source_exports.append(_source_summary("mabang-tms", tms))
         _complete(tms, "马帮 TMS")
-        tms_file, warehouse_name, tms_count = _tms_file(tms)
+        tms_file, warehouse_name, tms_count = _tms_file(tms, scope)
         stage = "merge"
-        on_event({"stage": stage, "message": "菲律宾报表：按 SKU 合并并校验两份工作簿"})
+        on_event({"stage": stage, "message": f"{scope.country}报表：按 SKU 合并并校验两份工作簿"})
         result = _merge_files(**files, tms_file=tms_file, report_date=report_date,
-                              tms_warehouse_name=warehouse_name, expected_counts={**counts, "tms_rows": tms_count})
+                              tms_warehouse_name=warehouse_name, expected_counts={**counts, "tms_rows": tms_count}, scope=scope)
         continuation.unlink()
         return {**result, "source_exports": source_exports}
     except Exception as exc:
