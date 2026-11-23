@@ -572,17 +572,15 @@ function TurnFileList({
   // it doubles as the anchor the eye lands on, and without it the list reads as
   // a wall of text. It earns that by being quiet - the extension itself still
   // leaves the name, which is where the width was going.
-  const heading = t.conversation.files(formatNumber(files.length));
   return (
-    <section className="turn-file-section" aria-label={heading}>
-      <div className="turn-file-heading">{heading}</div>
+    <section className="turn-file-section conversation-chrome-theme" aria-label={t.conversation.files(formatNumber(files.length))}>
       <div className="turn-file-grid">
         {files.map((file) => {
           const extension = fileExtensionLabel(file.name);
           const isOpening = opening.has(file.artifact_id);
           const error = errors.get(file.artifact_id) ?? "";
           return (
-            <div className={`turn-file-item conversation-chrome-theme${error ? " has-error" : ""}`} key={file.artifact_id}>
+            <div className="turn-file-item" key={file.artifact_id}>
               <button
                 aria-busy={isOpening}
                 aria-label={t.conversation.openFile(file.name)}
@@ -820,6 +818,7 @@ function ConversationThinkingPicker({
   const [open, setOpen] = useState(false);
   const [dragging, setDragging] = useState(false);
   const [dragRatio, setDragRatio] = useState<number | null>(null);
+  const helpId = React.useId();
   const rootRef = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const trackRef = useRef<HTMLDivElement>(null);
@@ -939,13 +938,13 @@ function ConversationThinkingPicker({
               {t.models.thinkingEffort} <strong>{selectedLabel}</strong>
             </span>
             <button
-              aria-label={t.models.thinkingEffortHint}
+              aria-label={t.models.thinkingEffortHelp}
+              aria-describedby={helpId}
               className="conversation-thinking-help"
               type="button"
             >
               <CircleHelp aria-hidden size={13} />
-              <span className="conversation-thinking-tooltip" role="tooltip">
-                <strong>{t.models.thinkingEffort}</strong>
+              <span className="conversation-thinking-tooltip" id={helpId} role="tooltip">
                 <span>{t.models.thinkingEffortHint}</span>
                 <small>{t.models.thinkingEffectiveNextTurn}</small>
               </span>
