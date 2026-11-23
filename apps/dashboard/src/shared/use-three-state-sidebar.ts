@@ -22,6 +22,8 @@ export function useThreeStateSidebar(storage?: Storage, available = true) {
   const transientInteractionRef = useRef(false);
   const peekSuppressedRef = useRef(false);
   const keyboardModeRef = useRef(false);
+  const collapsedRef = useRef(collapsed);
+  collapsedRef.current = collapsed;
 
   const clearOpenTimer = useCallback(() => {
     if (!openTimerRef.current) return;
@@ -42,8 +44,10 @@ export function useThreeStateSidebar(storage?: Storage, available = true) {
       || (keyboardModeRef.current && (controlFocusedRef.current || panelFocusedRef.current))
   ), []);
 
-  const hidePeek = useCallback(() => {
-    if (panelRef.current?.contains(document.activeElement)) {
+  // An expanded sidebar has no peek to hide, so focus inside it stays put.
+  // Hiding the whole sidebar for a route still clears focus from it.
+  const hidePeek = useCallback((hidingSidebar = false) => {
+    if ((hidingSidebar || collapsedRef.current) && panelRef.current?.contains(document.activeElement)) {
       (document.activeElement as HTMLElement).blur();
     }
     keyboardModeRef.current = false;
@@ -61,7 +65,7 @@ export function useThreeStateSidebar(storage?: Storage, available = true) {
     panelFocusedRef.current = false;
     transientInteractionRef.current = false;
     peekSuppressedRef.current = false;
-    hidePeek();
+    hidePeek(true);
   }, [available, clearOpenTimer, clearCloseTimer, hidePeek]);
 
   const scheduleClose = useCallback(() => {

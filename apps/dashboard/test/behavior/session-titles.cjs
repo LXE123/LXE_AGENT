@@ -28,6 +28,9 @@ module.exports = async ({win,js,step,load,waitFor,click,key,focus,settle,state})
     assert.equal(await js(`document.querySelector(${JSON.stringify(row+' .primary-cell')}).textContent`),'用户标题');
     assert.equal(await js("document.querySelector('#session-title-input')"),null);
     await waitFor("document.activeElement?.classList.contains('session-index-actions')",'focus returns to the session actions');
+    // The expanded sidebar's peek-close timer must not take that focus away.
+    await js('new Promise(resolve => setTimeout(resolve, 400))');
+    assert.equal(await js("document.activeElement?.classList.contains('session-index-actions')"),true,'focus stays on the session actions');
   });
   await step('double click opens the same dialog and real failures retain the draft for retry', async () => {
     await js(`document.querySelector(${JSON.stringify(row+' .primary-cell')}).dispatchEvent(new MouseEvent('dblclick',{bubbles:true}))`);
