@@ -11,6 +11,7 @@ import tempfile
 from pathlib import Path
 from typing import Any
 
+from services.browser.tools.driver_session import validate_target_handle
 from shared.bounded_worker import run_worker
 from shared.datasets import dataset_dir
 
@@ -31,7 +32,7 @@ def diagnostic(message: str, store_id: str) -> str:
 
 
 def run_script(arguments: dict[str, Any], session_id: str) -> tuple[dict, list[str]]:
-    extra = arguments.keys() - {"store_id", "script_file", "params_file", "timeout_sec"}
+    extra = arguments.keys() - {"store_id", "script_file", "params_file", "timeout_sec", "target_host", "target_handle"}
     if extra:
         raise ValueError(f"Unknown script options: {', '.join(sorted(extra))}")
     store_id = arguments.get("store_id")
@@ -43,15 +44,23 @@ def run_script(arguments: dict[str, Any], session_id: str) -> tuple[dict, list[s
     if not isinstance(arguments.get("script_file"), str) or not arguments["script_file"].strip():
         raise ValueError("script_file is required")
     script = Path(arguments["script_file"]).expanduser().resolve(strict=True)
-    if not script.is_file() or script.suffix.lower() != ".js":
-        raise ValueError(f"Expected a .js file: {script}")
+    if not script.is_file() or script.suffix.lower() not in {".js", ".py"}:
+        raise ValueError(f"Expected a .js or .py file: {script}")
+    target_host = arguments.get("target_host", "")
+    if not isinstance(target_host, str) or ("target_host" in arguments and not target_host.strip()):
+        raise ValueError("target_host must be a nonempty hostname")
+    if target_host and (re.search(r"[\s/:@?#]", target_host) or target_host != target_host.strip()):
+        raise ValueError("target_host must be a hostname without a URL scheme, port or path")
+    target_handle = validate_target_handle(arguments["target_handle"]) if "target_handle" in arguments else ""
+    if target_handle and not target_host:
+        raise ValueError("target_handle requires target_host")
     params = {}
     if "params_file" in arguments:
         params = json.loads(Path(arguments["params_file"]).expanduser().read_text(encoding="utf-8-sig"))
         if not isinstance(params, dict):
             raise ValueError("params_file must contain a JSON object")
-    node = shutil.which("node")
-    if not node:
+    node = shutil.which("node") if script.suffix.lower() == ".js" else None
+    if script.suffix.lower() == ".js" and not node:
         raise FileNotFoundError("node executable not found on PATH")
 
     root = dataset_dir("browser_store_agent", hashlib.sha256(session_id.encode()).hexdigest()[:24])
@@ -60,7 +69,10 @@ def run_script(arguments: dict[str, Any], session_id: str) -> tuple[dict, list[s
     keep = False
     try:
         request = dict(store_id=store_id.strip(), script=str(script), params=params,
-                       timeout=timeout, output=str(output), node=node)
+                       timeout=timeout, output=str(output), node=node, session_id=session_id,
+                       state_directory=str(root / "state"))
+        if target_host:
+            request.update(target_host=target_host, target_handle=target_handle)
         process = run_worker("services.browser.scripts.worker", [],
                              input_text=json.dumps(request, allow_nan=False), timeout_seconds=timeout)
         detail = diagnostic(process.stderr.strip(), store_id)

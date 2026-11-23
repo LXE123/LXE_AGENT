@@ -30,38 +30,141 @@
     {"name": "shangman_login_status", "command_path": ["shangman", "login", "status"], "visibility": "business", "session_mode": "none", "module": "services.commands.shangman.login_status", "owner_skills": ["shangman-login"], "timeout_ms": 60000, "exposed": true, "input_schema": {"type": "object", "properties": {}, "additionalProperties": false}, "help": {"group": "replenishment", "section": "上马数据采集的登录准备", "summary": "查询登录状态", "examples": ["lxeskill shangman login status"]}},
     {"name": "shangman_login_clear", "command_path": ["shangman", "login", "clear"], "visibility": "business", "session_mode": "none", "module": "services.commands.shangman.login_clear", "owner_skills": ["shangman-login"], "timeout_ms": 60000, "exposed": true, "input_schema": {"type": "object", "properties": {}, "additionalProperties": false}, "help": {"group": "replenishment", "section": "上马数据采集的登录准备", "summary": "清除登录状态", "examples": ["lxeskill shangman login clear"]}},
     {
-      "name": "ziniao_browser",
-      "command_path": ["browser", "store"],
-      "legacy_aliases": ["ziniao_browser"],
-      "visibility": "browser",
-      "session_mode": "lxe_session",
-      "handler": "browser",
-      "owner_skills": ["ziniao-browser"],
-      "timeout_ms": 600000,
-      "exposed": true,
-      "input_schema": {"type": "object", "properties": {"action": {"type": "string", "enum": ["open_store", "get_status", "exit_store"], "description": "店铺生命周期操作。先 get_status；仅在未启动时 open_store；只在明确结束时 exit_store。"}, "store_id": {"type": "string", "minLength": 1, "description": "紫鸟店铺 ID；open_store 必填，禁止凭空猜测。"}}, "required": ["action"], "additionalProperties": false}
-    , "help": {"group": "common", "section": "浏览器操作", "summary": "管理紫鸟店铺浏览器", "examples": ["lxeskill browser store --action get_status"]}},
-    {
-      "name": "ziniao_script_run",
-      "command_path": ["browser", "script", "run"],
-      "visibility": "browser",
-      "session_mode": "lxe_session",
-      "handler": "browser",
-      "owner_skills": ["ziniao-browser"],
-      "exposed": true,
-      "timeout_ms": 610000,
-      "artifact_paths": [{"field": "downloads[]", "role": "deliverable"}, {"field": "screenshots[]", "role": "deliverable"}],
-      "input_schema": {
-        "type": "object", "additionalProperties": false, "required": ["store_id", "script_file"],
-        "properties": {
-          "store_id": {"type": "string", "minLength": 1, "description": "已运行会话对应的紫鸟店铺 ID。"},
-          "script_file": {"type": "string", "minLength": 1, "description": "本机 Node.js 控制脚本路径（.js）。"},
-          "params_file": {"type": "string", "minLength": 1, "description": "传给控制脚本的 JSON 对象文件，省略时为 {}。"},
-          "timeout_sec": {"type": "integer", "minimum": 1, "maximum": 600, "description": "整次执行时限（秒），默认 180。"}
-        }
+  "name": "ziniao_browser",
+  "command_path": [
+    "browser",
+    "store"
+  ],
+  "legacy_aliases": [
+    "ziniao_browser"
+  ],
+  "visibility": "browser",
+  "session_mode": "lxe_session",
+  "handler": "browser",
+  "owner_skills": [
+    "ziniao-browser"
+  ],
+  "timeout_ms": 600000,
+  "exposed": true,
+  "input_schema": {
+    "type": "object",
+    "properties": {
+      "action": {
+        "type": "string",
+        "enum": [
+          "open_store",
+          "get_status",
+          "exit_store"
+        ],
+        "description": "open_store 按用户给出的店铺名称自动启动客户端和目标店铺，已运行则复用；缺少名称先询问。get_status 只读、不启动；exit_store 仅在明确结束时执行。"
       },
-      "help": {"group": "common", "section": "浏览器操作", "summary": "运行紫鸟浏览器自动化脚本", "examples": ["lxeskill browser script run --store-id <ID> --script-file workflow.js --params-file params.json"]}
+      "store_id": {
+        "type": "string",
+        "minLength": 1,
+        "description": "实时接口返回的紫鸟店铺 ID；open_store 与 store_name 二选一，exit_store 必填。"
+      },
+      "store_name": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 256,
+        "description": "仅 open_store 使用，传用户指定的店铺名称。先按实时完整名称匹配，再允许名称首段精确匹配；不唯一时要求完整名称，不猜 ID。"
+      }
     },
+    "required": [
+      "action"
+    ],
+    "additionalProperties": false
+  },
+  "help": {
+    "group": "common",
+    "section": "浏览器操作",
+    "summary": "按名称自动启动或复用紫鸟店铺",
+    "examples": [
+      "lxeskill browser store --action open_store --store-name <店铺名称>",
+      "lxeskill browser store --action get_status"
+    ],
+    "notes": [
+      "未启动时复用现有客户端启动、配对内核、IP 检测和 launcher 初始化链路；已有同名运行店铺不重启。",
+      "没有店铺名称时先向用户索取；零匹配或重名保留实际结果并要求核对名称。"
+    ]
+  }
+},
+    {
+  "name": "ziniao_script_run",
+  "command_path": [
+    "browser",
+    "script",
+    "run"
+  ],
+  "visibility": "browser",
+  "session_mode": "lxe_session",
+  "handler": "browser",
+  "owner_skills": [
+    "ziniao-browser"
+  ],
+  "exposed": true,
+  "timeout_ms": 610000,
+  "artifact_paths": [
+    {
+      "field": "downloads[]",
+      "role": "deliverable"
+    },
+    {
+      "field": "screenshots[]",
+      "role": "deliverable"
+    }
+  ],
+  "input_schema": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+      "store_id",
+      "script_file"
+    ],
+    "properties": {
+      "store_id": {
+        "type": "string",
+        "minLength": 1,
+        "description": "已运行会话对应的紫鸟店铺 ID。"
+      },
+      "script_file": {
+        "type": "string",
+        "minLength": 1,
+        "description": "本机 .js 控制脚本或 .py 脚本；Python 入口为 run(browser, params)，复用宿主配对 Selenium。"
+      },
+      "target_host": {
+        "type": "string",
+        "minLength": 1,
+        "description": "指定运行店铺中唯一匹配域名的标签页，不启动或重启浏览器。"
+      },
+      "target_handle": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 256,
+        "description": "实时核实的标签页 handle，必须同时指定 target_host。"
+      },
+      "params_file": {
+        "type": "string",
+        "minLength": 1,
+        "description": "传给控制脚本的 JSON 对象文件，省略时为 {}。"
+      },
+      "timeout_sec": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 600,
+        "description": "整次执行时限（秒），默认 180。"
+      }
+    }
+  },
+  "help": {
+    "group": "common",
+    "section": "浏览器操作",
+    "summary": "运行紫鸟浏览器自动化脚本",
+    "examples": [
+      "lxeskill browser script run --store-id <ID> --script-file workflow.js --params-file params.json"
+    ]
+  }
+},
     {
       "name": "mabang_auth_refresh",
       "command_path": ["mabang", "auth", "refresh"],

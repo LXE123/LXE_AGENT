@@ -104,7 +104,31 @@ def _dispatch_ziniao_browser(arguments: dict[str, Any]) -> dict[str, Any]:
 
     if action == "open_store":
         store_id = str(arguments.get("store_id") or "").strip()
+        store_name = arguments.get("store_name")
+        if store_name is not None:
+            # Name resolution uses the live catalog and the existing client
+            # startup path; status-only commands remain free of side effects.
+            store_id = service.resolve_store_name(store_name)
         with store_lock(store_id):
+            if store_name is not None:
+                status = _status_data(service=service)
+                running = next(
+                    (item for item in status["running_stores"] if item["store_id"] == store_id),
+                    None,
+                )
+                if running is not None:
+                    return {
+                        "summary": f"复用已运行店铺: {running['store_name']}",
+                        "verification": {"action": action, "meaningful_change": False},
+                        "after_snapshot": {},
+                        "payload": {
+                            "action": action,
+                            "store_id": store_id,
+                            "store_name": running["store_name"],
+                            "reused": True,
+                            "data": status,
+                        },
+                    }
             store_session, start_result = service.start_store_session(store_id)
             ip_detection_page = str(start_result.get("ipDetectionPage") or "").strip()
             launcher_page = str(start_result.get("launcherPage") or "").strip()
@@ -130,6 +154,8 @@ def _dispatch_ziniao_browser(arguments: dict[str, Any]) -> dict[str, Any]:
             "payload": {
                 "action": action,
                 "store_id": store_id,
+                "store_name": str(store_session.browser_name or ""),
+                "reused": False,
                 "data": status,
             },
         }

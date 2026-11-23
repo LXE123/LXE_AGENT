@@ -28,20 +28,24 @@ class _NoRedirects(HTTPRedirectHandler):
         return None
 
 
-def redact(value):
+def redact(value, transform=lambda value: value, *, secrets=()):
     if isinstance(value, dict):
-        return {key: "[REDACTED]" if SENSITIVE.search(str(key)) else redact(item)
+        return {key: "[REDACTED]" if SENSITIVE.search(str(key)) else redact(item, transform, secrets=secrets)
                 for key, item in value.items()}
-    if isinstance(value, list):
-        return [redact(item) for item in value]
+    if isinstance(value, (list, tuple)):
+        return type(value)(redact(item, transform, secrets=secrets) for item in value)
     if not isinstance(value, str):
         return value
+    # Stdin credentials must be removed before pattern redaction alters them.
+    for secret in secrets:
+        if isinstance(secret, str) and secret:
+            value = value.replace(secret, "[redacted]")
     for name, secret in os.environ.items():
         if SENSITIVE.search(name) and len(secret) >= 6:
             value = value.replace(secret, "[REDACTED]")
     value = re.sub(r"(?i)\bBearer\s+[A-Za-z0-9._~+/=-]+", "Bearer [REDACTED]", value)
     value = re.sub(r"\blxe_(?:client|identity|dev|run|erp_run|session|erp_session|handoff|erp_handoff)_[A-Za-z0-9._-]+", "[REDACTED]", value)
-    return re.sub(r'''(?i)((?:authorization|cookie|password|secret|token|api[_-]?key)["']?\s*[:=]\s*)["']?[^\s,;}"']+''', r"\1[REDACTED]", value)
+    return transform(re.sub(r'''(?i)((?:authorization|cookie|password|secret|token|api[_-]?key)["']?\s*[:=]\s*)["']?[^\s,;}"']+''', r"\1[REDACTED]", value))
 
 
 def diagnostic(value, truncated=False):
