@@ -16,6 +16,6 @@ commands:
 
 需要提交凭据且已有授权时执行 `lxeskill logistics login --profile-id <profile_id> --store-id <当前运行店铺ID>`；密码由 Desktop 保管并通过私有执行链路使用，不进入模型参数。已有登录态直接复用，登录或验证码失败保留实际错误。
 
-Amazon 送达时段、威飒/飞沃/云驼/天泰查询及 UPS/FedEx 尾程已迁入可安装的 `fba-us-logistics-workflow`。从当前可用 Skill 目录读取业务包，选择对应的 `scripts/wesa.py`、`feiwo.py`、`yuntuo.py`、`tiantai.py`、`ups.py`、`fedex.py` 或 `amazon.py`，经公开 `lxeskill browser script run` 执行。源码维护入口为仓库 `skill-packages/fba-us-logistics-workflow/`。
+Amazon 送达时段、威飒/飞沃/云驼/天泰查询及 UPS/FedEx 尾程由独立安装的 `fba-us-logistics-workflow` 提供。读取已安装业务包的说明，然后通过 `lxeskill browser script run` 执行对应脚本。
 
 九方仍由其独立 Skill 和公开查询命令提供，不在本轮 US 业务迁移范围。
