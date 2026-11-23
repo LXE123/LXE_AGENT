@@ -595,8 +595,9 @@ describe("native coding tools", () => {
 
     // A running command holds the poll for the whole window even while it is printing:
     // returning on the first byte produced one-line polls instead of batched progress.
+    // Print for ~3 s so the 200 ms window still sees ticks when a slow host observes late.
     const chatty = await start(
-      "python -c \"import time\nfor i in range(20):\n    print('tick', i, flush=True)\n    time.sleep(0.02)\ntime.sleep(60)\"",
+      "python -c \"import time\nfor i in range(150):\n    print('tick', i, flush=True)\n    time.sleep(0.02)\ntime.sleep(60)\"",
     );
     await waitForProcess(processes, chatty, (snapshot) => String(snapshot.output_tail ?? "").includes("tick 0"));
     const chattyStart = performance.now();

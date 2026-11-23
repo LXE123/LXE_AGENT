@@ -13,7 +13,8 @@ app.whenReady().then(async () => {
   // Caption focus ownership, restoration and chart tooltips need native focus.
   const nativeFocus = suite === 'windows-menu' || suite === 'overview-pages' || suite === 'app-frame';
   const catalog = suite === "overview-pages";
-  const win = new BrowserWindow({ width: 1200, height: 900, show: nativeFocus, alwaysOnTop: nativeFocus,
+  // macOS otherwise shrinks shown windows to small CI displays, moving layout under test.
+  const win = new BrowserWindow({ width: 1200, height: 900, show: nativeFocus, alwaysOnTop: nativeFocus, enableLargerThanScreen: true,
     webPreferences: { ...(catalog ? { webviewTag: true, preload: require.resolve("./catalog-preload.cjs") } : {}), offscreen: !nativeFocus, contextIsolation: true, nodeIntegration: false, backgroundThrottling: false } });
   if (catalog) {
     require(require("node:path").join(profile, "team-skills-view.cjs")).registerTeamSkillsGuest(win.webContents);
