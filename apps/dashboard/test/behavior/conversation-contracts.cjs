@@ -418,6 +418,27 @@ module.exports = async ({suite,win,url,js,step,load,waitFor,click,key,focus,sett
     await waitFor("document.querySelector('.conversation-compose-trailing .conversation-model-trigger').textContent.includes('fixture-model')",'model rollback');
     assert.ok(await js("document.body.textContent.includes('EACCES: fixture models.update denied')"));
     await click('.conversation-thinking-trigger');
+    await focus('.conversation-thinking-help');
+    await waitFor("getComputedStyle(document.querySelector('.conversation-thinking-tooltip')).opacity === '1'", 'focused help shows the effort description');
+    assert.ok(await js(`document.querySelector('.conversation-thinking-help').ariaDescribedByElements[0]
+      === document.querySelector('.conversation-thinking-tooltip')`), 'effort help has an accessible description');
+    const thumbColors = [];
+    for (const theme of ['dark', 'light']) {
+      const colors = await js(`(() => {
+        document.documentElement.dataset.theme = '${theme}';
+        const menu = document.querySelector('.conversation-thinking-menu');
+        const tooltip = menu.querySelector('[role="tooltip"]');
+        return {
+          thumb: getComputedStyle(menu.querySelector('.conversation-thinking-knob')).backgroundColor,
+          track: getComputedStyle(menu.querySelector('.conversation-thinking-levels')).backgroundColor,
+          separated: tooltip.getBoundingClientRect().bottom < menu.getBoundingClientRect().top,
+        };
+      })()`);
+      thumbColors.push(colors.thumb);
+      assert.notEqual(colors.thumb, colors.track, theme + ' thumb stands out from the track');
+      assert.ok(colors.separated, theme + ' tooltip leaves the panel edge visible');
+    }
+    assert.notEqual(thumbColors[0], thumbColors[1], 'thumb adapts to the theme');
     await js("behavior.ui.hold('models.thinking.update');behavior.ui.fail('models.thinking.update',true)");
     await click('.conversation-thinking-level:last-of-type');
     assert.equal(await js("Array.from(document.querySelectorAll('.conversation-thinking-level')).every(e=>e.disabled)"),true);

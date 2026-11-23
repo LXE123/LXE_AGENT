@@ -10063,10 +10063,10 @@ pre {
   width: min(226px, calc(100vw - 52px));
   gap: 9px;
   padding: 10px 12px 9px;
-  border: 1px solid var(--border-strong);
+  border: 1px solid var(--cds-alpha-2);
   border-radius: 12px;
-  background: var(--surface);
-  box-shadow: 0 18px 50px var(--shadow-strong);
+  background: var(--cds-surface-popover);
+  box-shadow: 0 6px 24px var(--shadow-medium);
 }
 
 .conversation-thinking-heading,
@@ -10082,8 +10082,8 @@ pre {
 }
 
 .conversation-thinking-heading strong {
-  color: var(--text);
-  font-weight: 650;
+  color: var(--cds-ink);
+  font-weight: 600;
 }
 
 .conversation-thinking-help {
@@ -10110,15 +10110,15 @@ pre {
   position: absolute;
   z-index: 5;
   right: -6px;
-  bottom: calc(100% + 9px);
+  bottom: calc(100% + 18px);
   display: grid;
   width: 196px;
-  gap: 3px;
-  padding: 9px 11px;
-  border: 1px solid var(--border-strong);
-  border-radius: 11px;
-  background: var(--surface);
-  box-shadow: 0 14px 38px var(--shadow-medium);
+  gap: 4px;
+  padding: 8px 10px;
+  border: 1px solid var(--cds-alpha-1);
+  border-radius: 8px;
+  background: var(--cds-surface-popover);
+  box-shadow: 0 2px 8px var(--shadow-soft);
   color: var(--muted);
   font-size: 0.625rem;
   line-height: 1.5;
@@ -10127,11 +10127,6 @@ pre {
   text-align: left;
   transform: translateY(3px);
   transition: opacity 0.15s ease, transform 0.15s ease;
-}
-
-.conversation-thinking-tooltip strong {
-  color: var(--text);
-  font-size: 0.6875rem;
 }
 
 .conversation-thinking-tooltip small {
@@ -10213,12 +10208,10 @@ pre {
   position: absolute;
   z-index: 2;
   top: 50%;
-  width: 13px;
-  height: 18px;
-  border: 1px solid var(--border-strong);
-  border-radius: 7px;
-  background: var(--surface);
-  box-shadow: 0 1px 3px var(--shadow-soft), 0 3px 9px var(--shadow-soft);
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: var(--cds-accent);
   pointer-events: none;
   transform: translate(-50%, -50%);
   transition: left 0.18s ease;
