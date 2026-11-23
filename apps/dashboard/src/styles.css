@@ -9404,10 +9404,10 @@ pre {
 }
 
 .turn-file-heading {
-  color: var(--muted);
-  font-size: 0.6875rem;
-  font-weight: 650;
-  letter-spacing: 0.01em;
+  color: var(--cds-secondary);
+  font-size: 0.75rem;
+  font-weight: 400;
+  line-height: 1.5;
 }
 
 /* Two columns only while both are wide enough to hold a name. Below that a
@@ -9427,10 +9427,10 @@ pre {
   min-width: 0;
   gap: 4px 8px;
   padding-right: 8px;
-  border: 1px solid var(--border);
   border-radius: 10px;
-  background: var(--surface);
-  transition: border-color 0.16s ease, background 0.16s ease;
+  background: var(--cds-surface-panel);
+  box-shadow: 0 1px 2px var(--shadow-soft), 0 3px 8px var(--shadow-soft);
+  transition: background-color 0.16s ease;
 }
 
 .turn-file-card {
@@ -9451,38 +9451,16 @@ pre {
 }
 
 .turn-file-item:has(> .turn-file-card:hover:not(:disabled)) {
-  border-color: var(--accent-muted);
-  background: var(--accent-soft);
+  background: var(--cds-alpha-1);
 }
 
 .turn-file-card:focus-visible {
-  outline: 2px solid var(--focus-ring);
+  outline: 2px solid var(--cds-accent);
   outline-offset: -2px;
-}
-
-.turn-file-item:has(> .turn-file-card:disabled) {
-  border-color: var(--accent-muted);
 }
 
 .turn-file-card:disabled {
   cursor: progress;
-}
-
-.turn-file-item.has-error {
-  border-color: var(--danger-border);
-}
-
-:root:not([data-theme="dark"]) .conversation-feed .turn-file-item {
-  box-shadow: 0 1px 2px rgb(0 0 0 / 6%), 0 3px 8px rgb(0 0 0 / 8%);
-}
-
-:root:not([data-theme="dark"]) .conversation-feed .turn-file-item:not(.has-error) {
-  border-color: var(--border-strong);
-}
-
-:root:not([data-theme="dark"]) .conversation-feed .turn-file-item:has(> .turn-file-card:hover:not(:disabled)):not(.has-error) {
-  border-color: #bdbdbd;
-  background: var(--surface);
 }
 
 /* Kept on every row, including when the whole set shares a type, because it is
@@ -9542,7 +9520,7 @@ pre {
 }
 
 .turn-file-reveal:focus-visible {
-  outline: 2px solid var(--focus-ring);
+  outline: 2px solid var(--cds-accent);
   outline-offset: 1px;
 }
 

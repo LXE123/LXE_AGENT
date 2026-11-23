@@ -574,7 +574,7 @@ function TurnFileList({
   // leaves the name, which is where the width was going.
   const heading = t.conversation.files(formatNumber(files.length));
   return (
-    <section className="turn-file-section" aria-label={heading}>
+    <section className="turn-file-section conversation-chrome-theme" aria-label={heading}>
       <div className="turn-file-heading">{heading}</div>
       <div className="turn-file-grid">
         {files.map((file) => {
@@ -582,7 +582,7 @@ function TurnFileList({
           const isOpening = opening.has(file.artifact_id);
           const error = errors.get(file.artifact_id) ?? "";
           return (
-            <div className={`turn-file-item conversation-chrome-theme${error ? " has-error" : ""}`} key={file.artifact_id}>
+            <div className="turn-file-item" key={file.artifact_id}>
               <button
                 aria-busy={isOpening}
                 aria-label={t.conversation.openFile(file.name)}

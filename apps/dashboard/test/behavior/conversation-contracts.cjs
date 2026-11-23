@@ -355,6 +355,16 @@ module.exports = async ({suite,win,url,js,step,load,waitFor,click,key,focus,sett
     assert.equal(await js("document.querySelector('[data-fixture-row=answer] time').dateTime"),'1970-01-01T00:00:00.001Z');
   });
   await step('artifact open/reveal and attachment open send opaque IDs and keep actual failures',async()=>{
+    for (const theme of ['light', 'dark']) {
+      const card = await js(`(() => {
+        document.documentElement.dataset.theme = '${theme}';
+        const heading = getComputedStyle(document.querySelector('.turn-file-heading'));
+        const item = getComputedStyle(document.querySelector('.turn-file-item'));
+        return { weight: heading.fontWeight, size: heading.fontSize, border: item.borderWidth };
+      })()`);
+      assert.deepEqual(card, { weight: '400', size: '12px', border: '0px' });
+    }
+    await js("document.documentElement.dataset.theme='light'");
     await js("behavior.ui.hold('sessions.file.open');behavior.ui.fail('sessions.file.open',true)");
     await click('.turn-file-card');
     assert.equal(await js("document.querySelector('.turn-file-card').disabled&&document.querySelector('.turn-file-reveal').disabled"),true);

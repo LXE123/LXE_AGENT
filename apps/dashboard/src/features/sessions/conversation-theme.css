@@ -236,22 +236,14 @@
   outline-offset: 2px;
 }
 
-/* Extra specificity wins over the legacy light-theme card overrides, without
-   changing the transcript palette or the file preview sidebar. */
-:root .conversation-feed :is(.turn-file-grid, .sent-file-list) :is(.turn-file-item, .sent-file-with-actions).conversation-chrome-theme {
+.conversation-feed .sent-file-list .sent-file-with-actions.conversation-chrome-theme {
   --focus-ring: var(--cds-accent);
   background: var(--cds-surface-panel);
-}
-:root .conversation-feed :is(.turn-file-grid, .sent-file-list) :is(.turn-file-item, .sent-file-with-actions).conversation-chrome-theme:not(.has-error) {
   border-color: var(--cds-alpha-2);
 }
-:root .conversation-feed .turn-file-item.conversation-chrome-theme {
-  box-shadow: 0 1px 2px var(--shadow-soft), 0 3px 8px var(--shadow-soft);
-}
-:root .conversation-feed :is(.turn-file-grid, .sent-file-list) :is(.turn-file-item, .sent-file-with-actions).conversation-chrome-theme:has(> :is(.turn-file-card, .sent-file-card):hover:not(:disabled)):not(.has-error) {
+.conversation-feed .sent-file-list .sent-file-with-actions.conversation-chrome-theme:has(> .sent-file-card:hover:not(:disabled)) {
   border-color: var(--cds-alpha-3); background: var(--cds-alpha-1);
 }
-:root .conversation-feed .turn-file-item.conversation-chrome-theme.has-error { border-color: var(--danger-border); }
 .conversation-chrome-theme :is(.file-open-split, .file-open-split button + button) { border-color: var(--cds-alpha-2); }
 .conversation-chrome-theme .file-open-split button:hover:not(:disabled) { background: var(--cds-alpha-1); }
 .conversation-chrome-theme .file-open-split button:focus-visible { outline-color: var(--cds-accent); }
