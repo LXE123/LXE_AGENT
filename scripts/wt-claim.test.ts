@@ -242,6 +242,34 @@ describe(`wt-claim lifecycle (${windows ? "PowerShell" : "Bash"})`, () => {
     expect(existsSync(join(f.root, ".worktrees/.wt-claim.lock"))).toBe(false);
   }, 30_000);
 
+  test("slots above the current limit stay visible, resumable and releasable", () => {
+    const f = fixture();
+    f.env.WT_POOL_MAX = "2";
+    expectSuccess(f.run("other"));
+    const above = join(f.root, ".worktrees", "pool-2");
+    f.env.WT_POOL_MAX = "1";
+    const status = f.run("status");
+    expectSuccess(status);
+    expect(status.stdout).toContain("pool-2  codex/other  claimed: other");
+    const resumed = f.run("other");
+    expectSuccess(resumed);
+    expect(resumed.stdout).toContain("resumed pool-2");
+    expect(resumed.stdout.trim().split(/\r?\n/).at(-1)).toBe(above);
+    const released = f.run("release", "other");
+    expectSuccess(released);
+    expect(released.stdout).toContain("released pool-2");
+    expect(existsSync(`${above}.claim`)).toBe(false);
+    // The limit still bounds new work: an idle slot above it is not taken.
+    const blocked = f.run("third");
+    expect(blocked.status).not.toBe(0);
+    expect(blocked.stderr).toContain("no idle slot (max 1)");
+    expect(existsSync(`${above}.claim`)).toBe(false);
+    const idle = f.run("status");
+    expectSuccess(idle);
+    expect(idle.stdout).toContain("pool-2  detached  idle");
+    expect(idle.stdout).not.toContain("pool-3");
+  }, 30_000);
+
   test.each(["content.txt", "untracked.txt"])("rejects release with uncommitted %s", (file) => {
     const f = fixture();
     writeFileSync(join(f.slot, file), "unfinished work\n");

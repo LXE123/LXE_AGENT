@@ -47,6 +47,21 @@ function Test-LxeSlotPushed([string]$Directory) {
     return $result.ExitCode -eq 0 -and ([string]($result.Output -join "")).Trim() -eq "0"
 }
 
+# Slots above WT_POOL_MAX remain from an earlier, larger limit. Lookups of
+# existing slots scan all of them so their work stays visible and releasable;
+# the limit only bounds which slots a new task may take.
+function Get-LxeSlotScanCount {
+    $count = $maxSlots
+    if (-not (Test-Path -LiteralPath $poolRoot -PathType Container)) { return $count }
+    foreach ($entry in Get-ChildItem -LiteralPath $poolRoot -Directory) {
+        if ($entry.Name -match '^pool-([1-9][0-9]*)$') {
+            $index = [int]$Matches[1]
+            if ($index -gt $count) { $count = $index }
+        }
+    }
+    return $count
+}
+
 # Point at slots that can be released without losing work, instead of
 # suggesting a bigger pool: unreleased finished tasks are what fills it.
 function Get-LxeNoIdleSlotMessage {
@@ -100,11 +115,13 @@ try {
     $poolRoot = Join-Path $mainRoot ".worktrees"
     $maxSlots = if ([string]::IsNullOrWhiteSpace($env:WT_POOL_MAX)) { 4 } else { [int]$env:WT_POOL_MAX }
 
+    $scanCount = Get-LxeSlotScanCount
+
     if ($Command -eq "status") {
-        for ($index = 1; $index -le $maxSlots; $index += 1) {
+        for ($index = 1; $index -le $scanCount; $index += 1) {
             $directory = Join-Path $poolRoot "pool-$index"
             if (-not (Test-Path -LiteralPath $directory -PathType Container)) {
-                Write-Output "pool-$index  (not created)"
+                if ($index -le $maxSlots) { Write-Output "pool-$index  (not created)" }
                 continue
             }
             $slug = Get-LxeSlotSlug $directory
@@ -133,7 +150,7 @@ try {
 
     if ($Command -eq "refresh-config") {
         if ([string]::IsNullOrWhiteSpace($TaskSlug)) { throw "usage: wt-claim refresh-config <task-slug>" }
-        for ($index = 1; $index -le $maxSlots; $index += 1) {
+        for ($index = 1; $index -le $scanCount; $index += 1) {
             $directory = Join-Path $poolRoot "pool-$index"
             if ((Test-Path -LiteralPath $directory -PathType Container) -and (Get-LxeSlotSlug $directory) -eq $TaskSlug) {
                 Sync-LxeWorktreeConfiguration $directory "refresh"
@@ -145,7 +162,7 @@ try {
 
     if ($Command -eq "release") {
         if ([string]::IsNullOrWhiteSpace($TaskSlug)) { throw "usage: wt-claim release <task-slug>" }
-        for ($index = 1; $index -le $maxSlots; $index += 1) {
+        for ($index = 1; $index -le $scanCount; $index += 1) {
             $directory = Join-Path $poolRoot "pool-$index"
             if (-not (Test-Path -LiteralPath $directory -PathType Container)) { continue }
             if ((Get-LxeSlotSlug $directory) -ne $TaskSlug) { continue }
@@ -165,7 +182,8 @@ try {
     if ($slug -notmatch "^[a-z0-9][a-z0-9-]*$") { throw "task slug must be kebab-case: $slug" }
     $branchName = "codex/$slug"
 
-    for ($index = 1; $index -le $maxSlots; $index += 1) {
+    # Resume: slug already owns a slot, wherever it is.
+    for ($index = 1; $index -le $scanCount; $index += 1) {
         $directory = Join-Path $poolRoot "pool-$index"
         if ((Test-Path -LiteralPath $directory -PathType Container) -and (Get-LxeSlotSlug $directory) -eq $slug) {
             Sync-LxeWorktreeDependencies $directory
@@ -180,6 +198,7 @@ try {
     $branchResult = Invoke-LxeGit -WorkingDirectory $mainRoot -Arguments @("show-ref", "--verify", "--quiet", "refs/heads/$branchName") -AllowFailure
     $reattach = $branchResult.ExitCode -eq 0
 
+    # A new claim only takes slots within the limit, so the limit keeps meaning.
     for ($index = 1; $index -le $maxSlots; $index += 1) {
         $directory = Join-Path $poolRoot "pool-$index"
         if (-not (Test-Path -LiteralPath $directory -PathType Container)) {
