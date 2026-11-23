@@ -1,8 +1,7 @@
-import { stat } from 'node:fs/promises';
 import type { WorkspaceApplication } from '@lxe/desktop-protocol';
 import { workspaceDirectory } from '../workspace-directory';
 import { catalog } from './catalog';
-import { ApplicationResolver, type ResolvedApp, type ResolverOptions } from './resolver';
+import { ApplicationResolver, present, type ResolvedApp, type ResolverOptions } from './resolver';
 import { diagnostic, launchDetached, missing } from './process';
 interface Dependencies {
   openPath(path: string): Promise<string>;
@@ -76,7 +75,7 @@ export class WorkspaceApplications {
     finally { this.opening = false; }
   }
   private async launch(entry: ResolvedApp, path: string): Promise<void> {
-    for (const file of entry.required) await stat(file);
+    for (const file of entry.required) await present(file);
     if (entry.launch.kind === 'shell-open') { const error = await this.dependencies.openPath(path); if (error) throw new Error(error); return; }
     try { await (this.dependencies.launch ?? launchDetached)(entry.launch, path); }
     catch (error) {

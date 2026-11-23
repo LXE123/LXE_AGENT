@@ -1,5 +1,5 @@
 // Platform locators adapted from DeepSeek Harness 639ed01539; see LICENSE.
-import { access, readdir, stat } from 'node:fs/promises';
+import { access, lstat, readdir, stat } from 'node:fs/promises';
 import { constants } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, join, delimiter } from 'node:path';
@@ -11,9 +11,18 @@ export interface ResolverOptions {
   platform?: NodeJS.Platform; home?: string; env?: NodeJS.ProcessEnv; applicationRoots?: string[];
   execute?: typeof run; registry?: () => Promise<RegistryView>;
 }
+// Windows app execution aliases (WindowsApps\wt.exe) are reparse points that
+// stat cannot open but CreateProcess launches; lstat still reads them.
+async function executionAlias(path: string): Promise<boolean> {
+  return process.platform === 'win32' && await lstat(path).then(info => info.isSymbolicLink(), () => false);
+}
 export async function exists(path: string, directory = false): Promise<boolean> {
   try { const info = await stat(path); return directory ? info.isDirectory() : info.isFile(); }
-  catch (error) { if (missing(error)) return false; throw error; }
+  catch (error) { if (missing(error)) return false; if (!directory && await executionAlias(path)) return true; throw error; }
+}
+/** Throws the actual stat error unless the path exists or is an execution alias. */
+export async function present(path: string): Promise<void> {
+  try { await stat(path); } catch (error) { if (missing(error) || !await executionAlias(path)) throw error; }
 }
 async function directories(path: string): Promise<string[]> {
   try { return await readdir(path); } catch (error) { if (missing(error)) return []; throw error; }

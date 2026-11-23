@@ -27,7 +27,7 @@ module.exports = async ({win,js,step,load,waitFor,click,key,focus,settle,state})
     await key('Enter'); await renamed('用户标题');
     assert.equal(await js(`document.querySelector(${JSON.stringify(row+' .primary-cell')}).textContent`),'用户标题');
     assert.equal(await js("document.querySelector('#session-title-input')"),null);
-    assert.equal(await js("document.activeElement?.classList.contains('session-index-actions')"),true);
+    await waitFor("document.activeElement?.classList.contains('session-index-actions')",'focus returns to the session actions');
   });
   await step('double click opens the same dialog and real failures retain the draft for retry', async () => {
     await js(`document.querySelector(${JSON.stringify(row+' .primary-cell')}).dispatchEvent(new MouseEvent('dblclick',{bubbles:true}))`);

@@ -443,7 +443,8 @@ module.exports = async ({suite,win,url,js,step,load,waitFor,click,key,focus,sett
           await settle();
           const [text, underline] = await colors();
           assert.notEqual(underline, text);
-          const point = await js(`((r) => ({x: Math.round(r.left + r.width / 2), y: Math.round(r.top + r.height / 2)}))(${element}.getBoundingClientRect())`);
+          // The link can wrap; the bounding box centre may fall between its line boxes.
+          const point = await js(`((r) => ({x: Math.round(r.left + r.width / 2), y: Math.round(r.top + r.height / 2)}))(${element}.getClientRects()[0])`);
           win.webContents.sendInputEvent({ type: 'mouseMove', ...point });
           await waitFor(`${element}.matches(':hover')`, theme + ' file link hover');
           assert.deepEqual(await colors(), [text, text]);
