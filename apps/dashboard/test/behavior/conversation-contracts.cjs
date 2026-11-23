@@ -144,18 +144,34 @@ module.exports = async ({suite,win,url,js,step,load,waitFor,click,key,focus,sett
       assert.ok(reading.samples.every(s=>s.same&&s.connected&&Math.abs(s.offset)<0.5&&s.scroll===0),JSON.stringify(reading));
       await click('.conversation-jump-latest');
       await waitFor("(()=>{const e=document.querySelector('.conversation-transcript');return e.scrollHeight-e.scrollTop-e.clientHeight<=2})()",'following latest');
-      const following=await js(`(async()=>{
-        const root=document.querySelector('.conversation-transcript'),row=root.querySelector('[data-display-group=g999]'),samples=[];
-        const observer=new ResizeObserver(()=>requestAnimationFrame(()=>samples.push(root.scrollHeight-root.scrollTop-root.clientHeight)));
-        observer.observe(row,{box:'border-box'});
-        const append=[...document.querySelectorAll('button')].find(e=>e.textContent==='Stream text');
-        try{
-          await new Promise(resolve=>setTimeout(resolve,80));
-          for(let i=0;i<8;i++){append.click();await new Promise(resolve=>setTimeout(resolve,80));}
-          return samples;
-        }finally{observer.disconnect();}
-      })()`);
-      assert.ok(following.length>=9,'measured each streaming resize');
+      const following = await js(`new Promise((resolve, reject) => {
+        const root = document.querySelector('.conversation-transcript');
+        const row = root.querySelector('[data-display-group=g999]');
+        const append = [...document.querySelectorAll('button')].find(e => e.textContent === 'Stream text');
+        const samples = [];
+        let previousHeight = 0;
+        const observer = new ResizeObserver(([entry]) => {
+          const height = entry.borderBoxSize[0].blockSize;
+          if (height <= previousHeight) return;
+          previousHeight = height;
+          requestAnimationFrame(() => {
+            samples.push(root.scrollHeight - root.scrollTop - root.clientHeight);
+            // Measure the baseline and each append before scheduling the next one.
+            if (samples.length < 9) {
+              append.click();
+              return;
+            }
+            observer.disconnect();
+            clearTimeout(deadline);
+            resolve(samples);
+          });
+        });
+        const deadline = setTimeout(() => {
+          observer.disconnect();
+          reject(new Error('Expected 9 distinct streaming heights, measured ' + samples.length));
+        }, 8000);
+        observer.observe(row, {box: 'border-box'});
+      })`);
       assert.ok(following.every(distance=>Math.abs(distance)<=2),`bottom-follow gaps before paint: ${following}`);
     });
     await step('scrolling up past the top of a tool result releases stream following', async () => {
@@ -355,6 +371,17 @@ module.exports = async ({suite,win,url,js,step,load,waitFor,click,key,focus,sett
     assert.equal(await js("document.querySelector('[data-fixture-row=answer] time').dateTime"),'1970-01-01T00:00:00.001Z');
   });
   await step('artifact open/reveal and attachment open send opaque IDs and keep actual failures',async()=>{
+    const label = await js("document.querySelector('.turn-file-section').getAttribute('aria-label')");
+    assert.match(label, /1$/);
+    assert.ok(!(await js("document.querySelector('.turn-file-section').innerText")).includes(label));
+    for (const theme of ['light', 'dark']) {
+      const border = await js(`(() => {
+        document.documentElement.dataset.theme = '${theme}';
+        return getComputedStyle(document.querySelector('.turn-file-item')).borderWidth;
+      })()`);
+      assert.equal(border, '0px');
+    }
+    await js("document.documentElement.dataset.theme='light'");
     await js("behavior.ui.hold('sessions.file.open');behavior.ui.fail('sessions.file.open',true)");
     await click('.turn-file-card');
     assert.equal(await js("document.querySelector('.turn-file-card').disabled&&document.querySelector('.turn-file-reveal').disabled"),true);
@@ -407,6 +434,27 @@ module.exports = async ({suite,win,url,js,step,load,waitFor,click,key,focus,sett
     await waitFor("document.querySelector('.conversation-compose-trailing .conversation-model-trigger').textContent.includes('fixture-model')",'model rollback');
     assert.ok(await js("document.body.textContent.includes('EACCES: fixture models.update denied')"));
     await click('.conversation-thinking-trigger');
+    await focus('.conversation-thinking-help');
+    await waitFor("getComputedStyle(document.querySelector('.conversation-thinking-tooltip')).opacity === '1'", 'focused help shows the effort description');
+    assert.ok(await js(`document.querySelector('.conversation-thinking-help').ariaDescribedByElements[0]
+      === document.querySelector('.conversation-thinking-tooltip')`), 'effort help has an accessible description');
+    const thumbColors = [];
+    for (const theme of ['dark', 'light']) {
+      const colors = await js(`(() => {
+        document.documentElement.dataset.theme = '${theme}';
+        const menu = document.querySelector('.conversation-thinking-menu');
+        const tooltip = menu.querySelector('[role="tooltip"]');
+        return {
+          thumb: getComputedStyle(menu.querySelector('.conversation-thinking-knob')).backgroundColor,
+          track: getComputedStyle(menu.querySelector('.conversation-thinking-levels')).backgroundColor,
+          separated: tooltip.getBoundingClientRect().bottom < menu.getBoundingClientRect().top,
+        };
+      })()`);
+      thumbColors.push(colors.thumb);
+      assert.notEqual(colors.thumb, colors.track, theme + ' thumb stands out from the track');
+      assert.ok(colors.separated, theme + ' tooltip leaves the panel edge visible');
+    }
+    assert.notEqual(thumbColors[0], thumbColors[1], 'thumb adapts to the theme');
     await js("behavior.ui.hold('models.thinking.update');behavior.ui.fail('models.thinking.update',true)");
     await click('.conversation-thinking-level:last-of-type');
     assert.equal(await js("Array.from(document.querySelectorAll('.conversation-thinking-level')).every(e=>e.disabled)"),true);
