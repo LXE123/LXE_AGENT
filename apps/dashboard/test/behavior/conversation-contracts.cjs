@@ -98,11 +98,14 @@ module.exports = async ({suite,win,url,js,step,load,waitFor,click,key,focus,sett
           observer.observe(previous,{box:'border-box'});
           const delay=ms=>new Promise(resolve=>setTimeout(resolve,ms));
           const original=previous.style.paddingBottom,padding=parseFloat(getComputedStyle(previous).paddingBottom);
+          // Resizes 155 ms apart land just after the virtualizer's 150 ms scroll-end
+          // fallback, where a stale offset once marked a compensation as an upward
+          // scroll and the next resize went uncompensated.
           try{
-            await delay(80);
+            await delay(200);
             for(let i=0;i<8;i++){
               previous.style.paddingBottom=(padding+(i%2?0:4))+'px';
-              await delay(80);
+              await delay(155);
             }
             return {initial,scroll,samples};
           }finally{observer.disconnect();previous.style.paddingBottom=original;}

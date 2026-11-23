@@ -40,6 +40,24 @@ slot_dirty() { [ -n "$(git -C "$1" status --porcelain)" ]; }
 
 slot_branch() { git -C "$1" branch --show-current 2>/dev/null || true; }
 
+# Every commit on HEAD already exists on some remote-tracking ref. Push updates
+# those refs locally, so this needs no network and works without an upstream.
+# Combined with a clean worktree, releasing the slot cannot lose work.
+slot_pushed() { [ "$(git -C "$1" rev-list --count HEAD --not --remotes 2>/dev/null)" = 0 ]; }
+
+# Slots above WT_POOL_MAX remain from an earlier, larger limit. Lookups of
+# existing slots scan all of them so their work stays visible and releasable;
+# the limit only bounds which slots a new task may take.
+slot_scan_count() {
+  local count="$MAX_SLOTS" dir i
+  for dir in "$POOL_DIR"/pool-*; do
+    i="${dir##*/pool-}"
+    [[ -d "$dir" && "$i" =~ ^[1-9][0-9]*$ ]] || continue
+    if (( i > count )); then count="$i"; fi
+  done
+  echo "$count"
+}
+
 sync_deps() {
   local dir="$1" started ended
   started="$(date +%s)"
@@ -51,17 +69,21 @@ sync_deps() {
 
 cmd_status() {
   local i dir slug branch state
-  for i in $(seq 1 "$MAX_SLOTS"); do
+  for i in $(seq 1 "$(slot_scan_count)"); do
     dir="$POOL_DIR/pool-$i"
     if [ ! -d "$dir" ]; then
-      echo "pool-$i  (not created)"
+      [ "$i" -le "$MAX_SLOTS" ] && echo "pool-$i  (not created)"
       continue
     fi
     slug="$(slot_slug "$dir")"
     branch="$(slot_branch "$dir")"
     state="idle"
     [ -n "$slug" ] && state="claimed: $slug"
-    slot_dirty "$dir" && state="$state, dirty"
+    if slot_dirty "$dir"; then
+      state="$state, dirty"
+    elif [ -n "$slug" ] && slot_pushed "$dir"; then
+      state="$state, pushed (releasable)"
+    fi
     echo "pool-$i  ${branch:-detached}  $state"
   done
 }
@@ -72,8 +94,8 @@ cmd_claim() {
   lock_pool
   branch="codex/$slug"
 
-  # Resume: slug already owns a slot.
-  for i in $(seq 1 "$MAX_SLOTS"); do
+  # Resume: slug already owns a slot, wherever it is.
+  for i in $(seq 1 "$(slot_scan_count)"); do
     dir="$POOL_DIR/pool-$i"
     if [ -d "$dir" ] && [ "$(slot_slug "$dir")" = "$slug" ]; then
       sync_deps "$dir"
@@ -88,6 +110,7 @@ cmd_claim() {
   local reattach=""
   git -C "$MAIN_ROOT" show-ref --verify --quiet "refs/heads/$branch" && reattach=1
 
+  # A new claim only takes slots within the limit, so the limit keeps meaning.
   for i in $(seq 1 "$MAX_SLOTS"); do
     dir="$POOL_DIR/pool-$i"
     if [ ! -d "$dir" ]; then
@@ -110,13 +133,34 @@ cmd_claim() {
     echo "$dir"
     return 0
   done
-  die "no idle slot (max $MAX_SLOTS); release a finished task or raise WT_POOL_MAX"
+  die "$(no_idle_slot_message)"
+}
+
+# Point at slots that can be released without losing work, instead of
+# suggesting a bigger pool: unreleased finished tasks are what fills it.
+no_idle_slot_message() {
+  local i dir owner releasable=""
+  for i in $(seq 1 "$MAX_SLOTS"); do
+    dir="$POOL_DIR/pool-$i"
+    [ -d "$dir" ] || continue
+    owner="$(slot_slug "$dir")"
+    [ -n "$owner" ] || continue
+    slot_dirty "$dir" && continue
+    slot_pushed "$dir" || continue
+    releasable="$releasable"$'\n'"  pool-$i  scripts/wt-claim release $owner"
+  done
+  echo "no idle slot (max $MAX_SLOTS)."
+  if [ -n "$releasable" ]; then
+    echo "These claimed slots have no uncommitted changes and every commit on a remote; release one, then retry:$releasable"
+  else
+    echo "No claimed slot is fully pushed yet; commit and push a finished task, release it, then retry."
+  fi
 }
 
 cmd_release() {
   local slug="$1" dir i branch
   lock_pool
-  for i in $(seq 1 "$MAX_SLOTS"); do
+  for i in $(seq 1 "$(slot_scan_count)"); do
     dir="$POOL_DIR/pool-$i"
     [ -d "$dir" ] && [ "$(slot_slug "$dir")" = "$slug" ] || continue
     slot_dirty "$dir" && die "pool-$i has uncommitted changes; commit or discard them first"
@@ -133,7 +177,7 @@ cmd_release() {
 cmd_refresh_config() {
   local slug="$1" dir i
   lock_pool
-  for i in $(seq 1 "$MAX_SLOTS"); do
+  for i in $(seq 1 "$(slot_scan_count)"); do
     dir="$POOL_DIR/pool-$i"
     [ -d "$dir" ] && [ "$(slot_slug "$dir")" = "$slug" ] || continue
     bun "$SCRIPT_DIR/worktree-config.ts" "$MAIN_ROOT" "$dir" refresh
