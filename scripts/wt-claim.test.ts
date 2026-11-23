@@ -201,6 +201,47 @@ describe(`wt-claim lifecycle (${windows ? "PowerShell" : "Bash"})`, () => {
     expect(readFileSync(join(f.slot, "content.txt"), "utf8")).toBe("review changes\n");
   }, 30_000);
 
+  test("status marks a claimed slot releasable only when clean and fully pushed", () => {
+    const f = fixture();
+    const releasable = "pool-1  codex/review  claimed: review, pushed (releasable)";
+    const local = f.run("status");
+    expectSuccess(local);
+    expect(local.stdout).toContain("claimed: review");
+    expect(local.stdout).not.toContain("releasable");
+    const remote = join(f.temporary, "remote.git");
+    git(f.root, "init", "--bare", remote);
+    git(f.root, "remote", "add", "origin", remote);
+    // No upstream: pushed work must still be recognised from remote-tracking refs.
+    git(f.slot, "push", "origin", "codex/review");
+    const pushed = f.run("status");
+    expectSuccess(pushed);
+    expect(pushed.stdout).toContain(releasable);
+    writeFileSync(join(f.slot, "untracked.txt"), "unfinished work\n");
+    const dirty = f.run("status");
+    expectSuccess(dirty);
+    expect(dirty.stdout).toContain("claimed: review, dirty");
+    expect(dirty.stdout).not.toContain("releasable");
+  }, 30_000);
+
+  test("a full pool lists releasable slots instead of suggesting a larger pool", () => {
+    const f = fixture();
+    const unpushed = f.run("other");
+    expect(unpushed.status).not.toBe(0);
+    expect(unpushed.stderr).toContain("no idle slot (max 1)");
+    expect(unpushed.stderr).toContain("No claimed slot is fully pushed yet");
+    expect(unpushed.stderr).not.toContain("WT_POOL_MAX");
+    const remote = join(f.temporary, "remote.git");
+    git(f.root, "init", "--bare", remote);
+    git(f.root, "remote", "add", "origin", remote);
+    git(f.slot, "push", "origin", "codex/review");
+    const pushed = f.run("other");
+    expect(pushed.status).not.toBe(0);
+    expect(pushed.stderr).toContain(`pool-1  scripts/wt-claim${windows ? ".ps1" : ""} release review`);
+    expect(pushed.stderr).not.toContain("WT_POOL_MAX");
+    expect(readFileSync(`${f.slot}.claim`, "utf8").trim()).toBe("review");
+    expect(existsSync(join(f.root, ".worktrees/.wt-claim.lock"))).toBe(false);
+  }, 30_000);
+
   test.each(["content.txt", "untracked.txt"])("rejects release with uncommitted %s", (file) => {
     const f = fixture();
     writeFileSync(join(f.slot, file), "unfinished work\n");

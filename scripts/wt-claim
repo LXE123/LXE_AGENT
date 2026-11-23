@@ -40,6 +40,11 @@ slot_dirty() { [ -n "$(git -C "$1" status --porcelain)" ]; }
 
 slot_branch() { git -C "$1" branch --show-current 2>/dev/null || true; }
 
+# Every commit on HEAD already exists on some remote-tracking ref. Push updates
+# those refs locally, so this needs no network and works without an upstream.
+# Combined with a clean worktree, releasing the slot cannot lose work.
+slot_pushed() { [ "$(git -C "$1" rev-list --count HEAD --not --remotes 2>/dev/null)" = 0 ]; }
+
 sync_deps() {
   local dir="$1" started ended
   started="$(date +%s)"
@@ -61,7 +66,11 @@ cmd_status() {
     branch="$(slot_branch "$dir")"
     state="idle"
     [ -n "$slug" ] && state="claimed: $slug"
-    slot_dirty "$dir" && state="$state, dirty"
+    if slot_dirty "$dir"; then
+      state="$state, dirty"
+    elif [ -n "$slug" ] && slot_pushed "$dir"; then
+      state="$state, pushed (releasable)"
+    fi
     echo "pool-$i  ${branch:-detached}  $state"
   done
 }
@@ -110,7 +119,28 @@ cmd_claim() {
     echo "$dir"
     return 0
   done
-  die "no idle slot (max $MAX_SLOTS); release a finished task or raise WT_POOL_MAX"
+  die "$(no_idle_slot_message)"
+}
+
+# Point at slots that can be released without losing work, instead of
+# suggesting a bigger pool: unreleased finished tasks are what fills it.
+no_idle_slot_message() {
+  local i dir owner releasable=""
+  for i in $(seq 1 "$MAX_SLOTS"); do
+    dir="$POOL_DIR/pool-$i"
+    [ -d "$dir" ] || continue
+    owner="$(slot_slug "$dir")"
+    [ -n "$owner" ] || continue
+    slot_dirty "$dir" && continue
+    slot_pushed "$dir" || continue
+    releasable="$releasable"$'\n'"  pool-$i  scripts/wt-claim release $owner"
+  done
+  echo "no idle slot (max $MAX_SLOTS)."
+  if [ -n "$releasable" ]; then
+    echo "These claimed slots have no uncommitted changes and every commit on a remote; release one, then retry:$releasable"
+  else
+    echo "No claimed slot is fully pushed yet; commit and push a finished task, release it, then retry."
+  fi
 }
 
 cmd_release() {
