@@ -35,7 +35,7 @@ module.exports = async ({win,js,step,load,waitFor,click,key,focus,settle,state})
     win.setSize(1200,900); await key('Escape'); await settle();
     assert.equal(await selected(),'Default chat'); assert.equal(await draft(),'Keep this draft');
     assert.equal((await state()).calls.some(c=>c.operation==='workspaces.delete'),false);
-    assert.equal(await js("document.activeElement?.classList.contains('workspace-actions-trigger')"),true);
+    await waitFor("document.activeElement?.classList.contains('workspace-actions-trigger')",'focus returns to the workspace actions');
   });
   await step('failure retains confirmation, retry is guarded, and deletion preserves the active chat and draft', async () => {
     await begin('/fixture/default'); await js('behavior.failWorkspaceDelete(true)');

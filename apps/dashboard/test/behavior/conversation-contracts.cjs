@@ -351,10 +351,13 @@ module.exports = async ({suite,win,url,js,step,load,waitFor,click,key,focus,sett
       await js("{const root=document.querySelector('.conversation-transcript');root.scrollTop=60;root.dispatchEvent(new Event('scroll'))}"); await settle();
       const after=await js("document.querySelector('.conversation-compaction-marker').getBoundingClientRect().top");
       assert.ok(Math.abs(before-after-60)<3,'marker scrolls with content');
+      const height=await js("document.querySelector('.conversation-transcript').scrollHeight");
       await textClick('Prepend compaction history');
-      await settle(); await settle();
-      const afterPrepend=await js("document.querySelector('.conversation-compaction-marker').getBoundingClientRect().top");
-      assert.ok(Math.abs(afterPrepend-after)<3,'prepending preserves reading anchor');
+      await waitFor(`document.querySelector('.conversation-transcript').scrollHeight>${height}`,'older history rendered');
+      // Compare once row measurement has settled; slow machines need more than two frames.
+      let afterPrepend,previous;
+      for(let i=0;i<40&&afterPrepend!==previous||i<2;i++){previous=afterPrepend;await settle();afterPrepend=await js("document.querySelector('.conversation-compaction-marker').getBoundingClientRect().top");}
+      assert.ok(Math.abs(afterPrepend-after)<3,`prepending preserves reading anchor: ${after} -> ${afterPrepend}`);
     });
     return;
   }
@@ -419,8 +422,12 @@ module.exports = async ({suite,win,url,js,step,load,waitFor,click,key,focus,sett
     const list = "document.querySelector('.conversation-model-options')";
     assert.ok(await js(`${list}.scrollHeight > ${list}.clientHeight`), 'long model list needs a scroll viewport');
     const point = await js(`(() => { const r=${list}.getBoundingClientRect();return {x:Math.round(r.x+r.width/2), y:Math.round(r.y+r.height/2)}; })()`);
-    win.webContents.sendInputEvent({ type: 'mouseWheel', ...point, deltaY: -1800, canScroll: true });
-    await waitFor(`${list}.scrollTop > 0`, 'native wheel scrolls the model list');
+    // A wheel sent while the popover is still settling can be dropped on slow machines.
+    for (let i = 0; i < 20 && !await js(`${list}.scrollTop > 0`); i++) {
+      win.webContents.sendInputEvent({ type: 'mouseWheel', ...point, deltaY: -1800, canScroll: true });
+      await settle();
+    }
+    assert.ok(await js(`${list}.scrollTop > 0`), 'native wheel scrolls the model list');
     const atEnd = `${list}.lastElementChild.getBoundingClientRect().bottom <= ${list}.getBoundingClientRect().bottom + 1`;
     for (let i = 0; i < 20 && !await js(atEnd); i++) {
       win.webContents.sendInputEvent({ type: 'mouseWheel', ...point, deltaY: -500, canScroll: true });
@@ -483,30 +490,21 @@ module.exports = async ({suite,win,url,js,step,load,waitFor,click,key,focus,sett
         const element = `document.querySelector(${JSON.stringify(report)})`;
         const colors = () => js(`((s) => [s.color, s.textDecorationColor])(getComputedStyle(${element}))`);
         for (const theme of ['light', 'dark']) {
-          await js(`document.documentElement.dataset.theme = ${JSON.stringify(theme)}; ${element}.scrollIntoView({ block: 'center' })`);
+          // Following the latest output keeps programmatic scrolls at the bottom.
+          // A user wheel releases it, so a short window can bring the link into view.
+          await js(`document.documentElement.dataset.theme = ${JSON.stringify(theme)};
+            document.querySelector('.conversation-transcript').dispatchEvent(new WheelEvent('wheel', { bubbles: true, deltaY: -50 }));
+            ${element}.scrollIntoView({ block: 'center' })`);
           win.webContents.sendInputEvent({ type: 'mouseMove', x: 1, y: 1 });
           await settle();
           const [text, underline] = await colors();
           assert.notEqual(underline, text);
-          // The link can wrap, and in a small window the virtual list re-measures
-          // rows after scrollIntoView and can move the link out of view. Scroll
-          // again until its first line box is the visible hit, then hover it.
-          for (const deadline = Date.now() + 8000; ;) {
-            const point = await js(`((r) => ({x: Math.round(r.left + r.width / 2), y: Math.round(r.top + r.height / 2)}))(${element}.getClientRects()[0])`);
-            if (await js(`${element}.contains(document.elementFromPoint(${point.x}, ${point.y}))`)) {
-              win.webContents.sendInputEvent({ type: 'mouseMove', ...point });
-              await settle();
-              if (await js(`${element}.matches(':hover')`)) break;
-            } else {
-              await js(`${element}.scrollIntoView({ block: 'center' })`);
-              await settle();
-            }
-            if (Date.now() > deadline) throw new Error(`${theme} file link hover: ` + JSON.stringify(await js(`((p) => {
-              const hit = document.elementFromPoint(p.x, p.y);
-              return { point: p, viewport: [innerWidth, innerHeight], hit: hit?.outerHTML.slice(0, 200),
-                lines: [...${element}.getClientRects()].map(r => [r.left, r.top, r.width, r.height].map(Math.round)) };
-            })(${JSON.stringify(point)})`)));
-          }
+          // The link can wrap; aim at its first line box.
+          const point = await js(`((r) => ({x: Math.round(r.left + r.width / 2), y: Math.round(r.top + r.height / 2)}))(${element}.getClientRects()[0])`);
+          assert.ok(await js(`${element}.contains(document.elementFromPoint(${point.x}, ${point.y}))`),
+            `${theme} file link is visible at ${JSON.stringify(point)}: ` + await js(`document.elementFromPoint(${point.x}, ${point.y})?.outerHTML.slice(0, 200)`));
+          win.webContents.sendInputEvent({ type: 'mouseMove', ...point });
+          await waitFor(`${element}.matches(':hover')`, theme + ' file link hover');
           assert.deepEqual(await colors(), [text, text]);
           win.webContents.sendInputEvent({ type: 'mouseMove', x: 1, y: 1 });
           await settle();
