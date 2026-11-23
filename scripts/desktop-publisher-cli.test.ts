@@ -34,7 +34,10 @@ $dir=Join-Path $env:LOCALAPPDATA 'LXE\\release'; New-Item -ItemType Directory -P
 function bun { $received = ($input | Out-String) | ConvertFrom-Json;
 if ($received.secretId -ne 'dummy' -or $received.secretKey -ne 'dummy') { throw 'Credential pipe mismatch'; } ${success?"Write-Output 'Published 0.2.18 / fixture';":""} $global:LASTEXITCODE=0; }
 try { & ${psQuote(wrapper)} -Candidate ${psQuote(candidate)}; exit 0 } catch { [Console]::Error.WriteLine($_.Exception.Message); exit 1 }`;
-   const child=Bun.spawn(["powershell","-NoLogo","-NoProfile","-Command",setup],{env:{...process.env,LOCALAPPDATA:root},stdout:"pipe",stderr:"pipe"});
+   // PowerShell 7 exports its own module path; Windows PowerShell then cannot load
+   // Microsoft.PowerShell.Security. Without the variable it uses its defaults.
+   const env=Object.fromEntries(Object.entries(process.env).filter(([key])=>key.toLowerCase()!=="psmodulepath"));
+   const child=Bun.spawn(["powershell","-NoLogo","-NoProfile","-Command",setup],{env:{...env,LOCALAPPDATA:root},stdout:"pipe",stderr:"pipe"});
    const [stdout,stderr,code]=await Promise.all([new Response(child.stdout).text(),new Response(child.stderr).text(),child.exited]);
    expect(code).toBe(success?0:1);
    if(success)expect(stdout).toContain("Published 0.2.18 / fixture");

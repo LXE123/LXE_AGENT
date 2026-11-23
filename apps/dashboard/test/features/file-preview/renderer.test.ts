@@ -36,7 +36,8 @@ beforeAll(async () => {
   const protocol = await Bun.build({ entrypoints: [resolve(import.meta.dirname, "../../../../desktop/src/main/app-protocol.ts")], outdir: resolve(output, "main"), target: "node", format: "cjs", external: ["electron"] });
   if (!protocol.success) throw new Error(protocol.logs.map(String).join("\n"));
   protocolFile = protocol.outputs[0]!.path;
-}, 60_000);
+  // A full Vite build plus fixtures; hosted CI machines can need over a minute.
+}, 150_000);
 afterAll(() => { if (output) rmSync(output, { recursive: true, force: true }); });
 test("file previews work in the isolated Chromium renderer with React 19", async () => {
   const profile = mkdtempSync(resolve(tmpdir(), "lxe-preview-profile-")), env = { ...process.env };

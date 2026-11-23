@@ -23,7 +23,7 @@ function git(cwd: string, ...args: string[]): string {
 }
 
 function fixture() {
-  const temporary = realpathSync(mkdtempSync(join(tmpdir(), "lxe wt-claim-")));
+  const temporary = realpathSync.native(mkdtempSync(join(tmpdir(), "lxe wt-claim-")));
   temporaryRoots.push(temporary);
   const root = join(temporary, "repository");
   const bin = join(temporary, "bin");
