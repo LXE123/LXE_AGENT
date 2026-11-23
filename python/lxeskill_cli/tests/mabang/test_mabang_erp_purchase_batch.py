@@ -2134,11 +2134,14 @@ def test_stock_shipments_quote_and_confirm_each_csv_independently(tmp_path, monk
     assert [item["status"] for item in first["items"]] == ["error", "confirmation_required"], first
     assert first["items"][0]["error"]["detail"]["shortages"][0]["short_quantity"] == 6
     assert first["items"][1]["confirmation"]["quote_id"] == quote_id
+    pending = shipments.run({**args, "delivery_no": [second_sp]})
+    assert pending["success"] and pending["created_or_replayed_count"] == 0
+    assert pending["items"][0]["status"] == "confirmation_required"
     confirmed = shipments.run({**args, "delivery_no": [second_sp], "confirm_quote": [f"{second_sp}={quote_id}"]})
     assert confirmed["success"], confirmed
     assert confirmed["items"][0]["batch_no"] == "PB20260723-0001"
-    assert [sp for sp, _ in observed] == [first_sp, second_sp, second_sp]
-    assert observed[1][1] == observed[2][1] != observed[0][1]
+    assert [sp for sp, _ in observed] == [first_sp, second_sp, second_sp, second_sp]
+    assert observed[1][1] == observed[2][1] == observed[3][1] != observed[0][1]
 
 
 def test_stock_shipments_refuse_unmatched_skus_and_misbound_confirmations(tmp_path, monkeypatch):

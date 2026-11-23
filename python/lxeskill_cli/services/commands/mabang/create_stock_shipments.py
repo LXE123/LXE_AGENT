@@ -52,7 +52,14 @@ def run(arguments: dict[str, Any]) -> dict[str, Any]:
             item = {"status": "error", "error": {"code": type(exc).__name__, "message": exception_text(exc)}}
         results.append({"sp_no": sp, **item})
     completed = sum(item["status"] in {"created", "idempotent"} for item in results)
+    # Fetching a quote is a successful first step and allows the CLI to
+    # remember the uploaded master workbook for the confirmation call.
+    success = all(
+        item["status"] in {"created", "idempotent"}
+        or (item["status"] == "confirmation_required" and item["sp_no"] not in quotes)
+        for item in results
+    )
     return {
-        "success": completed == len(results), "items": results,
+        "success": success, "created_or_replayed_count": completed, "items": results,
         "message": f"已生成 {completed}/{len(results)} 张发货单，逐单结果见 items。",
     }
