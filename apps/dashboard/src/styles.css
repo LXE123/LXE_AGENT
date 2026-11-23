@@ -9397,17 +9397,8 @@ pre {
 }
 
 .turn-file-section {
-  display: grid;
   width: min(100%, var(--assistant-content-width));
-  gap: 8px;
   margin: 8px 0 12px;
-}
-
-.turn-file-heading {
-  color: var(--cds-secondary);
-  font-size: 0.75rem;
-  font-weight: 400;
-  line-height: 1.5;
 }
 
 /* Two columns only while both are wide enough to hold a name. Below that a

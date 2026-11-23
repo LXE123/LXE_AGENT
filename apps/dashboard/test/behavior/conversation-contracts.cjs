@@ -355,14 +355,15 @@ module.exports = async ({suite,win,url,js,step,load,waitFor,click,key,focus,sett
     assert.equal(await js("document.querySelector('[data-fixture-row=answer] time').dateTime"),'1970-01-01T00:00:00.001Z');
   });
   await step('artifact open/reveal and attachment open send opaque IDs and keep actual failures',async()=>{
+    const label = await js("document.querySelector('.turn-file-section').getAttribute('aria-label')");
+    assert.match(label, /1$/);
+    assert.ok(!(await js("document.querySelector('.turn-file-section').innerText")).includes(label));
     for (const theme of ['light', 'dark']) {
-      const card = await js(`(() => {
+      const border = await js(`(() => {
         document.documentElement.dataset.theme = '${theme}';
-        const heading = getComputedStyle(document.querySelector('.turn-file-heading'));
-        const item = getComputedStyle(document.querySelector('.turn-file-item'));
-        return { weight: heading.fontWeight, size: heading.fontSize, border: item.borderWidth };
+        return getComputedStyle(document.querySelector('.turn-file-item')).borderWidth;
       })()`);
-      assert.deepEqual(card, { weight: '400', size: '12px', border: '0px' });
+      assert.equal(border, '0px');
     }
     await js("document.documentElement.dataset.theme='light'");
     await js("behavior.ui.hold('sessions.file.open');behavior.ui.fail('sessions.file.open',true)");

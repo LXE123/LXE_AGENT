@@ -572,10 +572,8 @@ function TurnFileList({
   // it doubles as the anchor the eye lands on, and without it the list reads as
   // a wall of text. It earns that by being quiet - the extension itself still
   // leaves the name, which is where the width was going.
-  const heading = t.conversation.files(formatNumber(files.length));
   return (
-    <section className="turn-file-section conversation-chrome-theme" aria-label={heading}>
-      <div className="turn-file-heading">{heading}</div>
+    <section className="turn-file-section conversation-chrome-theme" aria-label={t.conversation.files(formatNumber(files.length))}>
       <div className="turn-file-grid">
         {files.map((file) => {
           const extension = fileExtensionLabel(file.name);

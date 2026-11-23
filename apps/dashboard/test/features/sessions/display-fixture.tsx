@@ -440,8 +440,8 @@ function Fixture(){
     const file=document.querySelector('[data-conversation-row="artifacts:turn:footer-turn"]')!;
     assert(file.getBoundingClientRect().bottom<=footer!.getBoundingClientRect().top,"footer appears above files");
     const finalText=document.querySelector('[data-conversation-row="footer-answer:1"] .message-markdown > :last-child')!;
-    const heading=file.querySelector(".turn-file-heading")!;
-    const gap=heading.getBoundingClientRect().top-finalText.getBoundingClientRect().bottom;
+    const firstCard=file.querySelector(".turn-file-item")!;
+    const gap=firstCard.getBoundingClientRect().top-finalText.getBoundingClientRect().bottom;
     assert(gap>=0&&gap<=9,`final text to files gap is ${gap}px`);
     assert(document.querySelectorAll('.answer-footer .message-meta-copy').length===1,"duplicate final copy buttons");
     assert(document.querySelectorAll('.response-final-answer + .message-meta').length===0,"metadata still nested with final body");
