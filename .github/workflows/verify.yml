@@ -17,7 +17,8 @@ permissions:
 jobs:
   source:
     name: verify:source
-    runs-on: ubuntu-latest
+    # LXE ships for Windows and macOS only; Linux lacks the exec sandbox and app runtime.
+    runs-on: macos-latest
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
@@ -29,6 +30,7 @@ jobs:
           enable-cache: true
       - run: bun install --frozen-lockfile
       - run: uv sync --frozen
+      - run: bun run desktop:tools:fd
       - run: bun run verify:source
         env:
           PYTHONUTF8: "1"
