@@ -144,18 +144,34 @@ module.exports = async ({suite,win,url,js,step,load,waitFor,click,key,focus,sett
       assert.ok(reading.samples.every(s=>s.same&&s.connected&&Math.abs(s.offset)<0.5&&s.scroll===0),JSON.stringify(reading));
       await click('.conversation-jump-latest');
       await waitFor("(()=>{const e=document.querySelector('.conversation-transcript');return e.scrollHeight-e.scrollTop-e.clientHeight<=2})()",'following latest');
-      const following=await js(`(async()=>{
-        const root=document.querySelector('.conversation-transcript'),row=root.querySelector('[data-display-group=g999]'),samples=[];
-        const observer=new ResizeObserver(()=>requestAnimationFrame(()=>samples.push(root.scrollHeight-root.scrollTop-root.clientHeight)));
-        observer.observe(row,{box:'border-box'});
-        const append=[...document.querySelectorAll('button')].find(e=>e.textContent==='Stream text');
-        try{
-          await new Promise(resolve=>setTimeout(resolve,80));
-          for(let i=0;i<8;i++){append.click();await new Promise(resolve=>setTimeout(resolve,80));}
-          return samples;
-        }finally{observer.disconnect();}
-      })()`);
-      assert.ok(following.length>=9,'measured each streaming resize');
+      const following = await js(`new Promise((resolve, reject) => {
+        const root = document.querySelector('.conversation-transcript');
+        const row = root.querySelector('[data-display-group=g999]');
+        const append = [...document.querySelectorAll('button')].find(e => e.textContent === 'Stream text');
+        const samples = [];
+        let previousHeight = 0;
+        const observer = new ResizeObserver(([entry]) => {
+          const height = entry.borderBoxSize[0].blockSize;
+          if (height <= previousHeight) return;
+          previousHeight = height;
+          requestAnimationFrame(() => {
+            samples.push(root.scrollHeight - root.scrollTop - root.clientHeight);
+            // Measure the baseline and each append before scheduling the next one.
+            if (samples.length < 9) {
+              append.click();
+              return;
+            }
+            observer.disconnect();
+            clearTimeout(deadline);
+            resolve(samples);
+          });
+        });
+        const deadline = setTimeout(() => {
+          observer.disconnect();
+          reject(new Error('Expected 9 distinct streaming heights, measured ' + samples.length));
+        }, 8000);
+        observer.observe(row, {box: 'border-box'});
+      })`);
       assert.ok(following.every(distance=>Math.abs(distance)<=2),`bottom-follow gaps before paint: ${following}`);
     });
     await step('scrolling up past the top of a tool result releases stream following', async () => {
