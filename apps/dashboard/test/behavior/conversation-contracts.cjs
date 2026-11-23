@@ -488,10 +488,19 @@ module.exports = async ({suite,win,url,js,step,load,waitFor,click,key,focus,sett
           await settle();
           const [text, underline] = await colors();
           assert.notEqual(underline, text);
-          // The link can wrap; the bounding box centre may fall between its line boxes.
-          const point = await js(`((r) => ({x: Math.round(r.left + r.width / 2), y: Math.round(r.top + r.height / 2)}))(${element}.getClientRects()[0])`);
-          win.webContents.sendInputEvent({ type: 'mouseMove', ...point });
-          await waitFor(`${element}.matches(':hover')`, theme + ' file link hover');
+          // The link can wrap, and the virtual list can still move its row after
+          // scrollIntoView; aim at the first line box again until it is hovered.
+          for (const deadline = Date.now() + 8000; ;) {
+            const point = await js(`((r) => ({x: Math.round(r.left + r.width / 2), y: Math.round(r.top + r.height / 2)}))(${element}.getClientRects()[0])`);
+            win.webContents.sendInputEvent({ type: 'mouseMove', ...point });
+            await settle();
+            if (await js(`${element}.matches(':hover')`)) break;
+            if (Date.now() > deadline) throw new Error(`${theme} file link hover: ` + JSON.stringify(await js(`((p) => {
+              const hit = document.elementFromPoint(p.x, p.y);
+              return { point: p, viewport: [innerWidth, innerHeight], hit: hit?.outerHTML.slice(0, 200),
+                lines: [...${element}.getClientRects()].map(r => [r.left, r.top, r.width, r.height].map(Math.round)) };
+            })(${JSON.stringify(point)})`)));
+          }
           assert.deepEqual(await colors(), [text, text]);
           win.webContents.sendInputEvent({ type: 'mouseMove', x: 1, y: 1 });
           await settle();
