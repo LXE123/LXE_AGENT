@@ -98,11 +98,12 @@ module.exports = async ({suite,win,url,js,step,load,waitFor,click,key,focus,sett
           observer.observe(previous,{box:'border-box'});
           const delay=ms=>new Promise(resolve=>setTimeout(resolve,ms));
           const original=previous.style.paddingBottom,padding=parseFloat(getComputedStyle(previous).paddingBottom);
+          // 200 ms per resize lets a slow host deliver each observer frame before the next change.
           try{
-            await delay(80);
+            await delay(200);
             for(let i=0;i<8;i++){
               previous.style.paddingBottom=(padding+(i%2?0:4))+'px';
-              await delay(80);
+              await delay(200);
             }
             return {initial,scroll,samples};
           }finally{observer.disconnect();previous.style.paddingBottom=original;}

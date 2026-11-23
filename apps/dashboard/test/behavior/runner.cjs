@@ -753,7 +753,10 @@ app.whenReady().then(async () => {
         const mod = process.platform === "darwin" ? "meta" : "control";
         await key("z", [mod]); assert.equal(await draft(), "@销售");
         await key("z", [mod, "shift"]); assert.equal(await draft(), "@销售.md ");
-        await key("a", [mod]); win.webContents.copy(); await settle();
+        // copy() completes asynchronously in the renderer; slow hosts need more than two frames.
+        require('electron').clipboard.clear();
+        await key("a", [mod]); win.webContents.copy();
+        for (let frame = 0; frame < 40 && !require('electron').clipboard.readText(); frame++) await settle();
         assert.equal(require('electron').clipboard.readText(), "@销售.md ");
         await key("Backspace"); assert.equal(await draft(), "");
       });

@@ -595,19 +595,20 @@ describe("native coding tools", () => {
 
     // A running command holds the poll for the whole window even while it is printing:
     // returning on the first byte produced one-line polls instead of batched progress.
-    // Print for ~3 s so the 200 ms window still sees ticks when a slow host observes late.
+    // The 1 s window and ~3 s of output leave room for slow CI hosts, where a 20 ms
+    // sleep loop has produced only two lines in 200 ms.
     const chatty = await start(
       "python -c \"import time\nfor i in range(150):\n    print('tick', i, flush=True)\n    time.sleep(0.02)\ntime.sleep(60)\"",
     );
     await waitForProcess(processes, chatty, (snapshot) => String(snapshot.output_tail ?? "").includes("tick 0"));
     const chattyStart = performance.now();
     const chattyPoll = await processes.wait({
-      execId: chatty, sessionId: "s1", yieldMs: 200, terminate: false,
+      execId: chatty, sessionId: "s1", yieldMs: 1_000, terminate: false,
       signal: new AbortController().signal,
     });
     const chattyElapsed = performance.now() - chattyStart;
     expect(chattyPoll.status).toBe("running");
-    expect(chattyElapsed).toBeGreaterThanOrEqual(150);
+    expect(chattyElapsed).toBeGreaterThanOrEqual(950);
     // The batched answer carries several ticks produced during the window, not just one.
     const observedTicks = [...String(chattyPoll.new_output).matchAll(/tick (\d+)/gu)]
       .map((match) => Number(match[1]));
