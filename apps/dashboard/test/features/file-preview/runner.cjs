@@ -82,9 +82,14 @@ app.whenReady().then(async () => {
       await delay(150);
       await capture("spreadsheet");
       clipboard.clear();
-      win.webContents.sendInputEvent({type:"keyDown",keyCode:"c",modifiers:[process.platform==="darwin"?"meta":"control"]});
-      win.webContents.sendInputEvent({type:"keyUp",keyCode:"c",modifiers:[process.platform==="darwin"?"meta":"control"]});
-      await delay(150); assert.ok(clipboard.readText().length > 0, "selection copies actual cell content");
+      // On slow hosts the cell selection and the asynchronous copy can each take
+      // longer than one 150 ms wait; repeat the shortcut until the copy lands.
+      for (let attempt = 0; attempt < 10 && !clipboard.readText(); attempt++) {
+        win.webContents.sendInputEvent({type:"keyDown",keyCode:"c",modifiers:[process.platform==="darwin"?"meta":"control"]});
+        win.webContents.sendInputEvent({type:"keyUp",keyCode:"c",modifiers:[process.platform==="darwin"?"meta":"control"]});
+        await delay(150);
+      }
+      assert.ok(clipboard.readText().length > 0, "selection copies actual cell content");
       await js("document.querySelector('[role=separator]').dispatchEvent(new KeyboardEvent('keydown',{key:'ArrowLeft',bubbles:true}))");
       await delay(200); assert.equal(await js("Math.round(document.querySelector('.file-sidebar').getBoundingClientRect().width)"),440);
       assert.equal(await js("document.querySelector('#draft').value"), "keep this draft");
