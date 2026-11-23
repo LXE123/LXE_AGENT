@@ -28,9 +28,20 @@ jobs:
       - uses: astral-sh/setup-uv@v6
         with:
           enable-cache: true
+      # office:prepare copies this standalone Node (>= 22.19) next to the Office engine.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
       - run: bun install --frozen-lockfile
       - run: uv sync --frozen
       - run: bun run desktop:tools:fd
+      - run: bun run office:prepare
+      # Office recalculation tests use the real engine, as release:build does.
+      - name: Point tests at the prepared Office runtime
+        run: |
+          bun -e 'import {sourceRuntimePaths} from "./apps/desktop/src/main/source-runtime-paths";
+            const p = sourceRuntimePaths(process.cwd());
+            console.log(`LXE_OFFICE_NODE=${p.node}\nLXE_OFFICE_CLI=${p.officeCli}`);' >> "$GITHUB_ENV"
       - run: bun run verify:source
         env:
           PYTHONUTF8: "1"
