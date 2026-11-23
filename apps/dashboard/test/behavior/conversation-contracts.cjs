@@ -488,13 +488,19 @@ module.exports = async ({suite,win,url,js,step,load,waitFor,click,key,focus,sett
           await settle();
           const [text, underline] = await colors();
           assert.notEqual(underline, text);
-          // The link can wrap, and the virtual list can still move its row after
-          // scrollIntoView; aim at the first line box again until it is hovered.
+          // The link can wrap, and in a small window the virtual list re-measures
+          // rows after scrollIntoView and can move the link out of view. Scroll
+          // again until its first line box is the visible hit, then hover it.
           for (const deadline = Date.now() + 8000; ;) {
             const point = await js(`((r) => ({x: Math.round(r.left + r.width / 2), y: Math.round(r.top + r.height / 2)}))(${element}.getClientRects()[0])`);
-            win.webContents.sendInputEvent({ type: 'mouseMove', ...point });
-            await settle();
-            if (await js(`${element}.matches(':hover')`)) break;
+            if (await js(`${element}.contains(document.elementFromPoint(${point.x}, ${point.y}))`)) {
+              win.webContents.sendInputEvent({ type: 'mouseMove', ...point });
+              await settle();
+              if (await js(`${element}.matches(':hover')`)) break;
+            } else {
+              await js(`${element}.scrollIntoView({ block: 'center' })`);
+              await settle();
+            }
             if (Date.now() > deadline) throw new Error(`${theme} file link hover: ` + JSON.stringify(await js(`((p) => {
               const hit = document.elementFromPoint(p.x, p.y);
               return { point: p, viewport: [innerWidth, innerHeight], hit: hit?.outerHTML.slice(0, 200),
