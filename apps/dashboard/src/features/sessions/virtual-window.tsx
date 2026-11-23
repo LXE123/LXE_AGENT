@@ -94,6 +94,11 @@ export function ConversationWindow({ rows: sourceRows, renderRow, hasOlder, hasN
     getItemKey, estimateSize: () => 100, overscan: 5, anchorTo: "end", followOnAppend: false,
     // Keep prepend anchoring, but don't let proximity resume following on resize.
     scrollEndThreshold: following ? 80 : -1, useAnimationFrameWithResizeObserver: true,
+    // The fallback 150 ms debounce reports the offset cached at the last scroll
+    // event. Firing after a newer compensation, it made that compensation look
+    // like an upward user scroll, which skips the next resize compensation.
+    // scrollend reads the offset when it fires.
+    useScrollendEvent: true,
     // Include edge spacing in virtual measurements and scroll-to-end targets.
     // The bottom fade covers 26px; keep the last row above it.
     paddingStart: 24, paddingEnd: 40,

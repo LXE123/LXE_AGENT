@@ -135,7 +135,12 @@ module.exports = async ({ win, js, step, load, waitFor, click, settle, state }) 
     assert.ok(send.input.text.includes("- Amazon-XIUTAI-US\n- Amazon-YYH-US\n"), "stores keep page order");
     assert.ok(send.input.text.includes("站点：US CA SA AE UK DE AU\n"));
     assert.equal(await js("document.querySelector('.fba-capacity-start button').disabled"), true, "one run at a time");
-    assert.equal(await js("getComputedStyle(document.querySelector('.fba-capacity-state .spin')).animationName"), "workbench-spin", "the running badge spins");
+    // The host's Reduce Motion setting must not decide this assertion.
+    win.webContents.debugger.attach("1.3");
+    try {
+      await win.webContents.debugger.sendCommand("Emulation.setEmulatedMedia", { features: [{ name: "prefers-reduced-motion", value: "no-preference" }] });
+      assert.equal(await js("getComputedStyle(document.querySelector('.fba-capacity-state .spin')).animationName"), "workbench-spin", "the running badge spins");
+    } finally { win.webContents.debugger.detach(); }
     assert.equal(await js("(() => { const form = document.querySelector('.fba-capacity-form').getBoundingClientRect(); const run = document.querySelector('.fba-capacity-run').getBoundingClientRect(); return run.left > form.right && Math.abs(run.top - form.top) < 4; })()"), true, "start on the left, results on the right");
     assert.equal(await js("(() => { const side = document.querySelector('.fba-capacity-side'), layout = document.querySelector('.fba-capacity-layout').getBoundingClientRect(), box = side.getBoundingClientRect(), run = document.querySelector('.fba-capacity-run').getBoundingClientRect(); return getComputedStyle(side).backgroundSize === '1px calc(100% - 20px)' && Math.abs(box.bottom - layout.bottom) < 1 && Math.abs(box.right - (document.querySelector('.fba-capacity-form').getBoundingClientRect().right + run.left) / 2) < 2; })()"), true, "a rule starting below the header sits midway between the columns");
     assert.deepEqual(await js("(() => { const style = getComputedStyle(document.querySelector('.fba-capacity-chip:nth-child(3) span')); return [style.borderTopColor, style.backgroundColor]; })()"), ["rgba(0, 0, 0, 0)", "rgba(0, 0, 0, 0)"], "unchosen options have no border or fill");
