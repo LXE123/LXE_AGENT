@@ -291,6 +291,67 @@
     , "help": {"group": "fba", "section": "发票、报关与退税", "summary": "填写发票模板", "examples": ["lxeskill fba invoice fill --input-xlsx 备货单.xlsx"]}},
     {"name": "mabang_download_msku_detail_excel", "module": "services.commands.mabang.download_msku_detail_excel", "command_path": ["mabang", "delivery", "msku", "export"], "visibility": "business", "session_mode": "none", "owner_skills": ["mabang-delivery-msku-export"], "artifact_paths": [{"field": "xlsx_path", "role": "deliverable"}], "timeout_ms": 300000, "exposed": true, "input_schema": {"type": "object", "properties": {"delivery_no": {"type": "string", "minLength": 1}}, "additionalProperties": false, "required": ["delivery_no"]}, "input_modes": ["flags"], "help": {"group": "fba", "section": "发货数据采集", "summary": "下载发货单 MSKU 明细", "examples": ["lxeskill mabang delivery msku export --delivery-no SP260919007"]}},
     {
+      "name": "mabang_create_stock_shipments",
+      "module": "services.commands.mabang.create_stock_shipments",
+      "command_path": [
+        "fba",
+        "stock-shipment",
+        "create"
+      ],
+      "visibility": "business",
+      "session_mode": "none",
+      "input_modes": [
+        "flags"
+      ],
+      "owner_skills": [
+        "fba-purchase-summary-create"
+      ],
+      "artifact_paths": [],
+      "timeout_ms": 300000,
+      "exposed": true,
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "delivery_no": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "minItems": 1
+          },
+          "master_xlsx": {
+            "type": "string",
+            "x-lxe-file-input": {
+              "accepted_extensions": [
+                ".xlsx"
+              ],
+              "instruction": "请上传出口退税总表，并使用附件保存后的真实绝对路径。"
+            },
+            "x-lxe-asset-slot": "export_tax_master"
+          },
+          "confirm_quote": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "每次指定一个 SP号=报价UUID，可重复传入。省略时仅取报价。"
+          }
+        },
+        "required": [
+          "delivery_no"
+        ],
+        "additionalProperties": false
+      },
+      "help": {
+        "group": "fba",
+        "section": "采购与备货单据",
+        "summary": "用 ERP 留存库存为已有 SP 独立创建发货单",
+        "examples": [
+          "lxeskill fba stock-shipment create --delivery-no SP261123001"
+        ]
+      }
+    },
+    {
       "name": "mabang_generate_purchase_batch_workbooks", "module": "services.commands.mabang.generate_purchase_batch_workbooks",
       "command_path": ["fba", "purchase", "summary-create"],
       "legacy_aliases": ["mabang_generate_purchase_batch_workbooks"],

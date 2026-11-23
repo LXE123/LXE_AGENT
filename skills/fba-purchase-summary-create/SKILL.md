@@ -1,8 +1,9 @@
 ---
 name: fba-purchase-summary-create
-description: 根据一批本地 FBA 发货单 CSV、出口退税总表和毛利率，与 FBA ERP 交互并在本地生成采购汇总表、每个 SP 备货单和合同。默认创建正式采购批次；用户明确要求先看文件但不写入 ERP 时使用 --preview 只读预览。用户要求按一批 SP 生成采购汇总、批量备货单、合同或 ERP 采购批次时使用；不要用于上传 WMS 真实装箱量。
+description: 根据一批本地 FBA 发货单 CSV、出口退税总表和毛利率，与 FBA ERP 交互并在本地生成采购汇总表、每个 SP 备货单和合同。默认创建正式采购批次；用户明确要求先看文件但不写入 ERP 时使用 --preview 只读预览。用户要求按一批 SP 生成采购汇总、批量备货单、合同或 ERP 采购批次时使用；明确要求只用留存库存发新 SP 时使用 stock-shipment create。不要用于上传 WMS 真实装箱量。
 type: amazon_fba
 commands:
+  - lxeskill fba stock-shipment create
   - lxeskill fba purchase summary-create
 ---
 
@@ -23,6 +24,12 @@ commands:
 - `--draft` 已删除，不得调用或建议使用。
 - `--preview` 不得与 `--confirm-inventory-quote-id` 同时使用；未匹配 SKU 确认和完整批次替换参数仍可携带。
 - 不要手工解析 CSV 或编辑输出 Excel。
+
+## 仅用留存库存发货
+
+用户明确要求用 ERP 留存库存为仓库已有 SP 发货时，运行 `lxeskill fba stock-shipment create --delivery-no <SP1> --delivery-no <SP2>`。使用正常采购的本地发货单 CSV 和已记忆的出口退税总表。毛利率、合同模板和采购文件只用于下文的采购流程。
+
+逐单展示库存报价、来源和缺口。用户确认后，再次传入要确认的 SP 和各自的 `--confirm-quote <SP>=<quote_id>`，多张可重复该参数。库存变化需要展示新报价并重新确认。逐项报告已生成的批次号、待确认与缺货的 SP。遇到网络中断时用相同输入重试。装箱沿用 WMS 装箱对账。
 
 ## Required Input
 
