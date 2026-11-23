@@ -1,6 +1,6 @@
 ---
 name: fba-erp-packing-upload
-description: 按 SP 号读取本地 FBA 发货单 CSV 的实发量，确认后上传到 FBA ERP 并生成库存 SKU 对账与留存库存。用户要求上传真实发货量、同步发货数据、更正发货量或查看留存预览时使用；不要用于下载发货单、生成采购单或采购合同。
+description: 按 SP 号读取本地 FBA 发货单 CSV 的实发量，或为已到货、待装箱的 SP 申报整单不发；经确认后在 FBA ERP 生成对账和留存库存。用户要求上传或更正实发量、整单不发或查看留存预览时使用。
 type: amazon_fba
 commands:
   - lxeskill fba erp packing-upload
@@ -13,7 +13,7 @@ commands:
 ## Hard Rules
 
 - 必须通过 exec 调用 frontmatter 中声明的固定 CLI；禁止直接运行 Python 业务模块或调用 ERP API。
-- 实发量只来自本地 FBA 发货单 CSV 的 `MSKU发货量` 列；不接受用户上传的装箱附件。
+- 常规上传从本地 FBA 发货单 CSV 的 `MSKU发货量` 列读取实发量。整单不发以用户明确的零实发申报为来源。
 - 马帮 WMS 装箱导出会把总量分配到错误的 MSKU 上，已不作为对账来源；它仍用于创建货件、报关和发票。
 - 不在本地推导库存 SKU、留存量或合同来源；只展示 ERP 返回的正式预览。
 - 首次上传和数据变更都必须等待用户明确确认。禁止在同一轮首次调用后自动携带 quote 提交。
@@ -28,11 +28,21 @@ lxeskill fba erp packing-upload --ship-no <ship_no>
 
 同一个 SP 有多份发货单导出时，CLI 取最新的一份——装箱后重新导出的那份才带回填的实发量。
 
+### 待装箱的 SP 整单不发
+
+用户明确整单不发，且已确认货物全部到仓留存时，按指定 SP 预览：
+
+```text
+lxeskill fba erp packing-upload --ship-no <SP> --all-unshipped
+```
+
+该模式直接申报零实发，无需 CSV。展示 ERP 预览中的“归还库存”和“新增留存”，并等用户确认本次预览后再使用下方的确认命令。已有装箱对账时，指引用户进入 FBA ERP 当前对账详情处理。确认首次零实发后如需撤销，从 ERP 的“撤销装箱数据”进入。
+
 ## Preview Presentation
 
 当 `data.status=confirmation_required` 或 `quote_stale`：
 
-1. 说明文件名、SP、SHA-256，以及预计动作是“首次上传”还是“替换现有版本”。
+1. 说明 SP、来源和预计动作。常规上传展示文件名和 SHA-256；整单不发展示“人工申报：整单不发”。
    - `packing_sp_no` 非空时，必须明确显示 `采购 SP <purchase_sp_no> → 装箱 SP <packing_sp_no>`。
    - `packing_sp_no` 为空时只显示采购 SP，不重复两个相同编号。
 2. 展示 `summary` 中的计划量、实际量、差异量和预计留存量。

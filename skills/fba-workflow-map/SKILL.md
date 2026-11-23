@@ -59,7 +59,7 @@ flowchart TD
 |---|---|
 | 下载 FBA 发货单、发货单 SKU CSV、SP 发货单表格 | `mabang-delivery-export` |
 | 下载 WMS 装箱数据、托运单 Excel、装箱 Excel | `mabang-delivery-packing-list-export` |
-| 上传真实发货量、同步发货数据到 ERP、生成装箱对账 | `fba-erp-packing-upload` |
+| 上传真实发货量、申报待装箱 SP 整单不发、生成 ERP 装箱对账 | `fba-erp-packing-upload` |
 | 将现有进销存表初始化为 ERP 历史库存 | 说明这是部署前的一次性管理操作；由后端服务器管理员执行 `lxe-erp-admin opening-inventory` |
 | 补录 ERP 上线前、尚未进入期初库存的历史 SP 剩余库存 | 说明这是 ERP“留存库存”页的管理员操作；使用“补录历史库存”，不执行 Agent Skill |
 | 创建 Amazon FBA 货件、上传装箱、确认承运人、填追踪号 | `fba-shipment-create` |
@@ -93,6 +93,6 @@ flowchart TD
 
 马帮下载步骤使用配置的马帮账号，由 CLI 管理认证；后续 Amazon Seller Central 货件创建使用紫鸟中的卖家店铺会话。
 
-ERP 实发量应使用仓库回填后重新导出的 FBA 发货单 CSV；同一 SP 有多份导出时，CLI 取最新一份。WMS 装箱 Excel 用于创建货件、发票和报关。
+常规 ERP 对账使用仓库回填后重新导出的最新 FBA 发货单 CSV。已到货且整单不发的待装箱 SP 可按人工申报预览零实发。WMS 装箱 Excel 用于创建货件、发票和报关。
 
 日常正式采购流程应走 `fba-purchase-summary-create`，默认先由 ERP 确认 FIFO 库存抵扣；只有用户明确要求不使用留存库存或按计划全量采购时才使用 `--inventory-deduction-mode none`。随后由本地一次生成采购汇总表、备货单和正式合同；需要先看结果时用同一 Skill 的 `--preview`，正式执行重新计算并保持同一库存路线。正飞 `均价` 只按整批 SP 的本次新采购量计算。`fba-restock-workbook-create` 作为单 SP 备货单兼容入口。

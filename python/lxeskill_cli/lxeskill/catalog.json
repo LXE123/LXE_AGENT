@@ -419,8 +419,8 @@
       "legacy_aliases": ["mabang_erp_packing_upload"],
       "visibility": "business", "session_mode": "none",
       "owner_skills": ["fba-erp-packing-upload"], "artifact_paths": [], "timeout_ms": 120000, "exposed": true,
-      "input_schema": {"type": "object", "properties": {"ship_no": {"type": "string"}, "confirm_packing_quote_id": {"type": "string"}, "confirm_identical": {"type": "boolean"}}, "anyOf": [{"required": ["ship_no"]}, {"required": ["confirm_packing_quote_id"]}], "additionalProperties": false}
-    , "help": {"group": "fba", "section": "货件与装箱", "summary": "预览并确认实际发货量上传到 ERP", "examples": ["lxeskill fba erp packing-upload --ship-no SP260919007"]}},
+      "input_schema": {"type": "object", "properties": {"ship_no": {"type": "string"}, "confirm_packing_quote_id": {"type": "string"}, "confirm_identical": {"type": "boolean"}, "all_unshipped": {"type": "boolean", "description": "为已到货、待装箱的 SP 预览整单零实发和留存明细"}}, "anyOf": [{"required": ["ship_no"]}, {"required": ["confirm_packing_quote_id"]}], "additionalProperties": false}
+    , "help": {"group": "fba", "section": "货件与装箱", "summary": "预览并确认 ERP 实发量，支持待装箱 SP 整单不发", "examples": ["lxeskill fba erp packing-upload --ship-no SP260919007", "lxeskill fba erp packing-upload --ship-no SP260919007 --all-unshipped"]}},
     {"name": "mabang_download_stock_sku_excel", "module": "services.commands.mabang.download_stock_sku_excel", "command_path": ["mabang", "delivery", "inventory-sku", "export"], "visibility": "business", "session_mode": "none", "owner_skills": ["mabang-delivery-inventory-sku-export"], "artifact_paths": [{"field": "xlsx_paths[]", "role": "deliverable"}], "timeout_ms": 300000, "exposed": true, "input_schema": {"type": "object", "properties": {"delivery_no": {"type": "string"}}, "required": ["delivery_no"], "additionalProperties": false}, "input_modes": ["flags"], "help": {"group": "fba", "section": "发货数据采集", "summary": "按本地发货单 CSV 下载库存 SKU 数据", "examples": ["lxeskill mabang delivery inventory-sku export --delivery-no SP260919007"]}},
     {
       "name": "mabang_replenishment_template", "module": "services.commands.mabang.replenishment_template", "positional": ["action"],
