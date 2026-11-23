@@ -156,10 +156,10 @@ def build_purchase_intent(
     normalized_inventory_deduction_mode = str(
         inventory_deduction_mode or ""
     ).strip().casefold()
-    if normalized_inventory_deduction_mode not in {"", "none"}:
+    if normalized_inventory_deduction_mode not in {"", "none", "stock_only"}:
         raise PurchaseBatchClientError(
             "inventory_deduction_mode_invalid",
-            "inventory_deduction_mode 仅允许省略或设置为 none",
+            "inventory_deduction_mode 仅允许省略或设置为 none、stock_only",
         )
     if normalized_inventory_deduction_mode == "none" and confirm_inventory_quote_id:
         raise PurchaseBatchClientError(
@@ -425,8 +425,16 @@ def build_purchase_intent(
         "sps": sps,
         "contracts": contracts,
     }
-    if normalized_inventory_deduction_mode == "none":
-        intent["inventory_deduction_mode"] = "none"
+    if normalized_inventory_deduction_mode:
+        intent["inventory_deduction_mode"] = normalized_inventory_deduction_mode
+    if normalized_inventory_deduction_mode == "stock_only":
+        intent["created_by"] = "lxeskill:fba-stock-shipment"
+        if len(sps) != 1 or unmatched_items:
+            raise PurchaseBatchClientError(
+                "stock_shipment_unmatched_plan",
+                "每张 SP 必须独立建单，且所有库存 SKU 都要能匹配供应商和型号。",
+                detail={"unmatched_items": unmatched_items},
+            )
     source_fingerprint = {
         "master_xlsx_sha256": _file_sha256(Path(master_xlsx).expanduser()),
         "delivery_csvs": csv_hashes,
@@ -698,9 +706,9 @@ def _validate_success_response(
             field="inventory_deduction_mode",
         )
     )
-    if actual_inventory_deduction_mode not in {"fifo", "none"}:
+    if actual_inventory_deduction_mode not in {"fifo", "none", "stock_only"}:
         raise _incomplete(
-            "inventory_deduction_mode 必须是 fifo 或 none",
+            "inventory_deduction_mode 必须是 fifo、none 或 stock_only",
             field="inventory_deduction_mode",
         )
     if actual_inventory_deduction_mode != expected_inventory_deduction_mode:
@@ -848,6 +856,8 @@ def _validate_success_response(
         purchased = _required_result_decimal(
             raw_line.get("purchase_quantity"), field=f"{line_field}.purchase_quantity"
         )
+        if expected_inventory_deduction_mode == "stock_only" and purchased != 0:
+            raise _incomplete(f"仅库存发货响应行 {line_ref} 含有采购数量", field=line_field)
         if planned != expected["planned"] or planned != carryover + purchased:
             raise _incomplete(f"成功响应行 {line_ref} 不满足 计划量=采购量+库存抵扣量", field=line_field)
         if (
@@ -1060,6 +1070,8 @@ def _validate_inventory_confirmation(
         confirmation.get("proposed_purchase_quantity"),
         field="confirmation.proposed_purchase_quantity",
     )
+    if request_payload.get("inventory_deduction_mode") == "stock_only" and proposed_purchase_total != 0:
+        raise _incomplete("仅库存发货报价含有采购数量", field="confirmation.proposed_purchase_quantity")
     if planned_total != proposed_deduction_total + proposed_purchase_total:
         raise _incomplete(
             "确认总量不满足 计划量=拟抵扣量+拟采购量",
