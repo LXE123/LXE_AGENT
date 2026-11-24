@@ -1,6 +1,6 @@
 ---
 name: fba-purchase
-description: FBA 采购与 ERP 留存库存闭环技能：按一批 SP 发货单生成采购汇总表、备货单与正式合同（支持预览、默认 FIFO 库存抵扣或显式不扣库存）、仅用留存库存为已有 SP 独立创建发货单、按 ERP 批次号重出采购文件、单 SP 备货单兼容生成，以及按发货单 CSV（含用户修订版）或整单不发声明预览并确认上传实发量到 ERP 做库存 SKU 对账与留存结算；也用于说明 ERP 期初库存初始化与历史库存补录的非 Skill 管理员边界。
+description: FBA 采购与 ERP 留存闭环技能：按 SP 发货单生成采购汇总/备货单/合同（支持预览、FIFO 抵扣或不扣库存）、仅用留存库存为已有 SP 独立发货、按 PB 批次重出采购文件、单 SP 备货单兼容生成，以及按发货单 CSV 实发量或整单不发声明上传到 ERP 做装箱与库存 SKU 对账和留存结算；也说明 ERP 期初库存初始化与历史补录的非 Skill 管理员边界。
 type: amazon_fba
 commands:
   - lxeskill fba purchase summary-create
