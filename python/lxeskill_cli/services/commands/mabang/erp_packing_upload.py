@@ -13,10 +13,14 @@ from typing import Any, Mapping
 from services.commands._shared.json_cli import exception_text
 from services.commands.mabang.erp_http import ERP_REQUEST_TIMEOUT_SECONDS
 from services.commands.mabang.shipment_quantity_validation import (
-    read_delivery_msku_infos,
+    DELIVERY_MSKU_COLUMN,
+    MSKU_SHIP_QTY_COLUMN,
+    _read_delivery_rows,
+    clean_cell,
     resolve_delivery_csv_path,
 )
 from shared.infra.cloud_client import CloudClient, CloudConnectionError, diagnostic, redact
+from shared.workspace import resolve_workspace_input
 
 
 MAX_RECONCILIATION_LINES = 200
@@ -45,7 +49,7 @@ class PackingUploadError(RuntimeError):
 def _normalize_ship_no(value: Any) -> str:
     ship_no = str(value or "").strip().upper()
     if not ship_no:
-        raise PackingUploadError("invalid_ship_no", "ship_no 不能为空")
+        raise PackingUploadError("packing_input_required", "预览发货单必须提供 ship_no")
     if not ship_no.startswith("SP"):
         raise PackingUploadError("invalid_ship_no", f"ship_no 格式无效: {ship_no}")
     return ship_no
@@ -57,7 +61,9 @@ def _decimal_text(value: Decimal) -> str:
     return format(value.normalize(), "f").rstrip("0").rstrip(".")
 
 
-def _normalized_delivery_quantities(path: Path) -> OrderedDict[str, Decimal]:
+def _normalized_delivery_quantities(
+    path: Path, *, expected_ship_no: str | None = None,
+) -> OrderedDict[str, Decimal]:
     """从发货单 CSV 读出每个 MSKU 的实发量。
 
     ERP 收到的仍是 {msku: 实发量}，接口和下游都不用改——换掉的只是来源。
@@ -66,56 +72,105 @@ def _normalized_delivery_quantities(path: Path) -> OrderedDict[str, Decimal]:
 
     数量为 0 的行代表这个 MSKU 最终没发，不能当成装箱条目传给 ERP。
     """
-    infos = read_delivery_msku_infos(path)
+    try:
+        headers, rows = _read_delivery_rows(path)
+    except (RuntimeError, ValueError) as exc:
+        raise PackingUploadError("delivery_csv_invalid", str(exc)) from exc
+
+    missing = [
+        column for column in (DELIVERY_MSKU_COLUMN, MSKU_SHIP_QTY_COLUMN) if column not in headers
+    ]
+    if missing:
+        raise PackingUploadError(
+            "delivery_csv_invalid",
+            f"发货单 CSV 缺少列: {', '.join(missing)}",
+        )
+
+    if headers.count(MSKU_SHIP_QTY_COLUMN) > 1:
+        raise PackingUploadError(
+            "delivery_csv_invalid",
+            f"{path.name} 第1行表头重复：请只保留一列 {MSKU_SHIP_QTY_COLUMN}",
+        )
+
+    normalized_expected = str(expected_ship_no or "").strip().upper()
     quantities: dict[str, Decimal] = {}
-    for raw_msku, info in infos.items():
-        msku = str(raw_msku or "").strip().upper()
+    for index, row in enumerate(rows, start=2):
+        if not any(row.values()):
+            continue
+        if normalized_expected:
+            row_ship_no = clean_cell(row.get("发货单号")).upper()
+            if row_ship_no and row_ship_no != normalized_expected:
+                raise PackingUploadError(
+                    "delivery_csv_invalid",
+                    f"{path} 第{index}行发货单号 {row_ship_no} 与指定的 {normalized_expected} 不一致",
+                )
+        msku = clean_cell(row.get(DELIVERY_MSKU_COLUMN)).upper()
         if not msku:
             raise PackingUploadError(
                 "delivery_csv_invalid",
-                f"发货单包含空 MSKU: {path.name}",
+                f"{path.name} 第{index}行 MSKU 为空",
             )
-        quantity = info.msku_ship_quantity
-        if quantity is None:
+        raw_quantity = clean_cell(row.get(MSKU_SHIP_QTY_COLUMN))
+        if not raw_quantity:
             raise PackingUploadError(
                 "delivery_csv_invalid",
-                f"发货单缺少 MSKU发货量: msku={msku}, file={path.name}",
+                f"{path.name} 第{index}行缺少 {MSKU_SHIP_QTY_COLUMN}: msku={msku}",
             )
-        if quantity <= 0:
+        try:
+            quantity = Decimal(raw_quantity)
+        except (InvalidOperation, TypeError, ValueError) as exc:
+            raise PackingUploadError(
+                "delivery_csv_invalid",
+                f"{path.name} 第{index}行 {MSKU_SHIP_QTY_COLUMN} 无法解析为数字: {raw_quantity} (msku={msku})",
+            ) from exc
+        if not quantity.is_finite():
+            raise PackingUploadError(
+                "delivery_csv_invalid",
+                f"{path.name} 第{index}行 {MSKU_SHIP_QTY_COLUMN} 不是有效数字: {raw_quantity} (msku={msku})",
+            )
+        if quantity < 0:
+            raise PackingUploadError(
+                "delivery_csv_invalid",
+                f"{path.name} 第{index}行 {MSKU_SHIP_QTY_COLUMN} 不能小于 0: {raw_quantity} (msku={msku})",
+            )
+        if quantity == 0:
             continue
         quantities[msku] = quantities.get(msku, Decimal("0")) + quantity
     if not quantities:
         raise PackingUploadError(
             "delivery_csv_invalid",
-            f"发货单没有任何大于 0 的 MSKU发货量: {path.name}",
+            f"发货单没有任何大于 0 的 {MSKU_SHIP_QTY_COLUMN}: {path.name}",
         )
     return OrderedDict((msku, quantities[msku]) for msku in sorted(quantities))
 
 
-def _resolve_delivery_source(arguments: Mapping[str, Any]) -> tuple[Path, str]:
-    raw_ship_no = str(arguments.get("ship_no") or "").strip()
-    if not raw_ship_no:
-        raise PackingUploadError(
-            "packing_input_required",
-            "source=delivery 时必须提供 ship_no",
-        )
-    ship_no = _normalize_ship_no(raw_ship_no)
+def _resolve_delivery_source(ship_no: str, arguments: Mapping[str, Any]) -> Path:
+    if "delivery_csv" in arguments:
+        delivery_csv = arguments["delivery_csv"]
+        if not isinstance(delivery_csv, str) or not delivery_csv.strip():
+            raise PackingUploadError("delivery_csv_invalid", "--delivery-csv 需要发货单 CSV 路径")
+        path = resolve_workspace_input(delivery_csv)
+        if path.suffix.lower() != ".csv":
+            raise PackingUploadError("delivery_csv_invalid", f"指定的发货单需要是 CSV 文件: {path}")
+        try:
+            return resolve_delivery_csv_path(ship_no, path)
+        except FileNotFoundError as exc:
+            raise PackingUploadError("delivery_csv_missing", str(exc)) from exc
     try:
-        path = resolve_delivery_csv_path(ship_no)
+        return resolve_delivery_csv_path(ship_no)
     except FileNotFoundError as exc:
         raise PackingUploadError(
             "delivery_csv_missing",
             str(exc),
             recovery={
                 "next_action": "ask_user_to_download_delivery_csv",
-                "skill": "mabang-delivery-export",
+                "skill": "mabang-delivery-data",
                 "command": (
                     "lxeskill mabang delivery export "
                     f"--delivery-no {ship_no}"
                 ),
             },
         ) from exc
-    return path, ship_no
 
 
 def _file_sha256(path: Path) -> str:
@@ -283,7 +338,7 @@ def _reject_identical_to_plan(
         "packing_identical_to_plan",
         "实际发货量与计划完全一致（计划 "
         f"{_decimal_text(planned)}，差异 0，留存 0）。"
-        "这通常表示马帮尚未回填真实装箱数据，此时上传不会产生任何对账信息。"
+        "请核对发货单是否已记录仓库实发量。"
         "若确认仓库确实按计划如数发货，请追加 --confirm-identical 重跑。",
     )
 
@@ -421,12 +476,18 @@ def run(arguments: dict[str, Any]) -> dict[str, Any]:
         ).strip()
         all_unshipped = bool(arguments.get("all_unshipped"))
         confirm_identical = bool(arguments.get("confirm_identical"))
-        if all_unshipped and (confirm_identical or confirm_quote_id):
+        if all_unshipped and (
+            confirm_identical or confirm_quote_id or "delivery_csv" in arguments
+        ):
             raise PackingUploadError(
                 "packing_option_conflict",
-                "--all-unshipped 仅用于首次预览。确认该预览时单独使用 --confirm-packing-quote-id。",
+                "--all-unshipped 仅用于首次预览，不能与 --delivery-csv 或 --confirm-identical 同时使用。确认该预览时单独使用 --confirm-packing-quote-id。",
             )
         if confirm_quote_id:
+            if "delivery_csv" in arguments:
+                raise PackingUploadError(
+                    "packing_input_conflict", "--delivery-csv 用于预览，更换文件需先生成新预览",
+                )
             request_id = _confirmation_request_id(confirm_quote_id)
             response = _request_json(
                 "POST",
@@ -462,8 +523,11 @@ def run(arguments: dict[str, Any]) -> dict[str, Any]:
             quantities: OrderedDict[str, Decimal] = OrderedDict()
             source = {"source_kind": "all_unshipped"}
         else:
-            source_path, ship_no = _resolve_delivery_source(arguments)
-            quantities = _normalized_delivery_quantities(source_path)
+            ship_no = _normalize_ship_no(arguments.get("ship_no"))
+            source_path = _resolve_delivery_source(ship_no, arguments)
+            quantities = _normalized_delivery_quantities(
+                source_path, expected_ship_no=ship_no,
+            )
             source_name = source_path.name
             source_sha256 = _file_sha256(source_path)
             captured_at = _captured_at(source_path)

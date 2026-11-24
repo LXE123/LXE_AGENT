@@ -39,7 +39,7 @@
 
 ### agentcli
 
-- [Skill 手册](harness/skill/README.md)：发现、加载、用户管理和统计机制；业务指引正文位于 [skills/](../skills)，可从 [FBA](../skills/fba-workflow-map/SKILL.md)和 [补货](../skills/amazon-replenishment/SKILL.md)入口查找。
+- [Skill 手册](harness/skill/README.md)：发现、加载、用户管理和统计机制；业务指引正文位于 [skills/](../skills)，可从 [FBA 采购](../skills/fba-purchase/SKILL.md)、[FBA 命令清单](lxeskill-cli/commands.md#fba)和 [补货](../skills/amazon-replenishment/SKILL.md)入口查找。
 - [Runtime](harness/runtime/README.md)、[执行流程](harness/runtime/turn_execution.md)：宿主装配与回合执行。
 - [上下文](harness/runtime/context/README.md)：消息、组装、压缩与持久化。
 - [工具](harness/runtime/tools/README.md)、[权限专题](harness/runtime/permission-policy.md)：注册、执行、写入范围与单次审批。
@@ -50,6 +50,7 @@
 ### lxeskillCLI
 
 - [lxeskill 命令手册](lxeskill-cli/commands.md)：按 FBA、备货、运营查找命令，查看用途、典型示例和参数帮助入口。
+- [FBA 术语与文件对照](lxeskill-cli/fba-glossary.md)：跨马帮、WMS、亚马逊卖家后台与 FBA ERP 的单据、业务文件与动作边界。
 
 - [马帮浏览器认证](../python/lxeskill_cli/browser_auth_service/README.md)：桌面认证窗口、独立 CLI 浏览器绑定和排障。
 - [CLI 云端通信与自检](lxeskill-cli/cloud-access.md)：权限查询、连接诊断、公共 HTTP 模块和业务请求。
