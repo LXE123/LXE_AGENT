@@ -1,6 +1,6 @@
 ---
 name: fba-purchase
-description: FBA 采购与 ERP 留存库存闭环技能：按一批 SP 发货单生成采购汇总表、备货单与正式合同（支持预览、默认 FIFO 库存抵扣或显式不扣库存）、仅用留存库存为已有 SP 独立创建发货单、按 ERP 批次号重出采购文件、单 SP 备货单兼容生成，以及按发货单 CSV（含用户修订版）或整单不发声明预览并确认上传实发量到 ERP 做库存 SKU 对账与留存结算。
+description: FBA 采购与 ERP 留存库存闭环技能：按一批 SP 发货单生成采购汇总表、备货单与正式合同（支持预览、默认 FIFO 库存抵扣或显式不扣库存）、仅用留存库存为已有 SP 独立创建发货单、按 ERP 批次号重出采购文件、单 SP 备货单兼容生成，以及按发货单 CSV（含用户修订版）或整单不发声明预览并确认上传实发量到 ERP 做库存 SKU 对账与留存结算；也用于说明 ERP 期初库存初始化与历史库存补录的非 Skill 管理员边界。
 type: amazon_fba
 commands:
   - lxeskill fba purchase summary-create
@@ -43,3 +43,8 @@ references:
 - 等待调用完成，只把最后一条 `type="result"` 作为 terminal，先检查 `ok`。
 - `ok=true` 且 `terminal.files` 非空时，一次调用 `send_files(paths=<terminal.files>)` 发送交付文件。
 - 失败时保留并转述真实 `error.code`、`error.message` 及可用的 `http_status`/`detail`，不用通用提示覆盖。
+
+## 非 Skill 管理边界
+
+- **初始化 ERP 期初库存**（将现有进销存表初始化为历史库存）：属于部署前的一次性管理操作，应说明由后端服务器管理员执行 `lxe-erp-admin opening-inventory`，不执行 Agent Skill。
+- **补录历史库存**（ERP 上线前、尚未进入期初库存的历史 SP 剩余库存增量表）：应在 ERP「留存库存」页由管理员使用「补录历史库存」，不执行 Agent Skill。

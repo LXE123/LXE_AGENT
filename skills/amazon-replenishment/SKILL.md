@@ -1,6 +1,6 @@
 ---
 name: amazon-replenishment
-description: Amazon 备货统一技能：负责马帮 Amazon 店铺名称与网页 ID 解析、V1/V2 备货数据准备与计算交付、店铺销量分析报告生成、V1 备货算法参数方案管理。明确的越南备货使用 vietnam-replenishment；东南亚范围导航见 southeast-asia-replenishment-workflow-map；按 SP 发货单或退税总表生成 FBA 采购/备货单使用 fba-workflow-map。
+description: Amazon 备货统一技能：负责马帮 Amazon 店铺名称与网页 ID 解析、V1/V2 备货数据准备与计算交付、店铺销量分析报告生成、V1 备货算法参数方案管理。明确的越南备货使用 vietnam-replenishment；东南亚范围导航见 southeast-asia-replenishment-workflow-map；按 SP 发货单或退税总表生成 FBA 采购/备货单使用 fba-purchase。
 type: replenishment
 commands:
   - lxeskill replenish calculate
@@ -18,7 +18,7 @@ references:
 
 ## 范围与任务分流
 
-- 本 Skill 用于马帮 Amazon 店铺备货及配套能力。明确的越南备货读取 `vietnam-replenishment`（东南亚导航见 `southeast-asia-replenishment-workflow-map`）；按 `SP...` 发货单号或出口退税总表生成采购汇总/备货单读取 `fba-workflow-map`。用户只说“备货”且无法判断业务模块时，先确认业务范围；仅询问流程时直接解释，不执行命令。
+- 本 Skill 用于马帮 Amazon 店铺备货及配套能力。明确的越南备货读取 `vietnam-replenishment`（东南亚导航见 `southeast-asia-replenishment-workflow-map`）；按 `SP...` 发货单号或出口退税总表生成采购汇总/备货单读取 `fba-purchase`。用户只说“备货”且无法判断业务模块时，先确认业务范围；仅询问流程时直接解释，不执行命令。
 - **单步能力按需读取对应参考并只执行该步骤**（成功后按返回数据答复；`terminal.files` 非空时调用 `send_files` 交付文件，不自动扩展为完整备货）：
   - 解析店铺名称、查询网页 ID 或列出候选店铺：见 [references/store-resolve.md](references/store-resolve.md)
   - 独立生成店铺链接/ASIN/MSKU 销量分析报告：见 [references/sales-analyze.md](references/sales-analyze.md)
