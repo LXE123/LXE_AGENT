@@ -7,7 +7,7 @@
 | 编号 / 单据 | 所属系统 | 在业务里指什么 |
 |---|---|---|
 | **SP（发货单号）** | 马帮 | 标识一票 FBA 发货计划与发货处理单（形如 `SP260919007`）。同一票货在仓库改号时，ERP 内拆分为 **采购 SP**（建批原单号）和 **装箱 SP**（实发上传单号）。 |
-| **托运单号（`consignment_no`）** | 马帮 WMS | WMS 按分箱结果生成的托运单编号。拆箱导出场景会按托运单号分别创建亚马逊货件。 |
+| **托运单号（`consignment_no`）** | 马帮 WMS 装箱资料 / 桌面 Agent | 创建亚马逊货件时，装箱资料未拆分就用原 SP 号。选“自动拆分”且超过 5 箱时，桌面 CLI 每 5 箱生成一份文件。例如 6 箱分为 5 箱和 1 箱，分别用 `SP…-1`、`SP…-2` 建货件，两份都对应 ERP 里的同一张 SP。 |
 | **货件（Amazon Shipment）** | 亚马逊卖家后台 | 在 Seller Central 创建的入库货件，由 `fba-shipment-create` 按托运单推进。**不要把马帮“发货单（SP）”或“托运单”称为“货件”。** |
 | **采购批次（`PB`）** | FBA ERP | 一次建单或纯留存独立建单产生的采购批次号，可对应一张或多张 SP。 |
 
@@ -17,7 +17,7 @@
 |---|---|---|---|
 | **发货单 CSV**（`artifacts/fba/delivery_csv/<SP>_*.csv`） | `lxeskill mabang delivery export` | **采购汇总、纯留存发货、单 SP 备货单、ERP 实发对账（`fba erp packing-upload`）、报关实发量（`fba customs`）** | 同一张表在装箱前后含义不同（见下方说明）。 |
 | **WMS 托运单装箱 Excel** | `lxeskill mabang delivery packing-list export` | **亚马逊建货件（`fba-shipment-create`）、发票模板（`fba invoice fill` 按分箱实发量）、报关资料（仅取箱数与毛重）** | **采购与 ERP 实发对账不再使用**此表。 |
-| **备货单 `.xlsx`** | `fba purchase summary-create` / `fba restock workbook-create` 产出 | 交付采购核算；其「汇总表」的售价与 SKU 规则也是下游报关和发票模板的必需输入 | 报关与发票只取上传备货单「汇总表」售价，不手算。 |
+| **备货单 `.xlsx`** | `fba purchase summary-create` / `fba restock workbook-create` 产出 | 用于采购核算，也给报关和发票流程提供 SKU、型号和价格资料。 | 报关取「汇总表」的售价。发票模板的「产品申报单价」按商品名称和材质规则填写，例如尼龙表带填 0.5。 |
 | **出口退税总表**（ERP 称“退税总表”） | 用户维护上传的长期记忆资产（`export_tax_master`） | 采购汇总、单 SP 备货单用来匹配库存 SKU 的供应商、型号与含税价格 | **不是** `fba-export-tax` 的“出口退税产品白名单”；纯留存独立发货与 ERP 实发对账不需要此表。 |
 | **出口退税产品白名单** | `lxeskill fba export-tax products-import` 维护 | 按 SP 发货单汇总可退税 / 不可退税 SKU（`fba export-tax delivery-summary`） | 与采购用的“出口退税总表”是两张独立表。 |
 | **库存 SKU 表 / MSKU 明细 Excel** | `mabang delivery inventory-sku export` / `msku export` | 按 SP 导出的核对与留档明细表 | 不替代 ERP 对账或建货件输入。 |
