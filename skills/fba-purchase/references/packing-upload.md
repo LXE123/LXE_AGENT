@@ -4,7 +4,7 @@
 
 ## 数据源与预览命令
 
-- **使用指定文件/修订版**：用户提供发货单附件、指定路径或确认使用修订版时，传 `--delivery-csv` 实际路径。CSV 只需包含 `MSKU` 和 `MSKU发货量` 列（不强制要求 `SKU发货量`）；若保留 `发货单号` 列，CLI 会逐行核对与 `--ship-no` 一致。未发的 MSKU 可填 `0`（预览时跳过）；空值、非数字或负数会报 `delivery_csv_invalid` 并指出行号。
+- **使用指定文件/修订版**：用户提供发货单附件、指定路径或确认使用修订版时，传 `--delivery-csv` 实际路径。CSV 只需包含 `MSKU` 和 `MSKU发货量` 列（不强制要求 `SKU发货量`）；`MSKU发货量` 表头重复会在预览前报错。若保留 `发货单号` 列，CLI 会逐行核对与 `--ship-no` 一致。未发的 MSKU 可填 `0`（预览时跳过）；空值、非数字或负数会报 `delivery_csv_invalid` 并指出行号。
 
 ```text
 lxeskill fba erp packing-upload --ship-no <ship_no> --delivery-csv "<发货单 CSV 路径>"

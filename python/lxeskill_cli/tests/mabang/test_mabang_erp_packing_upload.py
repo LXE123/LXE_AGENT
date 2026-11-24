@@ -372,6 +372,26 @@ def test_revised_csv_without_sku_ship_qty_column_and_with_blank_row_succeeds(mon
     assert session.calls[0]["json"]["lines"] == [{"msku": "MSKU-A", "actual_quantity": "5"}]
 
 
+@pytest.mark.parametrize("select_file", [True, False], ids=["selected", "default"])
+def test_duplicate_shipment_quantity_header_stops_before_preview(monkeypatch, tmp_path, select_file):
+    _configure(monkeypatch, tmp_path)
+    ship_no = "SP260710001"
+    path = tmp_path / f"{ship_no}_revised.csv"
+    path.write_text("MSKU,MSKU发货量,MSKU发货量\nMSKU-A,8,90\n", encoding="utf-8")
+    monkeypatch.setattr(shipment_quantity_validation, "DELIVERY_CSV_DIR", tmp_path)
+    session = FakeSession()
+    _mock_cloud(monkeypatch, session)
+
+    arguments = {"ship_no": ship_no}
+    if select_file:
+        arguments["delivery_csv"] = str(path)
+    result = cli.run(arguments)
+
+    assert result["error"]["code"] == "delivery_csv_invalid"
+    assert "MSKU发货量" in result["error"]["message"] and "重复" in result["error"]["message"]
+    assert not session.calls
+
+
 @pytest.mark.parametrize("bad_quantity", ["3个", "-2", ""])
 def test_duplicate_msku_invalid_quantity_fails_with_row_number(monkeypatch, tmp_path, bad_quantity):
     _configure(monkeypatch, tmp_path)

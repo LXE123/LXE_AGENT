@@ -86,6 +86,12 @@ def _normalized_delivery_quantities(
             f"发货单 CSV 缺少列: {', '.join(missing)}",
         )
 
+    if headers.count(MSKU_SHIP_QTY_COLUMN) > 1:
+        raise PackingUploadError(
+            "delivery_csv_invalid",
+            f"{path.name} 第1行表头重复：请只保留一列 {MSKU_SHIP_QTY_COLUMN}",
+        )
+
     normalized_expected = str(expected_ship_no or "").strip().upper()
     quantities: dict[str, Decimal] = {}
     for index, row in enumerate(rows, start=2):
