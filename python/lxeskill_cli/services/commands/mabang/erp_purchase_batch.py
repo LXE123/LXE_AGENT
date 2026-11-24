@@ -16,7 +16,7 @@ from urllib.parse import unquote
 from services.commands.mabang import generate_fba_restock_workbook as restock_workbook
 from services.commands.mabang import generate_restock_workbook as purchase_summary
 from services.commands.mabang.erp_http import ErpHttpError, error_payload, request_json
-from services.commands.mabang.shipment_quantity_validation import read_delivery_msku_infos
+from services.commands.mabang.shipment_quantity_validation import DeliveryMskuInfo, read_delivery_msku_infos
 from shared.datasets import dataset_dir
 
 
@@ -98,8 +98,10 @@ def _unit_components(
     csv_path: str | Path,
     *,
     tracked_skus: set[str],
+    infos: Mapping[str, DeliveryMskuInfo] | None = None,
 ) -> list[dict[str, Any]]:
-    infos = read_delivery_msku_infos(csv_path)
+    if infos is None:
+        infos = read_delivery_msku_infos(csv_path)
     mskus: list[dict[str, Any]] = []
     for raw_msku, info in infos.items():
         msku = _require_text(raw_msku, label="MSKU")
@@ -156,10 +158,10 @@ def build_purchase_intent(
     normalized_inventory_deduction_mode = str(
         inventory_deduction_mode or ""
     ).strip().casefold()
-    if normalized_inventory_deduction_mode not in {"", "none", "stock_only"}:
+    if normalized_inventory_deduction_mode not in {"", "none"}:
         raise PurchaseBatchClientError(
             "inventory_deduction_mode_invalid",
-            "inventory_deduction_mode 仅允许省略或设置为 none、stock_only",
+            "inventory_deduction_mode 仅允许省略或设置为 none",
         )
     if normalized_inventory_deduction_mode == "none" and confirm_inventory_quote_id:
         raise PurchaseBatchClientError(
@@ -427,14 +429,6 @@ def build_purchase_intent(
     }
     if normalized_inventory_deduction_mode:
         intent["inventory_deduction_mode"] = normalized_inventory_deduction_mode
-    if normalized_inventory_deduction_mode == "stock_only":
-        intent["created_by"] = "lxeskill:fba-stock-shipment"
-        if len(sps) != 1 or unmatched_items:
-            raise PurchaseBatchClientError(
-                "stock_shipment_unmatched_plan",
-                "每张 SP 必须独立建单，且所有库存 SKU 都要能匹配供应商和型号。",
-                detail={"unmatched_items": unmatched_items},
-            )
     source_fingerprint = {
         "master_xlsx_sha256": _file_sha256(Path(master_xlsx).expanduser()),
         "delivery_csvs": csv_hashes,
@@ -836,12 +830,13 @@ def _validate_success_response(
             raw_line.get("supplier_name"), field=f"{line_field}.supplier_name"
         )
         model = _required_result_text(raw_line.get("model"), field=f"{line_field}.model")
-        for name in ("tax_rate", "contract_product_name", "unit"):
-            _required_result_text(raw_line.get(name), field=f"{line_field}.{name}")
-        _required_result_decimal(
-            raw_line.get("source_tax_unit_price"),
-            field=f"{line_field}.source_tax_unit_price",
-        )
+        _required_result_text(raw_line.get("contract_product_name"), field=f"{line_field}.contract_product_name")
+        if expected_inventory_deduction_mode != "stock_only":
+            for name in ("tax_rate", "unit"):
+                _required_result_text(raw_line.get(name), field=f"{line_field}.{name}")
+            _required_result_decimal(
+                raw_line.get("source_tax_unit_price"), field=f"{line_field}.source_tax_unit_price",
+            )
         if supplier_name != expected["supplier_name"] or model.casefold() != expected["model"].casefold():
             raise _incomplete(f"成功响应行 {line_ref} 的供应商或型号与请求不一致", field=line_field)
         planned = _required_result_decimal(

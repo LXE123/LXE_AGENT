@@ -319,16 +319,6 @@
             },
             "minItems": 1
           },
-          "master_xlsx": {
-            "type": "string",
-            "x-lxe-file-input": {
-              "accepted_extensions": [
-                ".xlsx"
-              ],
-              "instruction": "请上传出口退税总表，并使用附件保存后的真实绝对路径。"
-            },
-            "x-lxe-asset-slot": "export_tax_master"
-          },
           "confirm_quote": {
             "type": "array",
             "items": {
