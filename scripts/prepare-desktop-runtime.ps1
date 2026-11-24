@@ -295,7 +295,7 @@ function Get-LxeCachedArchive {
         try {
             Write-Host "Downloading $Label (attempt $attempt/3)..."
             if ($uri.Host.EndsWith(".sourceforge.net", [StringComparison]::OrdinalIgnoreCase)) {
-                $curlCommand = Get-Command curl.exe -CommandType Application -ErrorAction SilentlyContinue
+                $curlCommand = Get-Command curl.exe -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
                 if ($null -eq $curlCommand) {
                     throw "$Label requires curl.exe to download from SourceForge."
                 }

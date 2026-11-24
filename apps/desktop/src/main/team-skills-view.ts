@@ -170,9 +170,12 @@ export function registerTeamSkillsGuest(dashboard: WebContents, browsers?: Manua
     if (!mountSrc || attaching.get(guest) !== mountSrc) { guest.close(); return; }
     contents = guest;
     if (host) {
+      function catalogActive(event: Electron.IpcMainInvokeEvent): boolean {
+        return contents === guest && !guest.isDestroyed() && page.visible && event.senderFrame === guest.mainFrame &&
+          isTeamSkillsPage(guest.getURL()) && isTeamSkillsPage(event.senderFrame.url);
+      }
       function requireCatalog(event: Electron.IpcMainInvokeEvent) {
-        if (contents !== guest || guest.isDestroyed() || !page.visible || event.senderFrame !== guest.mainFrame ||
-            !isTeamSkillsPage(guest.getURL()) || !isTeamSkillsPage(event.senderFrame.url)) throw new Error("此页面无法访问本机团队技能");
+        if (!catalogActive(event)) throw new Error("此页面无法访问本机团队技能");
       }
       guest.ipc.handle(IPC_CHANNELS.teamSkillVersions, (event, ids: unknown) => {
         requireCatalog(event);
@@ -229,9 +232,11 @@ export function registerTeamSkillsGuest(dashboard: WebContents, browsers?: Manua
           const result = await host.install(ticket, token === undefined ? undefined : approved?.localName);
           if (typeof result === "string") return result;
           if (token !== undefined) throw new Error("同名 Skill 已变化，请重新点击安装");
-          requireCatalog(event);
+          // Overwriting asks in the catalog window, so the page must still be open; say why nothing was installed.
+          const leftCatalog = `本机已有同名 Skill「${result.localName}」，不是从技能库安装的，本次未覆盖。请停留在技能库页面重新点击安装，确认后覆盖`;
+          if (!catalogActive(event)) throw new Error(leftCatalog);
           if (!await host.confirmOverwrite(result.localName)) return null;
-          requireCatalog(event);
+          if (!catalogActive(event)) throw new Error(leftCatalog);
           const approval = randomUUID();
           approvals.set(ticket.skillId, { token: approval, version: ticket.version, sha256: ticket.sha256, localName: result.localName });
           const timeout = setTimeout(() => { if (approvals.get(ticket.skillId)?.token === approval) approvals.delete(ticket.skillId); }, 120_000);

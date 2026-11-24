@@ -27,6 +27,7 @@ void app.whenReady().then(async () => {
   const installed: Record<string, string> = {};
   let approve = false;
   let prompts = 0;
+  let duringInstall: (() => Promise<unknown>) | undefined;
   registerTeamSkillsGuest(win.webContents, browsers, {
     preload: join(process.argv[2]!, "team-skills-preload.cjs"),
     versions: async ids => Object.fromEntries(ids.filter(id => installed[id]).map(id => [id, installed[id]!])),
@@ -46,6 +47,7 @@ void app.whenReady().then(async () => {
     },
     confirmOverwrite: async name => { assert.equal(name, "demo"); prompts++; return approve; },
     install: async ({ skillId: id, version }, replaceLocalName) => {
+      await duringInstall?.();
       if (!installed[id] && replaceLocalName !== "demo") return { localName: "demo" };
       installed[id] = version;
       return version;
@@ -106,6 +108,12 @@ void app.whenReady().then(async () => {
       return { skillId: ${id}, version: window.requestVersion, size: 5, sha256: 'c'.repeat(64),
         expiresAt: new Date(Date.now() + 120000).toISOString(), downloadUrl: 'https://dataloom-rdqueaxi.feishucdn.com/4577945282/bucket_aadk3bkqatkfw/demo?sign=fixture' };
     }; void 0`);
+    duringInstall = () => js("window.lxe.desktop.teamSkillsView('hide')");
+    const left = await catalog.executeJavaScript("(async () => { try { await " + install("1.0.0") + "; return 'resolved'; } catch (error) { return error.message; } })()", true);
+    assert.match(left, /本机已有同名 Skill「demo」，不是从技能库安装的，本次未覆盖/, "leaving the catalog names the unmarked namesake");
+    assert.equal(prompts, 0); assert.equal(installed[skillId], undefined);
+    duringInstall = undefined;
+    await js("window.lxe.desktop.teamSkillsView('show')");
     assert.equal(await catalog.executeJavaScript(install("1.0.0"), true), null);
     assert.equal(installed[skillId], undefined);
     approve = true;
@@ -114,7 +122,7 @@ void app.whenReady().then(async () => {
     assert.equal(await catalog.executeJavaScript(install("1.0.1"), true), "1.0.1");
     assert.deepEqual(await catalog.executeJavaScript(host + ".installedVersions([" + id + "])"), { [skillId]: "1.0.1" });
     assert.equal(prompts, 2, "only the unmarked namesake prompts; the same-ID update completes directly");
-    assert.equal(await catalog.executeJavaScript("window.ticketCalls"), 4, "confirmed overwrite renews its grant");
+    assert.equal(await catalog.executeJavaScript("window.ticketCalls"), 5, "confirmed overwrite renews its grant");
     await js(`window.teamUse = []; window.teamUseError = undefined;
       window.lxe.desktop.onTeamSkillUse(({ requestId, name }) => {
         window.teamUse.push(name);

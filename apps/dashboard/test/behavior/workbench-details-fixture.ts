@@ -45,3 +45,51 @@ export function workbenchMediaTask(mode: "scan" | "running" | "apply"): DesktopS
     ],
   };
 }
+
+/** FBA capacity runs in memory: the session and output folder exist only in this fixture. */
+export function createFbaCapacityFixture(calls: { operation: string; input?: unknown }[]) {
+  let phase: "queued" | "running" | "completed" | "cancelled" = "running";
+  // Each send makes a new turn; turns sent before the newest one have already completed.
+  let sent = 0, newest = "";
+  const deleted = new Set<string>();
+  const turn = (prefix: string) => (newest = `${prefix}-${++sent}`);
+  const output = (path: unknown) => typeof path === "string" && path.startsWith("FBA库容报告/");
+  return {
+    controls: { phase(value: typeof phase) { phase = value; }, deleteSession(id: string) { deleted.add(id); } },
+    rpc(call: { operation: string; input: Record<string, unknown> }): unknown {
+      if (call.operation === "skills.user.list") return { items: [{ id: "fba", version: "1", source: "user", name: "amazon-fba-capacity-report", enabled: true, available: true, unavailable_reason: "" }], total: 1 };
+      if (call.operation === "sessions.send" && !call.input.session_id) return { session_id: "fba-session", turn_id: turn("fba-turn"), message_id: "fba-message", created: true, state: "queued" };
+      if (call.operation === "workspaces.register") return { workspace_id: "fba-workspace", directory: call.input.directory, display_name: null, created_at: 1, session_count: 0, last_active_at: 1 };
+      if (call.operation === "sessions.create") return { session_id: "fba-full-session", workspace_id: call.input.workspace_id };
+      if (call.operation === "sessions.permission.set") return { session_id: call.input.session_id, permission_mode: call.input.permission_mode };
+      if (call.operation === "sessions.send" && call.input.session_id === "fba-full-session") return { session_id: "fba-full-session", turn_id: turn("fba-full-turn"), message_id: "fba-full-message", created: false, state: "queued" };
+      // The same message the runtime gives once a conversation is deleted.
+      if (call.operation === "sessions.detail" && deleted.has(String(call.input.session_id))) throw new Error("session not found");
+      if (call.operation === "sessions.detail" && String(call.input.session_id).startsWith("fba-")) {
+        const directory = "/fixture/default";
+        return { session: { session_id: call.input.session_id, title: "FBA", permission_mode: "workspace-write", workspace_id: "fba-workspace", workspace: { directory, worktree: directory } }, messages: [] };
+      }
+      if (call.operation === "sessions.turn.lookup") return { state: !newest || call.input.turn_id === newest ? phase : "completed" };
+      if (call.operation === "sessions.stop") {
+        // Same rule as the Gateway: a turn id only matches the turn that is executing.
+        if (call.input.turn_id && phase !== "running") throw new Error("This task is no longer active; its question cannot stop another task");
+        phase = "cancelled";
+        return { session_id: call.input.session_id, stopped_turn_id: call.input.turn_id ?? null, cleared: 1 };
+      }
+      if (call.operation === "sessions.questions" || call.operation === "sessions.approvals") return { items: [] };
+      return undefined;
+    },
+    file(call: { operation: string; input: any }): unknown {
+      if (call.operation === "list" && output(call.input.path)) {
+        calls.push(structuredClone(call));
+        const file = (name: string) => ({ name, path: `${call.input.path}/${name}`, kind: "file" });
+        return { ok: true, value: { rootPath: "/fixture/default", version: "1", next: null, entries: [
+          { name: "shots", path: `${call.input.path}/shots`, kind: "directory" },
+          file("Amazon-XIUTAI-US-库容截图-20261118.xlsx"), file("Amazon-YYH-US-库容截图-20261118.xlsx"),
+        ] } };
+      }
+      if (call.operation === "applications" && output(call.input.ref?.path)) return { ok: true, value: [] };
+      return undefined;
+    },
+  };
+}

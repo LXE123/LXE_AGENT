@@ -86,7 +86,9 @@ test("attributes consolidated FBA commands through the real CLI contract", async
   const cases = [
     ["lxeskill mabang delivery export --delivery-no SP260919007", "mabang-delivery-data", "mabang delivery export"],
     ["lxeskill fba purchase summary-create --delivery-no SP260919007 --gross-margin 0.3", "fba-purchase", "fba purchase summary-create"],
+    ["lxeskill fba stock-shipment create --delivery-no SP261123001", "fba-purchase", "fba stock-shipment create"],
     ["lxeskill fba erp packing-upload --ship-no SP260919007", "fba-purchase", "fba erp packing-upload"],
+    ["lxeskill fba erp packing-upload --ship-no SP260919007 --all-unshipped", "fba-purchase", "fba erp packing-upload"],
     ["lxeskill fba customs preview --input-xlsx a.xlsx", "fba-customs-invoice", "fba customs preview"],
     ["lxeskill fba invoice fill --input-xlsx a.xlsx", "fba-customs-invoice", "fba invoice fill"],
     ["lxeskill fba export-tax delivery-summary --delivery-no SP260919007", "fba-export-tax", "fba export-tax delivery-summary"],

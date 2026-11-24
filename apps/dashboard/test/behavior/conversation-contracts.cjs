@@ -2,6 +2,41 @@ const assert = require('node:assert/strict');
 module.exports = async ({suite,win,url,js,step,load,waitFor,click,key,focus,settle,state}) => {
   const textClick = async text => { await js(`Array.from(document.querySelectorAll('button')).find(e=>e.textContent===${JSON.stringify(text)}).click()`); await settle(); };
   if (suite === 'conversation-window') {
+    await step('long user messages fold by rendered height and keep the full text available', async () => {
+      await win.loadURL(new URL('../features/sessions/process-fixture.html', url).href);
+      const preview = "document.querySelector('.user-message-preview')";
+      const toggle = '.user-message-toggle';
+      await waitFor(`Boolean(${preview})`, 'user message');
+      assert.equal(await js(`${preview}.parentElement.querySelector('button')`), null);
+      await textClick('Complete');
+      await textClick('Toggle long user');
+      await textClick('Toggle narrow column');
+      await waitFor(`Boolean(${preview}.dataset.truncated)`, 'wrapped message is collapsed');
+      const fullText = await js(`${preview}.textContent`);
+      const collapsedHeight = await js(`${preview}.clientHeight`);
+      await js("Object.defineProperty(navigator, 'clipboard', { configurable:true, value:{writeText:async text=>{window.copiedText=text}} })");
+      await click('.message-meta.role-user .message-meta-copy');
+      assert.equal(await js('window.copiedText'), fullText);
+      for (const theme of ['light', 'dark']) {
+        await js(`document.documentElement.dataset.theme = '${theme}'`);
+        assert.equal(await js(`getComputedStyle(${preview}.closest('.message-card.role-user')).borderWidth`), '0px');
+        assert.match(await js(`getComputedStyle(${preview}).maskImage`), /linear-gradient/);
+        await focus(toggle);
+        await key('Enter');
+        assert.equal(await js(`document.querySelector('${toggle}').getAttribute('aria-expanded')`), 'true');
+        assert.ok(await js(`${preview}.clientHeight`) > collapsedHeight);
+        assert.equal(await js(`getComputedStyle(${preview}).maskImage`), 'none');
+        assert.ok(await js("Boolean(document.querySelector('.conversation-jump-latest'))"), 'reading suspends follow');
+        await key('Enter');
+        assert.equal(await js(`${preview}.clientHeight`), collapsedHeight);
+      }
+      await textClick('Toggle narrow column');
+      await waitFor(`!document.querySelector('${toggle}')`, 'wider text fits without a toggle');
+      await textClick('Toggle narrow column');
+      await textClick('Toggle attachment');
+      await waitFor(`Boolean(${preview}.dataset.truncated)`, 'attachment caption folds');
+      assert.ok(await js(`!document.querySelector('.sent-attachments').closest('.user-message-preview')`));
+    });
     await step('adjacent tool calls share an outline and expand independently', async () => {
       await win.loadURL(new URL('../features/sessions/process-fixture.html', url).href);
       const card = id => `[data-conversation-row="tool:t:${id}"] .tool-op-list`;
@@ -63,11 +98,14 @@ module.exports = async ({suite,win,url,js,step,load,waitFor,click,key,focus,sett
           observer.observe(previous,{box:'border-box'});
           const delay=ms=>new Promise(resolve=>setTimeout(resolve,ms));
           const original=previous.style.paddingBottom,padding=parseFloat(getComputedStyle(previous).paddingBottom);
+          // Resizes 155 ms apart land just after the virtualizer's 150 ms scroll-end
+          // fallback, where a stale offset once marked a compensation as an upward
+          // scroll and the next resize went uncompensated.
           try{
-            await delay(80);
+            await delay(200);
             for(let i=0;i<8;i++){
               previous.style.paddingBottom=(padding+(i%2?0:4))+'px';
-              await delay(80);
+              await delay(155);
             }
             return {initial,scroll,samples};
           }finally{observer.disconnect();previous.style.paddingBottom=original;}
@@ -106,18 +144,34 @@ module.exports = async ({suite,win,url,js,step,load,waitFor,click,key,focus,sett
       assert.ok(reading.samples.every(s=>s.same&&s.connected&&Math.abs(s.offset)<0.5&&s.scroll===0),JSON.stringify(reading));
       await click('.conversation-jump-latest');
       await waitFor("(()=>{const e=document.querySelector('.conversation-transcript');return e.scrollHeight-e.scrollTop-e.clientHeight<=2})()",'following latest');
-      const following=await js(`(async()=>{
-        const root=document.querySelector('.conversation-transcript'),row=root.querySelector('[data-display-group=g999]'),samples=[];
-        const observer=new ResizeObserver(()=>requestAnimationFrame(()=>samples.push(root.scrollHeight-root.scrollTop-root.clientHeight)));
-        observer.observe(row,{box:'border-box'});
-        const append=[...document.querySelectorAll('button')].find(e=>e.textContent==='Stream text');
-        try{
-          await new Promise(resolve=>setTimeout(resolve,80));
-          for(let i=0;i<8;i++){append.click();await new Promise(resolve=>setTimeout(resolve,80));}
-          return samples;
-        }finally{observer.disconnect();}
-      })()`);
-      assert.ok(following.length>=9,'measured each streaming resize');
+      const following = await js(`new Promise((resolve, reject) => {
+        const root = document.querySelector('.conversation-transcript');
+        const row = root.querySelector('[data-display-group=g999]');
+        const append = [...document.querySelectorAll('button')].find(e => e.textContent === 'Stream text');
+        const samples = [];
+        let previousHeight = 0;
+        const observer = new ResizeObserver(([entry]) => {
+          const height = entry.borderBoxSize[0].blockSize;
+          if (height <= previousHeight) return;
+          previousHeight = height;
+          requestAnimationFrame(() => {
+            samples.push(root.scrollHeight - root.scrollTop - root.clientHeight);
+            // Measure the baseline and each append before scheduling the next one.
+            if (samples.length < 9) {
+              append.click();
+              return;
+            }
+            observer.disconnect();
+            clearTimeout(deadline);
+            resolve(samples);
+          });
+        });
+        const deadline = setTimeout(() => {
+          observer.disconnect();
+          reject(new Error('Expected 9 distinct streaming heights, measured ' + samples.length));
+        }, 8000);
+        observer.observe(row, {box: 'border-box'});
+      })`);
       assert.ok(following.every(distance=>Math.abs(distance)<=2),`bottom-follow gaps before paint: ${following}`);
     });
     await step('scrolling up past the top of a tool result releases stream following', async () => {
@@ -297,10 +351,13 @@ module.exports = async ({suite,win,url,js,step,load,waitFor,click,key,focus,sett
       await js("{const root=document.querySelector('.conversation-transcript');root.scrollTop=60;root.dispatchEvent(new Event('scroll'))}"); await settle();
       const after=await js("document.querySelector('.conversation-compaction-marker').getBoundingClientRect().top");
       assert.ok(Math.abs(before-after-60)<3,'marker scrolls with content');
+      const height=await js("document.querySelector('.conversation-transcript').scrollHeight");
       await textClick('Prepend compaction history');
-      await settle(); await settle();
-      const afterPrepend=await js("document.querySelector('.conversation-compaction-marker').getBoundingClientRect().top");
-      assert.ok(Math.abs(afterPrepend-after)<3,'prepending preserves reading anchor');
+      await waitFor(`document.querySelector('.conversation-transcript').scrollHeight>${height}`,'older history rendered');
+      // Compare once row measurement has settled; slow machines need more than two frames.
+      let afterPrepend,previous;
+      for(let i=0;i<40&&afterPrepend!==previous||i<2;i++){previous=afterPrepend;await settle();afterPrepend=await js("document.querySelector('.conversation-compaction-marker').getBoundingClientRect().top");}
+      assert.ok(Math.abs(afterPrepend-after)<3,`prepending preserves reading anchor: ${after} -> ${afterPrepend}`);
     });
     return;
   }
@@ -317,6 +374,17 @@ module.exports = async ({suite,win,url,js,step,load,waitFor,click,key,focus,sett
     assert.equal(await js("document.querySelector('[data-fixture-row=answer] time').dateTime"),'1970-01-01T00:00:00.001Z');
   });
   await step('artifact open/reveal and attachment open send opaque IDs and keep actual failures',async()=>{
+    const label = await js("document.querySelector('.turn-file-section').getAttribute('aria-label')");
+    assert.match(label, /1$/);
+    assert.ok(!(await js("document.querySelector('.turn-file-section').innerText")).includes(label));
+    for (const theme of ['light', 'dark']) {
+      const border = await js(`(() => {
+        document.documentElement.dataset.theme = '${theme}';
+        return getComputedStyle(document.querySelector('.turn-file-item')).borderWidth;
+      })()`);
+      assert.equal(border, '0px');
+    }
+    await js("document.documentElement.dataset.theme='light'");
     await js("behavior.ui.hold('sessions.file.open');behavior.ui.fail('sessions.file.open',true)");
     await click('.turn-file-card');
     assert.equal(await js("document.querySelector('.turn-file-card').disabled&&document.querySelector('.turn-file-reveal').disabled"),true);
@@ -354,8 +422,12 @@ module.exports = async ({suite,win,url,js,step,load,waitFor,click,key,focus,sett
     const list = "document.querySelector('.conversation-model-options')";
     assert.ok(await js(`${list}.scrollHeight > ${list}.clientHeight`), 'long model list needs a scroll viewport');
     const point = await js(`(() => { const r=${list}.getBoundingClientRect();return {x:Math.round(r.x+r.width/2), y:Math.round(r.y+r.height/2)}; })()`);
-    win.webContents.sendInputEvent({ type: 'mouseWheel', ...point, deltaY: -1800, canScroll: true });
-    await waitFor(`${list}.scrollTop > 0`, 'native wheel scrolls the model list');
+    // A wheel sent while the popover is still settling can be dropped on slow machines.
+    for (let i = 0; i < 20 && !await js(`${list}.scrollTop > 0`); i++) {
+      win.webContents.sendInputEvent({ type: 'mouseWheel', ...point, deltaY: -1800, canScroll: true });
+      await settle();
+    }
+    assert.ok(await js(`${list}.scrollTop > 0`), 'native wheel scrolls the model list');
     const atEnd = `${list}.lastElementChild.getBoundingClientRect().bottom <= ${list}.getBoundingClientRect().bottom + 1`;
     for (let i = 0; i < 20 && !await js(atEnd); i++) {
       win.webContents.sendInputEvent({ type: 'mouseWheel', ...point, deltaY: -500, canScroll: true });
@@ -369,6 +441,27 @@ module.exports = async ({suite,win,url,js,step,load,waitFor,click,key,focus,sett
     await waitFor("document.querySelector('.conversation-compose-trailing .conversation-model-trigger').textContent.includes('fixture-model')",'model rollback');
     assert.ok(await js("document.body.textContent.includes('EACCES: fixture models.update denied')"));
     await click('.conversation-thinking-trigger');
+    await focus('.conversation-thinking-help');
+    await waitFor("getComputedStyle(document.querySelector('.conversation-thinking-tooltip')).opacity === '1'", 'focused help shows the effort description');
+    assert.ok(await js(`document.querySelector('.conversation-thinking-help').ariaDescribedByElements[0]
+      === document.querySelector('.conversation-thinking-tooltip')`), 'effort help has an accessible description');
+    const thumbColors = [];
+    for (const theme of ['dark', 'light']) {
+      const colors = await js(`(() => {
+        document.documentElement.dataset.theme = '${theme}';
+        const menu = document.querySelector('.conversation-thinking-menu');
+        const tooltip = menu.querySelector('[role="tooltip"]');
+        return {
+          thumb: getComputedStyle(menu.querySelector('.conversation-thinking-knob')).backgroundColor,
+          track: getComputedStyle(menu.querySelector('.conversation-thinking-levels')).backgroundColor,
+          separated: tooltip.getBoundingClientRect().bottom < menu.getBoundingClientRect().top,
+        };
+      })()`);
+      thumbColors.push(colors.thumb);
+      assert.notEqual(colors.thumb, colors.track, theme + ' thumb stands out from the track');
+      assert.ok(colors.separated, theme + ' tooltip leaves the panel edge visible');
+    }
+    assert.notEqual(thumbColors[0], thumbColors[1], 'thumb adapts to the theme');
     await js("behavior.ui.hold('models.thinking.update');behavior.ui.fail('models.thinking.update',true)");
     await click('.conversation-thinking-level:last-of-type');
     assert.equal(await js("Array.from(document.querySelectorAll('.conversation-thinking-level')).every(e=>e.disabled)"),true);
@@ -397,12 +490,19 @@ module.exports = async ({suite,win,url,js,step,load,waitFor,click,key,focus,sett
         const element = `document.querySelector(${JSON.stringify(report)})`;
         const colors = () => js(`((s) => [s.color, s.textDecorationColor])(getComputedStyle(${element}))`);
         for (const theme of ['light', 'dark']) {
-          await js(`document.documentElement.dataset.theme = ${JSON.stringify(theme)}; ${element}.scrollIntoView({ block: 'center' })`);
+          // Following the latest output keeps programmatic scrolls at the bottom.
+          // A user wheel releases it, so a short window can bring the link into view.
+          await js(`document.documentElement.dataset.theme = ${JSON.stringify(theme)};
+            document.querySelector('.conversation-transcript').dispatchEvent(new WheelEvent('wheel', { bubbles: true, deltaY: -50 }));
+            ${element}.scrollIntoView({ block: 'center' })`);
           win.webContents.sendInputEvent({ type: 'mouseMove', x: 1, y: 1 });
           await settle();
           const [text, underline] = await colors();
           assert.notEqual(underline, text);
-          const point = await js(`((r) => ({x: Math.round(r.left + r.width / 2), y: Math.round(r.top + r.height / 2)}))(${element}.getBoundingClientRect())`);
+          // The link can wrap; aim at its first line box.
+          const point = await js(`((r) => ({x: Math.round(r.left + r.width / 2), y: Math.round(r.top + r.height / 2)}))(${element}.getClientRects()[0])`);
+          assert.ok(await js(`${element}.contains(document.elementFromPoint(${point.x}, ${point.y}))`),
+            `${theme} file link is visible at ${JSON.stringify(point)}: ` + await js(`document.elementFromPoint(${point.x}, ${point.y})?.outerHTML.slice(0, 200)`));
           win.webContents.sendInputEvent({ type: 'mouseMove', ...point });
           await waitFor(`${element}.matches(':hover')`, theme + ' file link hover');
           assert.deepEqual(await colors(), [text, text]);

@@ -17,7 +17,7 @@ import { FeishuAdapter, type FeishuAdapterOptions } from "../channels/feishu/ada
 import { GatewayLifecycle } from "./lifecycle";
 import { SessionRouter } from "./router";
 import { DesktopConversationChannel, LocalConversationController } from "./local-conversation";
-import { RunHandle, SessionScheduler, type RuntimePort, type SteeringMessage } from "./scheduler";
+import { RunHandle, SessionScheduler, type RuntimePort, type RoutedSteeringMessage } from "./scheduler";
 import { SessionBindingStore } from "../state/session-bindings";
 import { SessionRuntimeState } from "../state/session-state";
 import { SessionStatusCoordinator } from "./session-status";
@@ -33,7 +33,7 @@ export interface DirectAgentRuntime {
   stop(): Promise<void>;
   runTurn(job: AgentJob, handle: RunHandle): Promise<DirectRuntimeOutcome>;
   cancelTurn?(handle: RunHandle, reason?: "user_stop"): Promise<void>;
-  steerTurn?(handle: RunHandle, message: Required<SteeringMessage>): Promise<void>;
+  steerTurn?(handle: RunHandle, message: RoutedSteeringMessage): Promise<void>;
 }
 
 export interface DirectGatewayStorage {
@@ -114,7 +114,7 @@ export function createDirectGatewayComposition(options: DirectGatewayComposition
               job_id: handle.jobId,
               status: outcome.status,
               remaining_steering: outcome.remaining_steering.map((item) => ({
-                text: item.text,
+                ...item,
                 response_route_id: item.response_route_id ?? "",
                 message_id: item.message_id ?? "",
               })),
@@ -137,8 +137,9 @@ export function createDirectGatewayComposition(options: DirectGatewayComposition
       if (options.runtime.cancelTurn) await options.runtime.cancelTurn(handle, reason);
       await handle.abort(reason);
     },
-    steerTurn: async (handle, message: Required<SteeringMessage>) => {
-      await options.runtime.steerTurn?.(handle, message);
+    steerTurn: async (handle, message: RoutedSteeringMessage) => {
+      if (!options.runtime.steerTurn) throw new Error("agent-cli steering is unavailable");
+      await options.runtime.steerTurn(handle, message);
     },
   };
   scheduler = new SessionScheduler({

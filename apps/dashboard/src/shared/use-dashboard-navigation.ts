@@ -63,7 +63,7 @@ export function useDashboardNavigation() {
   function openDashboardSection(section: DashboardSection) {
     const nextActivityView = section === "activity" ? "stats" : activityView;
     // Re-entering the workbench from the sidebar always lands on the tool index.
-    const nextWorkbenchView = section === "workbench" ? "index" : workbenchView;
+    const nextWorkbenchView = section === "workbench" ? "tasks" : workbenchView;
     pushDashboardRoute(section, capabilityView, nextActivityView, nextWorkbenchView);
     setActiveSection(section);
     setActivityView(nextActivityView);

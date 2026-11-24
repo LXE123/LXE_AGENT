@@ -73,6 +73,7 @@ describe("direct OpenAI Responses", () => {
 
   test("uses the 272k window and only exposes off on models that accept none", () => {
     for (const [id, supportsOff] of [
+      ["gpt-6.2-sol", false], ["gpt-6.2-astra", false],
       ["gpt-6-astra", false], ["gpt-6.1-sol", false], ["gpt-6.1-terra", true],
       ["gpt-6-sol", true], ["gpt-6-luna", true],
     ] as const) {
@@ -83,6 +84,26 @@ describe("direct OpenAI Responses", () => {
       expect(model.thinkingLevels.includes("off")).toBe(supportsOff);
       expect(model.thinkingEnabled).toBe(!supportsOff);
     }
+  });
+
+  test.each(["gpt-6.2-sol", "gpt-6.2-astra"])("builds an OpenAI API key request for %s", (id) => {
+    const model = load(id, "max");
+    expect(model.thinkingDefault).toBe("medium");
+    expect(model.thinkingLevels).toEqual(["low", "medium", "high", "xhigh", "max"]);
+    expect(model.supportsVision).toBe(true);
+    const request = buildResponsesRequest(model, {
+      system: "Use tools as needed", messages: [{ role: "user", content: "Read the file" }],
+      tools: [{ name: "read", description: "Read a file", input_schema: { type: "object" } }],
+      toolChoice: "auto", temperature: 0.5,
+    });
+    expect(request).toMatchObject({ model: id, stream: true, max_output_tokens: 128000, tool_choice: "auto",
+      input: expect.arrayContaining([
+        expect.objectContaining({ type: "additional_tools", tools: [expect.objectContaining({ name: "read" })] }),
+        expect.objectContaining({ role: "developer", content: [{ type: "input_text", text: "Use tools as needed" }] }),
+        { type: "configuration_update", reasoning: { effort: "max" } },
+      ]),
+    });
+    expect(request.temperature).toBeUndefined();
   });
 
   test("replays encrypted reasoning and a tool exchange after the transcript is reopened", async () => {
@@ -161,6 +182,42 @@ describe("direct OpenAI Responses", () => {
 });
 
 describe("DeepSeek Responses provider", () => {
+  test("replays Gemini tool calls next to their results when the assistant also emitted text", () => {
+    const messages = normalizeTranscriptMessages([
+      { role: "assistant", api: "google_generative_ai", provider: "google", model: "gemini-4-hydrogen",
+        content: [
+          { type: "tool_call", id: "call_a", name: "read", arguments: { path: "a" } },
+          { type: "text", text: "Checking both files." },
+          { type: "tool_call", id: "call_b", name: "read", arguments: { path: "b" } },
+          { type: "text", text: "" },
+        ] },
+      { role: "tool", content: [
+        { type: "tool_result", tool_call_id: "call_a", content: "first result" },
+        { type: "tool_result", tool_call_id: "call_b", content: "second result" },
+      ] },
+      { role: "user", content: "Continue" },
+    ]);
+    const original = structuredClone(messages);
+    const request = { system: "", messages, tools: [], toolChoice: "auto" as const };
+    const firstCall = { type: "function_call", call_id: "call_a", name: "read", arguments: '{"path":"a"}' };
+    const secondCall = { type: "function_call", call_id: "call_b", name: "read", arguments: '{"path":"b"}' };
+    const textItem = (value: string) => expect.objectContaining({
+      type: "message", role: "assistant", content: [{ type: "output_text", text: value, annotations: [] }],
+    });
+    const resultsAndUser = [
+      { type: "function_call_output", call_id: "call_a", output: "first result" },
+      { type: "function_call_output", call_id: "call_b", output: "second result" },
+      expect.objectContaining({ role: "user" }),
+    ];
+    expect(buildResponsesRequest(descriptor(), request).input).toEqual([
+      textItem("Checking both files."), firstCall, secondCall, ...resultsAndUser,
+    ]);
+    expect(messages).toEqual(original);
+    expect(buildResponsesRequest(descriptor({ name: "openai" }), request).input).toEqual([
+      firstCall, textItem("Checking both files."), secondCall, textItem(""), ...resultsAndUser,
+    ]);
+  });
+
   test("expands one assistant message into sibling call items and matches results by call id", () => {
     const messages: RuntimeMessage[] = [
       { role: "user", content: "hi" },

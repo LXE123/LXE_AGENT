@@ -18,7 +18,7 @@ function Fixture(){
   const [visibleThinking,setVisibleThinking]=useState(false);
   const files=[{artifact_id:"sheet",turn_id:"t",tool_call_id:"c",name:"备货建议.xlsx"},...(extraFile?[{artifact_id:"notes",turn_id:"t",tool_call_id:"c",name:"补充说明.md"}]:[])];
   const messages=[
-    {role:"user",content:longUser?"请检查这个文件并给出建议。".repeat(30):"Inspect the file",attachments:attached?[{attachment_id:"input",kind:"file",name:"input.xlsx",mime_type:"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",size_bytes:20}]:undefined,display_id:"u",client_message_id:"u"},
+    {role:"user",content:longUser?"请检查这个文件并给出建议。".repeat(20):"Inspect the file",attachments:attached?[{attachment_id:"input",name:"input.xlsx",media_type:"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",size_bytes:20}]:undefined,display_id:"u",client_message_id:"u"},
     {role:"assistant",id:"a",content:[{type:"thinking",thinking:"I will inspect the file before answering.\n\nSecond paragraph with\n  indentation preserved.\n\n\nThird paragraph."},{type:"text",text:"Checking the implementation now."},{type:"tool_call",id:"c",name:"read",arguments:{path:"example.ts"}}]},
     {role:"tool",artifacts:files,content:[{type:"tool_result",tool_call_id:"c",content:"Example source\n".repeat(100)}]},
     ...(moreTools ? [

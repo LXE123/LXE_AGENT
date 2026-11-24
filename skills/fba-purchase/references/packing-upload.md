@@ -16,13 +16,23 @@ lxeskill fba erp packing-upload --ship-no <ship_no> --delivery-csv "<发货单 C
 lxeskill fba erp packing-upload --ship-no <ship_no>
 ```
 
-- 首次上传和数据变更都必须等待用户明确确认，禁止在同一轮首次调用后自动携带 quote 提交；确认时不得同时传 `--delivery-csv`（更换文件须重新预览）。
+- **待装箱 SP 整单不发**：用户明确整单不发且已确认货物全部到仓留存时，无需本地 CSV，按指定 SP 直接人工申报零实发预览：
+
+```text
+lxeskill fba erp packing-upload --ship-no <SP> --all-unshipped
+```
+
+  - `--all-unshipped` 仅用于首次预览，不能与 `--delivery-csv`、`--confirm-identical` 或 `--confirm-packing-quote-id` 同时传入。
+  - 若该 SP 已有装箱对账（`packing_already_recorded`）或存在人工调整/留存已被下游采购使用（`packing_has_manual_adjustments`、`carryover_already_applied`），指引用户进入 FBA ERP 当前对账详情处理。确认首次零实发后如需撤销，指引从 ERP 的“撤销装箱数据”进入。
+
+- 首次上传和数据变更都必须等待用户明确确认，禁止在同一轮首次调用后自动携带 quote 提交；确认时只单独使用 `--confirm-packing-quote-id <quote_id>`，不得同时传 `--delivery-csv` 或 `--all-unshipped`。
 
 ## 预览展示（`confirmation_required` / `quote_stale`）
 
 `quote_stale` 表示确认期间 ERP 状态发生变化，必须按新返回重做完整展示并重新询问，不能沿用旧 quote。
 
-1. 展示来源路径 `source_file_path`（如有）、文件名、SP、SHA-256，以及预计动作是“首次上传”还是“替换现有版本”：
+1. 说明 SP、来源和预计动作（“首次上传”还是“替换现有版本”）：
+   - 常规上传展示来源路径 `source_file_path`（如有）、文件名和 SHA-256；整单不发（`source_kind=all_unshipped`）展示“人工申报：整单不发”。
    - `packing_sp_no` 非空时，必须显示 `采购 SP <purchase_sp_no> → 装箱 SP <packing_sp_no>`。
    - `packing_sp_no` 为空时，只显示采购 SP，不重复两个相同编号。
 2. 展示 `summary` 中的计划量、实际量、差异量和预计留存量。

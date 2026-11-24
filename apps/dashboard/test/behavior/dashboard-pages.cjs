@@ -62,10 +62,12 @@ module.exports = async ({ win, js, step, load, waitFor, click, key, focus, settl
     await open('sessions');
     await waitFor("!document.querySelector('.conversation-compose-trailing .conversation-model-trigger')?.disabled", 'model choices ready');
     await click('.conversation-compose-trailing .conversation-model-trigger');
-    await textClick('kimi-model', '.conversation-model-menu');
-    await waitFor("document.querySelector('.conversation-compose-trailing .conversation-model-trigger').textContent.includes('kimi-model')", 'Kimi selected');
+    await textClick('Kimi K3', '.conversation-model-menu');
+    await waitFor("document.querySelector('.conversation-compose-trailing .conversation-model-trigger').textContent.includes('Kimi K3')", 'Kimi selected');
+    assert.equal((await state()).calls.findLast(call => call.operation === 'models.update')?.input.model, 'k3');
     await click('.tab-capabilities'); await textClick('Models', '.workspace-subnav');
     await waitFor("Boolean(document.querySelector('.model-card'))", 'model gallery');
+    assert.ok(await js("document.querySelector('.model-card option[value=k3]')?.textContent.includes('Kimi K3')"));
     assert.equal(await js("document.querySelectorAll('.model-card button').length"), 0, 'catalog is read-only');
     assert.ok(await js("Array.from(document.querySelectorAll('.model-card [aria-label]')).some(e=>e.getAttribute('aria-label').replaceAll(',','').includes('1000000'))"));
     const images = await js("Promise.all(Array.from(document.querySelectorAll('.model-card img')).map(async img=>{await img.decode();return {local:new URL(img.src).origin===location.origin,width:img.naturalWidth}}))");
@@ -158,6 +160,55 @@ module.exports = async ({ win, js, step, load, waitFor, click, key, focus, settl
     assert.equal(await js("document.querySelectorAll('.connection-row').length"), 0);
   });
   const settings = async () => { await open(); await click('.sidebar-settings-button'); await waitFor("Boolean(document.querySelector('.desktop-settings-modal'))", 'settings dialog'); };
+  await step('workbench, capabilities and ERP share the underline tab states', async () => {
+    const checkTabs = async page => {
+      if (page === 'erp') { await settings(); await textClick('ERP accounts', '.desktop-settings-nav'); }
+      else await open(page);
+      await win.webContents.debugger.sendCommand('Emulation.setFocusEmulationEnabled', { enabled: true });
+      const strip = '.workspace-subnav';
+      await waitFor("document.querySelector('.workspace-subnav .active')", page + ' tabs');
+      for (const theme of ['light', 'dark']) {
+        await js(`document.documentElement.dataset.theme='${theme}'`); await settle();
+        const styles = await js(`(() => {
+          const strip = document.querySelector('.workspace-subnav');
+          const active = getComputedStyle(strip.querySelector('.active'));
+          const other = getComputedStyle(strip.querySelector('button:not(.active)'));
+          return {
+            topBorder: getComputedStyle(strip).borderTopWidth, fill: active.backgroundColor, shadow: active.boxShadow,
+            underline: active.borderBottomWidth, usesInk: active.borderBottomColor === getComputedStyle(strip).color,
+            inactiveUnderline: other.borderBottomColor,
+          };
+        })()`);
+        assert.deepEqual(styles, {
+          topBorder: '0px', fill: 'rgba(0, 0, 0, 0)', shadow: 'none',
+          underline: '2px', usesInk: true, inactiveUnderline: 'rgba(0, 0, 0, 0)',
+        }, page + ' ' + theme);
+      }
+      await win.setContentSize(480, 900); await settle();
+      const next = strip + ' button:nth-child(2)';
+      await focus(strip + ' button:first-child'); await key(page === 'erp' ? 'Right' : 'Tab');
+      assert.ok(await js(`document.activeElement.matches('${next}:focus-visible')`), page + ' keyboard navigation');
+      const ring = await js('getComputedStyle(document.activeElement).outlineWidth');
+      assert.equal(ring, '2px', page + ' focus ring');
+      if (page !== 'erp') await key('Enter');
+      await waitFor(`document.querySelector('${next}').classList.contains('active')`, page + ' second tab selected');
+      const point = await js(`(() => {
+        const r = document.querySelector('${strip} button:first-child').getBoundingClientRect();
+        return { x: Math.round(r.x + r.width / 2), y: Math.round(r.y + r.height / 2) };
+      })()`);
+      win.webContents.sendInputEvent({ type: 'mouseMove', ...point });
+      await waitFor(`document.querySelector('${strip} button:first-child:hover')`, page + ' hover');
+      assert.ok(await js(`getComputedStyle(document.querySelector('${strip} button:first-child')).color === getComputedStyle(document.querySelector('${strip}')).color`), page + ' hover ink');
+      assert.ok(await js('document.documentElement.scrollWidth <= innerWidth'), page + ' narrow viewport');
+      await win.setContentSize(1200, 900); await settle();
+    };
+    win.webContents.debugger.attach('1.3');
+    try {
+      for (const page of ['workbench', 'capabilities', 'erp']) await checkTabs(page);
+    } finally {
+      win.webContents.debugger.detach();
+    }
+  });
   await step('sidebar, onboarding and fatal recovery load the same bundled application logo', async () => {
     const decoded = async selector => js(`(async()=>{const image=document.querySelector(${JSON.stringify(selector)});await image.decode();return {src:image.src,width:image.naturalWidth,height:image.naturalHeight,origin:new URL(image.src).origin};})()`);
     await open();
@@ -246,6 +297,7 @@ module.exports = async ({ win, js, step, load, waitFor, click, key, focus, settl
   });
   await step('workbench sends opaque handles and releases task subscription on navigation', async () => {
     await open('workbench', '&platform=win32');
+    await textClick('Settings & tools', '.workbench-subnav');
     await textClick('Amazon AI performer tag', '.workbench-tool-grid');
     await waitFor("Boolean(document.querySelector('#synthetic-performer-title'))", 'media workbench');
     assert.equal((await js('behavior.ui.listeners()')).task, 1);

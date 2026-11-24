@@ -23,7 +23,7 @@ function git(cwd: string, ...args: string[]): string {
 }
 
 function fixture() {
-  const temporary = realpathSync(mkdtempSync(join(tmpdir(), "lxe wt-claim-")));
+  const temporary = realpathSync.native(mkdtempSync(join(tmpdir(), "lxe wt-claim-")));
   temporaryRoots.push(temporary);
   const root = join(temporary, "repository");
   const bin = join(temporary, "bin");
@@ -199,6 +199,75 @@ describe(`wt-claim lifecycle (${windows ? "PowerShell" : "Bash"})`, () => {
     expect(git(f.slot, "rev-parse", "HEAD")).toBe(f.commit);
     expect(readFileSync(`${f.slot}.claim`, "utf8").trim()).toBe("review");
     expect(readFileSync(join(f.slot, "content.txt"), "utf8")).toBe("review changes\n");
+  }, 30_000);
+
+  test("status marks a claimed slot releasable only when clean and fully pushed", () => {
+    const f = fixture();
+    const releasable = "pool-1  codex/review  claimed: review, pushed (releasable)";
+    const local = f.run("status");
+    expectSuccess(local);
+    expect(local.stdout).toContain("claimed: review");
+    expect(local.stdout).not.toContain("releasable");
+    const remote = join(f.temporary, "remote.git");
+    git(f.root, "init", "--bare", remote);
+    git(f.root, "remote", "add", "origin", remote);
+    // No upstream: pushed work must still be recognised from remote-tracking refs.
+    git(f.slot, "push", "origin", "codex/review");
+    const pushed = f.run("status");
+    expectSuccess(pushed);
+    expect(pushed.stdout).toContain(releasable);
+    writeFileSync(join(f.slot, "untracked.txt"), "unfinished work\n");
+    const dirty = f.run("status");
+    expectSuccess(dirty);
+    expect(dirty.stdout).toContain("claimed: review, dirty");
+    expect(dirty.stdout).not.toContain("releasable");
+  }, 30_000);
+
+  test("a full pool lists releasable slots instead of suggesting a larger pool", () => {
+    const f = fixture();
+    const unpushed = f.run("other");
+    expect(unpushed.status).not.toBe(0);
+    expect(unpushed.stderr).toContain("no idle slot (max 1)");
+    expect(unpushed.stderr).toContain("No claimed slot is fully pushed yet");
+    expect(unpushed.stderr).not.toContain("WT_POOL_MAX");
+    const remote = join(f.temporary, "remote.git");
+    git(f.root, "init", "--bare", remote);
+    git(f.root, "remote", "add", "origin", remote);
+    git(f.slot, "push", "origin", "codex/review");
+    const pushed = f.run("other");
+    expect(pushed.status).not.toBe(0);
+    expect(pushed.stderr).toContain(`pool-1  scripts/wt-claim${windows ? ".ps1" : ""} release review`);
+    expect(pushed.stderr).not.toContain("WT_POOL_MAX");
+    expect(readFileSync(`${f.slot}.claim`, "utf8").trim()).toBe("review");
+    expect(existsSync(join(f.root, ".worktrees/.wt-claim.lock"))).toBe(false);
+  }, 30_000);
+
+  test("slots above the current limit stay visible, resumable and releasable", () => {
+    const f = fixture();
+    f.env.WT_POOL_MAX = "2";
+    expectSuccess(f.run("other"));
+    const above = join(f.root, ".worktrees", "pool-2");
+    f.env.WT_POOL_MAX = "1";
+    const status = f.run("status");
+    expectSuccess(status);
+    expect(status.stdout).toContain("pool-2  codex/other  claimed: other");
+    const resumed = f.run("other");
+    expectSuccess(resumed);
+    expect(resumed.stdout).toContain("resumed pool-2");
+    expect(resumed.stdout.trim().split(/\r?\n/).at(-1)).toBe(above);
+    const released = f.run("release", "other");
+    expectSuccess(released);
+    expect(released.stdout).toContain("released pool-2");
+    expect(existsSync(`${above}.claim`)).toBe(false);
+    // The limit still bounds new work: an idle slot above it is not taken.
+    const blocked = f.run("third");
+    expect(blocked.status).not.toBe(0);
+    expect(blocked.stderr).toContain("no idle slot (max 1)");
+    expect(existsSync(`${above}.claim`)).toBe(false);
+    const idle = f.run("status");
+    expectSuccess(idle);
+    expect(idle.stdout).toContain("pool-2  detached  idle");
+    expect(idle.stdout).not.toContain("pool-3");
   }, 30_000);
 
   test.each(["content.txt", "untracked.txt"])("rejects release with uncommitted %s", (file) => {

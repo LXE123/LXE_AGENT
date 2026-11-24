@@ -1,5 +1,5 @@
 // Local Electron renderer only; this never connects to a store browser.
-const { app, BrowserWindow, session } = require("electron");
+const { app, BrowserWindow, clipboard, session } = require("electron");
 const assert = require("node:assert/strict");
 const [suite, profile, url] = process.argv.slice(2);
 // DOM/input regression tests must also run in remote Windows sessions without a GPU.
@@ -13,7 +13,8 @@ app.whenReady().then(async () => {
   // Caption focus ownership, restoration and chart tooltips need native focus.
   const nativeFocus = suite === 'windows-menu' || suite === 'overview-pages' || suite === 'app-frame';
   const catalog = suite === "overview-pages";
-  const win = new BrowserWindow({ width: 1200, height: 900, show: nativeFocus, alwaysOnTop: nativeFocus,
+  // macOS otherwise shrinks shown windows to small CI displays, moving layout under test.
+  const win = new BrowserWindow({ width: 1200, height: 900, show: nativeFocus, alwaysOnTop: nativeFocus, enableLargerThanScreen: true,
     webPreferences: { ...(catalog ? { webviewTag: true, preload: require.resolve("./catalog-preload.cjs") } : {}), offscreen: !nativeFocus, contextIsolation: true, nodeIntegration: false, backgroundThrottling: false } });
   if (catalog) {
     require(require("node:path").join(profile, "team-skills-view.cjs")).registerTeamSkillsGuest(win.webContents);
@@ -107,6 +108,9 @@ app.whenReady().then(async () => {
       await require("./app-actions.cjs")({suite, js, step, settle, click, type, focus, key, state, waitFor});
     } else if (suite === "vietnam-settings") {
       const openSettings = async () => {
+        const tools = ".workbench-subnav .workspace-subnav-item:nth-child(2)";
+        await waitFor(`Boolean(document.querySelector(${JSON.stringify(tools)}))`, "workbench sub-pages");
+        await js(`document.querySelector(${JSON.stringify(tools)}).click()`);
         const card = "[...document.querySelectorAll('.workbench-tool-card')].find(el => el.textContent.includes('Vietnam replenishment settings'))";
         await waitFor(`Boolean(${card})`, "Vietnam settings card");
         await js(`${card}.click()`);
@@ -333,6 +337,8 @@ app.whenReady().then(async () => {
         await waitFor("document.querySelector('.permission-approval')?.dataset.requestId === 'permission-1'", "next pending approval");
         await click(".permission-approval footer button:first-child");
         await waitFor("!document.querySelector('.permission-approval')", "requests rejected");
+        await click(".conversation-send-button[data-mode='send']");
+        assert.equal((await state()).sends.at(-1).text, "Keep this draft");
         await click(".conversation-send-button[data-mode='stop']");
         assert.equal((await state()).stops, 1, "normal stop is available after rejection");
       });
@@ -504,6 +510,65 @@ app.whenReady().then(async () => {
         await key("Escape"); assert.equal((await state()).active, "opener");
       });
     } else if (suite === "composer") {
+      await step("toolbar controls fit a narrow chat column and identify the open picker in both themes", async () => {
+        await js("behavior.mountComposer()");
+        const trigger = ".permission-picker .conversation-model-trigger";
+        for (const theme of ["light", "dark"]) {
+          await js(`document.documentElement.dataset.theme = '${theme}'; document.querySelector('.conversation-compose-box').style.width = '300px'`);
+          await settle();
+          const bounds = await js(`(() => {
+            const bar = document.querySelector('.conversation-compose-actions');
+            const rect = bar.getBoundingClientRect();
+            return Array.from(bar.querySelectorAll('button'), button => {
+              const {left, right, height} = button.getBoundingClientRect();
+              return {inside: left >= rect.left - 1 && right <= rect.right + 1, height};
+            });
+          })()`);
+          assert.ok(bounds.length >= 5);
+          assert.ok(bounds.every(button => button.inside && button.height === 30));
+          const modelName = await js(`(async () => {
+            await document.fonts.ready;
+            const label = document.querySelector('.conversation-model-name');
+            const box = label.getBoundingClientRect();
+            const range = document.createRange();
+            range.selectNodeContents(label);
+            const text = range.getBoundingClientRect();
+            return { top: text.top - box.top, bottom: box.bottom - text.bottom, color: getComputedStyle(label).color };
+          })()`);
+          assert.ok(modelName.top >= -0.5 && modelName.bottom >= -0.5, `Model name clipped: ${JSON.stringify(modelName)}`);
+          assert.equal(modelName.color, theme === "dark" ? "rgb(255, 255, 255)" : "rgb(11, 11, 11)");
+          const gaps = await js(`(() => {
+            const bounds = selector => document.querySelector(selector).getBoundingClientRect();
+            const track = document.querySelector('.conversation-context-ring-track');
+            const halfStroke = parseFloat(getComputedStyle(track).strokeWidth) * track.getScreenCTM().a / 2;
+            const ringRight = track.getBoundingClientRect().right + halfStroke;
+            const modelButton = bounds('.conversation-compose-trailing .conversation-model-trigger');
+            const icon = bounds('.conversation-model-trigger > [data-provider-mark]');
+            const model = bounds('.conversation-model-name');
+            const thinking = bounds('.conversation-thinking-trigger > span');
+            const button = bounds('.conversation-thinking-trigger');
+            const send = bounds('.conversation-send-button');
+            return {
+              labels: thinking.left - model.right, send: send.left - thinking.right,
+              beforePickers: modelButton.left - ringRight, afterPickers: send.left - button.right,
+              modelLeft: icon.left - modelButton.left, modelRight: modelButton.right - model.right,
+              thinkingLeft: thinking.left - button.left, thinkingRight: button.right - thinking.right,
+            };
+          })()`);
+          assert.ok(gaps.labels >= 0 && gaps.labels <= 8 && gaps.send >= 16, `Toolbar spacing: ${JSON.stringify(gaps)}`);
+          assert.ok(Math.abs(gaps.beforePickers - gaps.afterPickers) <= 0.5, `Picker outer spacing: ${JSON.stringify(gaps)}`);
+          for (const inset of [gaps.modelLeft, gaps.modelRight, gaps.thinkingLeft, gaps.thinkingRight]) {
+            assert.ok(Math.abs(inset - 4) <= 0.5, `Picker padding: ${JSON.stringify(gaps)}`);
+          }
+          await click(trigger);
+          win.webContents.sendInputEvent({ type: "mouseMove", x: 0, y: 0 });
+          await settle();
+          const selected = await js(`getComputedStyle(document.querySelector('${trigger}')).backgroundColor`);
+          await key("Escape");
+          assert.equal(await js(`document.querySelector('${trigger}').getAttribute('aria-expanded')`), "false");
+          assert.notEqual(await js(`getComputedStyle(document.querySelector('${trigger}')).backgroundColor`), selected);
+        }
+      });
       await step("IME confirmation does not send; Shift+Enter inserts a line; Enter sends once", async () => {
         await js("behavior.mountComposer()"); await type("中文");
         assert.equal(await js("Number(document.querySelector('.reference-editor').dataset.maxlength)"), 8192);
@@ -524,13 +589,26 @@ app.whenReady().then(async () => {
         await js("behavior.releaseSend()"); await settle();
         assert.equal(await js("(sessionStorage.getItem('lxe.composer-draft.' + document.querySelector('.reference-editor').dataset.session) || '')"), "");
       });
-      await step("running work changes the action button to stop", async () => {
-        await js("behavior.mountComposer({running:true})"); await type("queued draft");
-        await click(".conversation-send-button");
-        assert.equal((await state()).stops, 1); assert.equal((await state()).sends.length, 0);
-        // Enter intentionally queues a new message during an existing turn.
-        await focus(".reference-editor"); await key("Enter");
-        assert.equal((await state()).sends.length, 1);
+      await step("a running turn accepts a draft from the button or Enter and stops with an empty draft", async () => {
+        await js("behavior.mountComposer({running:true})");
+        assert.match(await js("document.querySelector('.reference-editor').dataset.placeholder"), /插话|steer/i);
+        await type("steering draft");
+        await click(".conversation-send-button[data-mode='send']");
+        await type("keyboard draft"); await key("Enter");
+        assert.deepEqual((await state()).sends.map(input => input.text), ["steering draft", "keyboard draft"]);
+        assert.equal((await state()).stops, 0);
+        await click(".conversation-send-button[data-mode='stop']");
+        assert.equal((await state()).stops, 1);
+      });
+      await step("an attachment can be sent while stopping", async () => {
+        await js("behavior.mountComposer({running:true,stopping:true}); behavior.chooseFile('note.txt')");
+        assert.equal(await js("document.querySelector('.conversation-send-button').disabled"), true);
+        await click(".conversation-attach-button");
+        await click(".conversation-send-button[data-mode='send']");
+        assert.deepEqual((await state()).sends, [{ text: "", attachments: [
+          { attachment_id: "note.txt", name: "note.txt", media_type: "text/plain", size_bytes: 1 },
+        ] }]);
+        assert.equal((await state()).stops, 0);
       });
       await step("model/thinking saves block both click and keyboard submission", async () => {
         for (const flag of ["modelSaving", "thinkingSaving"]) {
@@ -675,8 +753,11 @@ app.whenReady().then(async () => {
         const mod = process.platform === "darwin" ? "meta" : "control";
         await key("z", [mod]); assert.equal(await draft(), "@销售");
         await key("z", [mod, "shift"]); assert.equal(await draft(), "@销售.md ");
-        await key("a", [mod]); win.webContents.copy(); await settle();
-        assert.equal(require('electron').clipboard.readText(), "@销售.md ");
+        // copy() completes asynchronously in the renderer; slow hosts need more than two frames.
+        clipboard.clear();
+        await key("a", [mod]); win.webContents.copy();
+        for (let frame = 0; frame < 40 && !(await clipboard.readText()); frame++) await settle();
+        assert.equal(await clipboard.readText(), "@销售.md ");
         await key("Backspace"); assert.equal(await draft(), "");
       });
       await step("draft session switches and remount keep canonical references and preview actions", async () => {

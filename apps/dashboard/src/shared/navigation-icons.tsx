@@ -12,8 +12,9 @@ const glyphs: Record<Exclude<DashboardSection, "team-skills">, ReactNode> = {
     <path className="navigation-icon-reply" d="M8 10.5h8" />
   </>,
   workbench: <>
-    <rect x="3.5" y="5" width="17" height="15" rx="2.5" />
-    <path className="navigation-icon-work-panel" d="M9 5v15" />
+    <rect x="3.5" y="8.5" width="17" height="11.5" rx="2.5" />
+    <path className="navigation-icon-toolbox-handle" d="M9 8.5V6.5A1.5 1.5 0 0 1 10.5 5h3A1.5 1.5 0 0 1 15 6.5v2" />
+    <path d="M3.5 13.5h17M10.5 12.5v2h3v-2" />
   </>,
   automations: <>
     <circle cx="12" cy="12" r="8.5" />

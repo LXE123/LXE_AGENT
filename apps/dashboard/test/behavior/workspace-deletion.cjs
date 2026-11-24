@@ -35,7 +35,7 @@ module.exports = async ({win,js,step,load,waitFor,click,key,focus,settle,state})
     win.setSize(1200,900); await key('Escape'); await settle();
     assert.equal(await selected(),'Default chat'); assert.equal(await draft(),'Keep this draft');
     assert.equal((await state()).calls.some(c=>c.operation==='workspaces.delete'),false);
-    assert.equal(await js("document.activeElement?.classList.contains('workspace-actions-trigger')"),true);
+    await waitFor("document.activeElement?.classList.contains('workspace-actions-trigger')",'focus returns to the workspace actions');
   });
   await step('failure retains confirmation, retry is guarded, and deletion preserves the active chat and draft', async () => {
     await begin('/fixture/default'); await js('behavior.failWorkspaceDelete(true)');
@@ -52,7 +52,8 @@ module.exports = async ({win,js,step,load,waitFor,click,key,focus,settle,state})
     await waitFor(`document.querySelector(${JSON.stringify(ungrouped)})?.textContent.includes('Default chat')`, 'ungrouped current conversation');
     assert.equal(await selected(),'Default chat'); assert.equal(await draft(),'Keep this draft');
     assert.equal((await state()).sessions.find(s=>s.session_id==='Default chat').workspace_id,null);
-    assert.equal(await js("document.querySelector('.conversation-send-button').dataset.mode"),'stop');
+    // The turn is still running and the draft remains, so the button sends it as steering.
+    assert.equal(await js("document.querySelector('.conversation-send-button').dataset.mode"),'send');
     assert.equal(await js(`document.querySelector('[data-conversation-row="user:queued-input"] .message-card [role="status"]')?.textContent`), 'Queued');
     assert.equal(await js(`document.querySelector('[data-conversation-row="status:queued"], .conversation-queue-status') !== null`), false);
     assert.equal((await state()).calls.some(c=>c.operation==='sessions.stop'||c.operation==='sessions.delete'),false);

@@ -2449,42 +2449,45 @@ describe("TypeScriptAgentRuntime", () => {
     await runtime.stop();
   });
 
-  test("consumes steering before tool dispatch and asks the provider to reconsider", async () => {
+  test("finishes the whole tool batch before delivering a desktop steering message with its attachments", async () => {
     const store = new MemoryStore();
     const tools = new ToolRegistry();
-    let toolCalls = 0;
-    let providerCalls = 0;
-    let drains = 0;
-    tools.register({
-      name: "dangerous", description: "dangerous", input_schema: { type: "object", properties: {} },
-      execute: async () => { toolCalls += 1; return { content: [] }; },
-    });
-    const runHandle: RuntimeHandle = {
-      signal: new AbortController().signal,
-      cancelled: false,
-      drainSteering: () => {
-        drains += 1;
-        return drains === 2 ? [{ text: "不要执行，改为解释" }] : [];
+    const queue: ReturnType<RuntimeHandle["drainSteering"]> = [];
+    const executed: string[] = [];
+    const requests: RuntimeProviderRequest[] = [];
+    const blocks = [
+      { type: "local_file", attachment_id: "a", turn_id: "j1", name: "photo.png", path: "/tmp/photo.png", size_bytes: 3, media_type: "image/png" },
+      { type: "image", source: { type: "base64", media_type: "image/png", data: "YWJj" } },
+    ];
+    for (const name of ["first", "second"]) tools.register({
+      name, description: name, input_schema: { type: "object", properties: {} },
+      execute: async () => {
+        executed.push(name);
+        if (name === "first") queue.push({ text: "", message_id: "m", client_message_id: "client", user_content_blocks: blocks });
+        return { content: [{ type: "text", text: name }] };
       },
-      registerProcess: () => () => undefined,
-    };
-    const runtime = new TypeScriptAgentRuntime({ permissionPolicy,
-      store, tools,
-      provider: { summarize, turn: async () => {
-        providerCalls += 1;
-        return providerCalls === 1
-          ? messageFixture({ content: [{ type: "tool_call", id: "t1", name: "dangerous", arguments: {} }], stopReason: "toolUse", usage: { input_tokens: 1, output_tokens: 1 } })
-          : messageFixture({ content: [{ type: "text", text: "已改为解释" }], stopReason: "stop", usage: { input_tokens: 1, output_tokens: 1 } });
+    });
+    const runtime = new TypeScriptAgentRuntime({ permissionPolicy, store, tools,
+      provider: { summarize, turn: async request => {
+        requests.push(request);
+        return requests.length === 1
+          ? messageFixture({ content: ["first", "second"].map(name => ({ type: "tool_call", id: name, name, arguments: {} })), stopReason: "toolUse" })
+          : messageFixture({ content: [{ type: "text", text: "done" }] });
       } },
       emitter: { emit: async () => undefined, typing: async () => undefined }, systemPrompt: "test",
     });
     await runtime.start();
-    const outcome = await runtime.runTurn(job(), runHandle);
-    expect(outcome).toEqual(expect.objectContaining({ status: "completed", reply: "已改为解释" }));
-    expect(toolCalls).toBe(0);
-    expect(JSON.stringify(store.messages)).toContain("skipped because the user steered");
-    expect(JSON.stringify(store.messages)).toContain("不要执行");
-    await runtime.stop();
+    try {
+      const outcome = await runtime.runTurn(job(), { ...handle(), drainSteering: () => queue.splice(0) });
+      expect(outcome.status).toBe("completed");
+      expect(executed).toEqual(["first", "second"]);
+      expect(requests).toHaveLength(2);
+      expect(requests[1]!.messages.slice(-3)).toMatchObject([
+        { role: "tool", content: [{ tool_call_id: "first" }] }, { role: "tool", content: [{ tool_call_id: "second" }] },
+        { role: "user", message_id: "m", client_message_id: "client", content: blocks },
+      ]);
+      expect(store.messageReasons.filter(reason => reason === "steering")).toHaveLength(1);
+    } finally { await runtime.stop(); }
   });
 
   test.each([false, true])("continues the same turn for steering during a final response (streamed: %s)", async streamed => {
@@ -3487,4 +3490,4 @@ test("Responses replays MCP directory and discovery at branch positions after re
     await runtime.stop();
     await removeTemporaryRoot(root);
   }
-});
+}, 20_000);

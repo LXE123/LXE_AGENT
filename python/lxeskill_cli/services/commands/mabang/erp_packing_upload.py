@@ -26,6 +26,7 @@ from shared.workspace import resolve_workspace_input
 MAX_RECONCILIATION_LINES = 200
 MAX_REMOTE_BODY_CHARS = 4_000
 PACKING_PREVIEW_SCHEMA = "lxe.erp.packing-preview.v1"
+UNSHIPPED_REQUEST_PREFIX = "packing-all-unshipped-"
 
 
 class PackingUploadError(RuntimeError):
@@ -178,7 +179,7 @@ def _captured_at(path: Path) -> str:
     return datetime.fromtimestamp(path.stat().st_mtime, tz=timezone.utc).isoformat()
 
 
-def _request_id(payload: Mapping[str, Any]) -> str:
+def _request_id(payload: Mapping[str, Any], *, prefix: str = "packing-") -> str:
     canonical = json.dumps(
         payload,
         ensure_ascii=False,
@@ -186,7 +187,7 @@ def _request_id(payload: Mapping[str, Any]) -> str:
         separators=(",", ":"),
     ).encode("utf-8")
     digest = hashlib.sha256(canonical).hexdigest()[:32]
-    return f"packing-{payload['sp_no']}-{digest}"
+    return f"{prefix}{payload['sp_no']}-{digest}"
 
 
 def _connection_settings() -> tuple[str, float]:
@@ -362,6 +363,26 @@ def _confirmation_request_id(quote_id: str) -> str:
     return f"packing-confirm-{digest}"
 
 
+def _check_unshipped_preview(response: Mapping[str, Any]) -> None:
+    if response.get("action") in {"replace", "unchanged"}:
+        raise PackingUploadError(
+            "packing_already_recorded",
+            "该 SP 已有装箱对账。请在 FBA ERP 的当前对账详情处理整单不发。",
+            detail={"sp_no": response.get("sp_no"), "batch_no": response.get("batch_no")},
+        )
+    summary = response.get("summary") or {}
+    if (
+        response.get("action") != "create"
+        or response.get("reconciliation_status") not in {"passed", "mismatch"}
+        or _summary_decimal(summary, "actual_quantity") != 0
+    ):
+        raise PackingUploadError(
+            "packing_unshipped_preview_invalid",
+            "ERP 未能为该 SP 生成完整的零实发对账，请核对预览明细。",
+            detail={"summary": summary, "reconciliation_lines": response.get("reconciliation_lines")},
+        )
+
+
 def _result_with_lines(
     *,
     response: Mapping[str, Any],
@@ -447,6 +468,15 @@ def run(arguments: dict[str, Any]) -> dict[str, Any]:
         confirm_quote_id = str(
             arguments.get("confirm_packing_quote_id") or ""
         ).strip()
+        all_unshipped = bool(arguments.get("all_unshipped"))
+        confirm_identical = bool(arguments.get("confirm_identical"))
+        if all_unshipped and (
+            confirm_identical or confirm_quote_id or "delivery_csv" in arguments
+        ):
+            raise PackingUploadError(
+                "packing_option_conflict",
+                "--all-unshipped 仅用于首次预览，不能与 --delivery-csv 或 --confirm-identical 同时使用。确认该预览时单独使用 --confirm-packing-quote-id。",
+            )
         if confirm_quote_id:
             if "delivery_csv" in arguments:
                 raise PackingUploadError(
@@ -464,6 +494,12 @@ def run(arguments: dict[str, Any]) -> dict[str, Any]:
                 },
                 accepted_statuses={200, 201, 409},
             )
+            # ERP echoes the original preview request ID when returning a new quote.
+            if response.get("status") == "quote_stale" and str(
+                response.get("request_id") or ""
+            ).startswith(UNSHIPPED_REQUEST_PREFIX):
+                ship_no = str(response.get("sp_no") or "")
+                _check_unshipped_preview(response)
             return _result_with_lines(
                 response=response,
                 ship_no="",
@@ -472,17 +508,27 @@ def run(arguments: dict[str, Any]) -> dict[str, Any]:
                 timeout=timeout,
             )
 
-        confirm_identical = bool(arguments.get("confirm_identical"))
-        ship_no = _normalize_ship_no(arguments.get("ship_no"))
-        source_path = _resolve_delivery_source(ship_no, arguments)
-        quantities = _normalized_delivery_quantities(
-            source_path, expected_ship_no=ship_no,
-        )
-        source_sha256 = _file_sha256(source_path)
-        captured_at = _captured_at(source_path)
+        if all_unshipped:
+            ship_no = _normalize_ship_no(arguments.get("ship_no"))
+            source_name = "人工申报：整单不发"
+            declaration = f"{ship_no}\n{source_name}".encode("utf-8")
+            source_sha256 = hashlib.sha256(declaration).hexdigest()
+            captured_at = datetime.now(timezone.utc).isoformat()
+            quantities: OrderedDict[str, Decimal] = OrderedDict()
+            source = {"source_kind": "all_unshipped"}
+        else:
+            ship_no = _normalize_ship_no(arguments.get("ship_no"))
+            source_path = _resolve_delivery_source(ship_no, arguments)
+            quantities = _normalized_delivery_quantities(
+                source_path, expected_ship_no=ship_no,
+            )
+            source_name = source_path.name
+            source_sha256 = _file_sha256(source_path)
+            captured_at = _captured_at(source_path)
+            source = {"source_file_path": str(source_path)}
         request_body: dict[str, Any] = {
             "sp_no": ship_no,
-            "source_file_name": source_path.name,
+            "source_file_name": source_name,
             "source_sha256": source_sha256,
             "captured_at": captured_at,
             "lines": [
@@ -490,7 +536,9 @@ def run(arguments: dict[str, Any]) -> dict[str, Any]:
                 for msku, quantity in quantities.items()
             ],
         }
-        request_body["request_id"] = _request_id(request_body)
+        request_body["request_id"] = _request_id(
+            request_body, prefix=UNSHIPPED_REQUEST_PREFIX if all_unshipped else "packing-"
+        )
         response = _request_json(
             "POST",
             f"/api/v1/erp/packing-snapshots/preview",
@@ -499,7 +547,10 @@ def run(arguments: dict[str, Any]) -> dict[str, Any]:
             json_payload=request_body,
             accepted_statuses={200, 409},
         )
-        _reject_identical_to_plan(response, confirm_identical=confirm_identical)
+        if all_unshipped:
+            _check_unshipped_preview(response)
+        else:
+            _reject_identical_to_plan(response, confirm_identical=confirm_identical)
         return _result_with_lines(
             response=response,
             ship_no=ship_no,
@@ -507,8 +558,8 @@ def run(arguments: dict[str, Any]) -> dict[str, Any]:
             base_url=base_url,
             timeout=timeout,
             source={
-                "source_file_path": str(source_path),
-                "source_file_name": source_path.name,
+                **source,
+                "source_file_name": source_name,
                 "source_sha256": source_sha256,
                 "captured_at": captured_at,
                 "msku_count": len(quantities),
@@ -518,7 +569,10 @@ def run(arguments: dict[str, Any]) -> dict[str, Any]:
             },
         )
     except PackingUploadError as exc:
-        return _error_payload(ship_no, exc)
+        result = _error_payload(ship_no, exc)
+        if arguments.get("all_unshipped") and exc.code in {"packing_has_manual_adjustments", "carryover_already_applied"}:
+            result["recovery"] = {"message": "请打开 FBA ERP 当前对账详情，查看已生效的装箱记录。"}
+        return result
     except Exception as exc:  # noqa: BLE001 - preserve the real parsing/file error
         message = exception_text(exc)
         return {

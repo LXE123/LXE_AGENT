@@ -15,6 +15,16 @@ function toolCardGroup(row: ConversationRow | undefined) {
   if (tool && tool.name !== "ask_user_question") return processId(row);
 }
 
+function rowBottomPadding(row: ConversationRow, next: ConversationRow | undefined) {
+  // The status control and the first text line already have vertical insets.
+  if (next && row.turnId === next.turnId) {
+    if ((row.kind === "process" || row.kind === "status") && next.presentation === "final") return 6;
+    if (row.presentation === "final" && next.kind === "artifacts") return 14;
+  }
+  if (row.kind === "process" || row.presentation === "final") return 8;
+  return row.presentation === "process" ? 6 : 12;
+}
+
 function isBlankToolSeparator(row: ConversationRow) {
   const message = row.message;
   if (row.kind !== "message" || message?.role !== "assistant" || row.status === "error"
@@ -94,6 +104,11 @@ export function ConversationWindow({ rows: sourceRows, renderRow, hasOlder, hasN
     getItemKey, estimateSize: () => 100, overscan: 5, anchorTo: "end", followOnAppend: false,
     // Keep prepend anchoring, but don't let proximity resume following on resize.
     scrollEndThreshold: following ? 80 : -1, useAnimationFrameWithResizeObserver: true,
+    // The fallback 150 ms debounce reports the offset cached at the last scroll
+    // event. Firing after a newer compensation, it made that compensation look
+    // like an upward user scroll, which skips the next resize compensation.
+    // scrollend reads the offset when it fires.
+    useScrollendEvent: true,
     // Include edge spacing in virtual measurements and scroll-to-end targets.
     // The bottom fade covers 26px; keep the last row above it.
     paddingStart: 24, paddingEnd: 40,
@@ -275,12 +290,17 @@ export function ConversationWindow({ rows: sourceRows, renderRow, hasOlder, hasN
       onBlurCapture={(event) => setFocusedAnswer(answerAt(event.relatedTarget))}
       onClickCapture={(event) => {
       const target = event.target as HTMLElement;
-      const button = target.closest(".conversation-process-toggle");
+      const button = target.closest(".conversation-process-toggle, .user-message-toggle");
       const row = button?.closest<HTMLElement>("[data-conversation-row]");
-      if (row && root.current) {
+      if (button && row && root.current) {
         scrollInput.clear();
         stopFollowing();
-        manualAnchor.current = {id: row.dataset.conversationRow!, offset: row.getBoundingClientRect().top - root.current.getBoundingClientRect().top, bottom: false};
+        const offset = row.getBoundingClientRect().top - root.current.getBoundingClientRect().top;
+        if (button.matches(".conversation-process-toggle")) {
+          manualAnchor.current = {id: row.dataset.conversationRow!, offset, bottom: false};
+        } else if (offset < 0) {
+          virtual.scrollToIndex(Number(row.dataset.index), { align: "start" });
+        }
       }
     }} onScroll={(event) => {
       if (event.target !== root.current) return;
@@ -298,12 +318,12 @@ export function ConversationWindow({ rows: sourceRows, renderRow, hasOlder, hasN
           const joinsPrevious = group !== undefined && group === toolCardGroup(rows[item.index - 1]);
           const joinsNext = group !== undefined && group === toolCardGroup(rows[item.index + 1]);
           const answer = answerId(row);
-          const paddingBottom = row.kind === "process" || row.presentation === "final" ? 8 : row.presentation === "process" ? 6 : 12;
+          const paddingBottom = joinsNext ? 0 : rowBottomPadding(row, rows[item.index + 1]);
           return <div key={item.key} ref={virtual.measureElement} data-index={item.index}
             data-conversation-row={row.id} data-display-group={row.groupId}
             data-tool-joins-previous={joinsPrevious || undefined} data-tool-joins-next={joinsNext || undefined}
             data-answer-id={answer} data-answer-active={Boolean(answer && (answer === hoveredAnswer || answer === focusedAnswer)) || undefined}
-            style={{ position: "absolute", left: 0, width: "100%", paddingBottom: joinsNext ? 0 : paddingBottom }}>
+            style={{ position: "absolute", left: 0, width: "100%", paddingBottom }}>
             {renderRow(row)}
           </div>;
         })}

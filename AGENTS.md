@@ -52,6 +52,6 @@ When you receive an instruction:
 ## 开发、PR 与文档规范
 
 - **分支与 Worktree**：所有仓库改动在任务分支完成，通过 PR 合并到 `main`。主工作区保持在 `main` 用于同步和检查。需要独立 worktree 时，通过 `scripts/wt-claim`（Windows 为 `scripts/wt-claim.ps1`）领取和归还，不占用其他任务的工作区，用法见 [worktree 脚本说明](scripts/README.md#worktree-池)。
-- **提交与 PR 审查**：修改和提交前检查 `git status`，保护已有改动，只提交当前任务涉及的内容。遵循 [PR 审查规范](docs/pr-review.md)，说明实际验证结果和未确认事项；需要人工审核的改动，经审核通过后合并。修改已提交、推送并创建 PR 后，可以归还干净的 worktree 并保留任务分支；需要继续修改时重新领取。AI 代为合并 PR 需有明确授权。
+- **提交与 PR 审查**：修改和提交前检查 `git status`，保护已有改动，只提交当前任务涉及的内容。遵循 [PR 审查规范](docs/pr-review.md)，说明实际验证结果和未确认事项；需要人工审核的改动，经审核通过后合并。提交、推送并创建 PR 后，用 `scripts/wt-claim release <任务名>` 归还槽位，这是任务收尾的一步：代码保存在分支和 PR 上，不在槽位里；需要继续修改时用同一任务名重新领取，会挂回原分支。槽位不够时，先归还 `status` 中标为 `pushed (releasable)` 的槽位，不要自行调大 `WT_POOL_MAX`。AI 代为合并 PR 需有明确授权。
 - **Commit 规范**：使用英文，遵循 Conventional Commits 格式（允许类型：`feat`, `fix`, `docs`, `style`, `refactor`, `perf`, `test`, `chore`, `ci`）。Commit 类型不会自动递增版本号；正式版本和更新说明由发布者在 `config/desktop-release.json` 中显式设置（详见 [Windows 更新与发布](docs/desktop/updates.md)）。
 - **文档规范**：编写文档时分清主次，重点多讲，细枝末节少讲，多用大白话。

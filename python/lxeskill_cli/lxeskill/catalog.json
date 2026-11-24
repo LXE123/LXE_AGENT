@@ -291,6 +291,57 @@
     , "help": {"group": "fba", "section": "发票、报关与退税", "summary": "填写发票模板", "examples": ["lxeskill fba invoice fill --input-xlsx 备货单.xlsx"]}},
     {"name": "mabang_download_msku_detail_excel", "module": "services.commands.mabang.download_msku_detail_excel", "command_path": ["mabang", "delivery", "msku", "export"], "visibility": "business", "session_mode": "none", "owner_skills": ["mabang-delivery-data"], "artifact_paths": [{"field": "xlsx_path", "role": "deliverable"}], "timeout_ms": 300000, "exposed": true, "input_schema": {"type": "object", "properties": {"delivery_no": {"type": "string", "minLength": 1}}, "additionalProperties": false, "required": ["delivery_no"]}, "input_modes": ["flags"], "help": {"group": "fba", "section": "发货数据采集", "summary": "下载发货单 MSKU 明细", "examples": ["lxeskill mabang delivery msku export --delivery-no SP260919007"]}},
     {
+      "name": "mabang_create_stock_shipments",
+      "module": "services.commands.mabang.create_stock_shipments",
+      "command_path": [
+        "fba",
+        "stock-shipment",
+        "create"
+      ],
+      "visibility": "business",
+      "session_mode": "none",
+      "input_modes": [
+        "flags"
+      ],
+      "owner_skills": [
+        "fba-purchase"
+      ],
+      "artifact_paths": [],
+      "timeout_ms": 300000,
+      "exposed": true,
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "delivery_no": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "minItems": 1
+          },
+          "confirm_quote": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "每次指定一个 SP号=报价UUID，可重复传入。省略时仅取报价。"
+          }
+        },
+        "required": [
+          "delivery_no"
+        ],
+        "additionalProperties": false
+      },
+      "help": {
+        "group": "fba",
+        "section": "采购与备货单据",
+        "summary": "用 ERP 留存库存为已有 SP 独立创建发货单",
+        "examples": [
+          "lxeskill fba stock-shipment create --delivery-no SP261123001"
+        ]
+      }
+    },
+    {
       "name": "mabang_generate_purchase_batch_workbooks", "module": "services.commands.mabang.generate_purchase_batch_workbooks",
       "command_path": ["fba", "purchase", "summary-create"],
       "legacy_aliases": ["mabang_generate_purchase_batch_workbooks"],
@@ -358,8 +409,8 @@
       "legacy_aliases": ["mabang_erp_packing_upload"],
       "visibility": "business", "session_mode": "none",
       "owner_skills": ["fba-purchase"], "artifact_paths": [], "timeout_ms": 120000, "exposed": true,
-      "input_schema": {"type": "object", "properties": {"ship_no": {"type": "string", "description": "预览时提供的 SP 发货单号"}, "delivery_csv": {"type": "string", "minLength": 1, "description": "预览使用的 FBA 发货单 CSV 路径，可指定用户核对后的修订版。省略时按 SP 取本地最新发货单。"}, "confirm_packing_quote_id": {"type": "string", "description": "确认当前预览的 quote ID"}, "confirm_identical": {"type": "boolean"}}, "anyOf": [{"required": ["ship_no"]}, {"required": ["confirm_packing_quote_id"]}], "not": {"required": ["delivery_csv", "confirm_packing_quote_id"]}, "additionalProperties": false}
-    , "help": {"group": "fba", "section": "货件与装箱", "summary": "预览 SP 实发量（可指定发货单 CSV），确认后上传到 ERP", "examples": ["lxeskill fba erp packing-upload --ship-no SP260919007 --delivery-csv \"发货单 修订版.csv\"", "lxeskill fba erp packing-upload --ship-no SP260919007"]}},
+      "input_schema": {"type": "object", "properties": {"ship_no": {"type": "string", "description": "预览时提供的 SP 发货单号"}, "delivery_csv": {"type": "string", "minLength": 1, "description": "预览使用的 FBA 发货单 CSV 路径，可指定用户核对后的修订版。省略时按 SP 取本地最新发货单。"}, "confirm_packing_quote_id": {"type": "string", "description": "确认当前预览的 quote ID"}, "confirm_identical": {"type": "boolean"}, "all_unshipped": {"type": "boolean", "description": "为已到货、待装箱的 SP 预览整单零实发和留存明细"}}, "anyOf": [{"required": ["ship_no"]}, {"required": ["confirm_packing_quote_id"]}], "not": {"anyOf": [{"required": ["delivery_csv", "confirm_packing_quote_id"]}, {"required": ["delivery_csv", "all_unshipped"], "properties": {"all_unshipped": {"const": true}}}]}, "additionalProperties": false}
+    , "help": {"group": "fba", "section": "货件与装箱", "summary": "预览 SP 实发量（可指定发货单 CSV 或申报待装箱 SP 整单不发），确认后上传到 ERP", "examples": ["lxeskill fba erp packing-upload --ship-no SP260919007 --delivery-csv \"发货单 修订版.csv\"", "lxeskill fba erp packing-upload --ship-no SP260919007", "lxeskill fba erp packing-upload --ship-no SP260919007 --all-unshipped"]}},
     {"name": "mabang_download_stock_sku_excel", "module": "services.commands.mabang.download_stock_sku_excel", "command_path": ["mabang", "delivery", "inventory-sku", "export"], "visibility": "business", "session_mode": "none", "owner_skills": ["mabang-delivery-data"], "artifact_paths": [{"field": "xlsx_paths[]", "role": "deliverable"}], "timeout_ms": 300000, "exposed": true, "input_schema": {"type": "object", "properties": {"delivery_no": {"type": "string"}}, "required": ["delivery_no"], "additionalProperties": false}, "input_modes": ["flags"], "help": {"group": "fba", "section": "发货数据采集", "summary": "按本地发货单 CSV 下载库存 SKU 数据", "examples": ["lxeskill mabang delivery inventory-sku export --delivery-no SP260919007"]}},
     {
       "name": "mabang_replenishment_template", "module": "services.commands.mabang.replenishment_template", "positional": ["action"],

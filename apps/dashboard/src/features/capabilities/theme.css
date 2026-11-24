@@ -17,26 +17,12 @@
 .capabilities-theme .workspace-view-header {
   display: grid; grid-template-columns: minmax(0, 1fr); justify-content: stretch;
   align-items: stretch; gap: 20px; padding: 0;
-  border-bottom: 1px solid var(--border);
+  border-bottom: 0;
 }
 .capabilities-theme .workspace-view-header h1 {
   margin: 0; color: var(--text); font-size: 1.375rem; font-weight: 600; line-height: 1.5;
 }
 .capabilities-theme .workspace-header-actions { align-items: center; gap: 16px; padding-bottom: 0; }
-.capabilities-theme .workspace-subnav {
-  gap: 24px; padding: 0; border: 0; border-radius: 0;
-  background: transparent; overflow: visible;
-}
-.capabilities-theme .workspace-subnav-item {
-  min-height: 40px; padding: 8px 2px 12px; margin-bottom: -1px;
-  border-radius: 0; border-bottom: 2px solid transparent;
-  color: var(--text-soft); font-size: .875rem; font-weight: 400;
-}
-.capabilities-theme .workspace-subnav-item:hover { color: var(--text); background: transparent; }
-.capabilities-theme .workspace-subnav-item.active {
-  background: transparent; color: var(--text); border-bottom-color: var(--text);
-  box-shadow: none; font-weight: 600;
-}
 .capabilities-theme .workspace-view-content { container: capabilities-content / inline-size; }
 .capabilities-theme .skill-add-menu { align-self: start; }
 .capabilities-theme .icon-button {
@@ -255,12 +241,9 @@
 }
 @media (max-width: 800px) {
   .content-panel.capabilities-theme { padding: 24px 20px 72px; }
-  .capabilities-theme .workspace-subnav { gap: 18px; }
 }
 @media (max-width: 480px) {
   .content-panel.capabilities-theme { padding: 20px 12px 72px; }
-  .capabilities-theme .workspace-subnav { gap: 12px; }
-  .capabilities-theme .workspace-header-actions .workspace-subnav-item { padding-inline: 0; font-size: .8125rem; }
   .capabilities-theme .workspace-header-actions { gap: 8px; }
   .capabilities-theme .catalog-page .catalog-section-toggle { gap: 6px; }
   .capabilities-theme .models-grid .model-card[data-provider] { padding: 18px; }

@@ -15,6 +15,7 @@ const initialize = {
 };
 const methods = {
   initialize,
+  sync_mcp_server_presets: { servers: [{ name: "skills", enabled: true, transport: "streamable-http", url: "https://example.com/mcp" }] },
   update_skill_permissions: { allowed_skill_types: [] },
   update_managed_llm_credential: { credential: null },
   run_turn: { job },
@@ -34,7 +35,7 @@ const methods = {
 describe("JSON-RPC boundary", () => {
   test("all command names remain reachable with their business payloads", () => {
     const names: Array<keyof AgentCommandPayloads> = Object.keys(methods) as Array<keyof AgentCommandPayloads>;
-    expect(names).toHaveLength(15);
+    expect(names).toHaveLength(16);
     for (const method of names) {
       const request = { jsonrpc: "2.0", id: method, method, params: methods[method] };
       expect(parseAgentCall(request)).toEqual(expect.objectContaining(request));

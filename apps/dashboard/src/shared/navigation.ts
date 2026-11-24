@@ -4,8 +4,13 @@ export type CapabilityView = "models" | "skills" | "tools" | "connections";
 
 export type ActivityView = "stats";
 
-/** Workbench starts on the tool index and drills into one tool at a time. */
-export type WorkbenchView = "index" | "synthetic-performer" | "input-assets" | "vietnam-settings" | "amazon-v2-settings";
+/**
+ * Workbench opens on skill tasks, which run in background conversations; settings and tools that act
+ * directly sit on a second sub-page. Each tool belongs to one sub-page and returns to it.
+ */
+export type WorkbenchIndexView = "tasks" | "tools";
+export type WorkbenchToolView = "fba-capacity" | "synthetic-performer" | "input-assets" | "vietnam-settings" | "amazon-v2-settings";
+export type WorkbenchView = WorkbenchIndexView | WorkbenchToolView;
 
 export type DashboardRouteSelection = {
   section: DashboardSection;
@@ -36,7 +41,23 @@ const CAPABILITY_VIEWS = new Set<CapabilityView>([
 
 const ACTIVITY_VIEWS = new Set<ActivityView>(["stats"]);
 
-const WORKBENCH_VIEWS = new Set<WorkbenchView>(["index", "synthetic-performer", "input-assets", "vietnam-settings", "amazon-v2-settings"]);
+const WORKBENCH_TOOL_PARENTS: Record<WorkbenchToolView, WorkbenchIndexView> = {
+  "fba-capacity": "tasks",
+  "vietnam-settings": "tools",
+  "amazon-v2-settings": "tools",
+  "synthetic-performer": "tools",
+  "input-assets": "tools",
+};
+
+const WORKBENCH_VIEWS = new Set<WorkbenchView>(["tasks", "tools", ...Object.keys(WORKBENCH_TOOL_PARENTS) as WorkbenchToolView[]]);
+
+export function workbenchParent(view: WorkbenchView): WorkbenchIndexView {
+  return view === "tasks" || view === "tools" ? view : WORKBENCH_TOOL_PARENTS[view];
+}
+
+export function workbenchTools(index: WorkbenchIndexView): WorkbenchToolView[] {
+  return (Object.keys(WORKBENCH_TOOL_PARENTS) as WorkbenchToolView[]).filter(view => WORKBENCH_TOOL_PARENTS[view] === index);
+}
 
 function objectRecord(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" ? value as Record<string, unknown> : {};
@@ -79,7 +100,7 @@ export function storeCapabilityView(
 export function normalizeWorkbenchView(value: unknown): WorkbenchView {
   return typeof value === "string" && WORKBENCH_VIEWS.has(value as WorkbenchView)
     ? value as WorkbenchView
-    : "index";
+    : "tasks";
 }
 
 export function dashboardRouteFromHistory(
@@ -102,31 +123,31 @@ export function dashboardRouteFromHistory(
         : "stats",
       workbenchView: section === "workbench"
         ? normalizeWorkbenchView(state.workbenchView)
-        : "index",
+        : "tasks",
     };
   }
 
   switch (state.tab) {
     case "sessions":
-      return { section: "sessions", capabilityView: storedCapabilityView, activityView: "stats", workbenchView: "index" };
+      return { section: "sessions", capabilityView: storedCapabilityView, activityView: "stats", workbenchView: "tasks" };
     case "models":
-      return { section: "capabilities", capabilityView: "models", activityView: "stats", workbenchView: "index" };
+      return { section: "capabilities", capabilityView: "models", activityView: "stats", workbenchView: "tasks" };
     case "skills":
-      return { section: "capabilities", capabilityView: "skills", activityView: "stats", workbenchView: "index" };
+      return { section: "capabilities", capabilityView: "skills", activityView: "stats", workbenchView: "tasks" };
     case "tools":
-      return { section: "capabilities", capabilityView: "tools", activityView: "stats", workbenchView: "index" };
+      return { section: "capabilities", capabilityView: "tools", activityView: "stats", workbenchView: "tasks" };
     case "mcp":
     case "connectors":
-      return { section: "capabilities", capabilityView: "connections", activityView: "stats", workbenchView: "index" };
+      return { section: "capabilities", capabilityView: "connections", activityView: "stats", workbenchView: "tasks" };
     case "background-tasks":
     case "stats":
       return {
         section: "activity",
         capabilityView: storedCapabilityView,
         activityView: "stats",
-        workbenchView: "index",
+        workbenchView: "tasks",
       };
     default:
-      return { section: "home", capabilityView: storedCapabilityView, activityView: "stats", workbenchView: "index" };
+      return { section: "home", capabilityView: storedCapabilityView, activityView: "stats", workbenchView: "tasks" };
   }
 }

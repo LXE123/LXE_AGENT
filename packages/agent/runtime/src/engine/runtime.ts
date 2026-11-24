@@ -579,16 +579,21 @@ export class TypeScriptAgentRuntime implements AgentRuntime {
         await this.notifySessionChanged(job.session_id, "attachments");
       }
 
-      const appendSteering = async (steeringMessages = handle.drainSteering()): Promise<number> => {
+      const appendSteering = async (): Promise<number> => {
         let appended = 0;
         const seen = new Set<string>();
-        for (const steering of steeringMessages) {
+        for (const steering of handle.drainSteering()) {
           const text = String(steering.text ?? "").trim();
-          if (!text) continue;
+          const blocks = steering.user_content_blocks ?? [];
+          if (!text && !blocks.length) continue;
           const instructions = await loadInvokedSkills(invokedSkillNames(text), seen);
-          const message: RuntimeMessage = { role: "user", content: text, ...(instructions.length ? { invoked_skills: instructions.flatMap(item => item.role === "user" ? item.invoked_skills ?? [] : []) } : {}) };
+          const message: RuntimeMessage = { role: "user", content: prepareUserContent(text, blocks),
+            ...(steering.message_id ? { message_id: steering.message_id } : {}),
+            ...(steering.client_message_id ? { client_message_id: steering.client_message_id } : {}),
+            ...(instructions.length ? { invoked_skills: instructions.flatMap(item => item.role === "user" ? item.invoked_skills ?? [] : []) } : {}) };
           messages.push(message, ...instructions);
           await this.appendMessage(job.session_id, message, "steering", job.job_id);
+          if (blocks.some(block => block.type === "local_file")) await this.notifySessionChanged(job.session_id, "attachments");
           for (const instruction of instructions) await this.appendMessage(job.session_id, instruction, "skill_invocation", job.job_id);
           appended += 1;
         }
@@ -869,7 +874,6 @@ export class TypeScriptAgentRuntime implements AgentRuntime {
         };
         const orderedResults = (): ToolResultBlock[] =>
           resultSlots.filter((result): result is ToolResultBlock => result !== undefined);
-        let interruptedBySteering = false;
         const executeToolCall = async (call: ToolCallBlock, callIndex: number): Promise<void> => {
           toolCalls += 1;
           const startedToolAt = Date.now();
@@ -996,23 +1000,6 @@ export class TypeScriptAgentRuntime implements AgentRuntime {
         };
 
         for (let callIndex = 0; callIndex < calls.length;) {
-          const steering = handle.drainSteering();
-          if (steering.some((item) => String(item.text ?? "").trim())) {
-            for (let pendingIndex = callIndex; pendingIndex < calls.length; pendingIndex += 1) {
-              const pending = calls[pendingIndex]!;
-              resultSlots[pendingIndex] = {
-                type: "tool_result",
-                tool_call_id: pending.id,
-                content: "Tool execution skipped because the user steered the active turn before dispatch.",
-                is_error: true,
-              };
-            }
-            await appendToolResults(orderedResults(), "tool_results_steered");
-            await updateContext();
-            await appendSteering(steering);
-            interruptedBySteering = true;
-            break;
-          }
           if (isCancelled(handle)) {
             for (let pendingIndex = callIndex; pendingIndex < calls.length; pendingIndex += 1) {
               const pending = calls[pendingIndex]!;
@@ -1041,7 +1028,6 @@ export class TypeScriptAgentRuntime implements AgentRuntime {
             executeToolCall(call, callIndex + offset)));
           callIndex = waveEnd;
         }
-        if (interruptedBySteering) continue;
         const trimmedResults = trimToolResultBlocks(orderedResults(), contextPipeline.toolResultMaxTokens).results;
         await appendToolResults(trimmedResults, "tool_results");
         await updateContext();

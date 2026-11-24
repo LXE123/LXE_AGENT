@@ -1,0 +1,76 @@
+name: Verify
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+# A new push to the same PR cancels its unfinished run; runs on main always finish.
+concurrency:
+  group: verify-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+# LXE ships for Windows and macOS only; Linux lacks the exec sandbox and app runtime.
+jobs:
+  macos:
+    name: verify:source (macOS)
+    runs-on: macos-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: package.json
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+      # office:prepare copies this standalone Node (>= 22.19) next to the Office engine.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - run: bun install --frozen-lockfile
+      - run: uv sync --frozen
+      - run: bun run desktop:tools:fd
+      - run: bun run office:prepare
+      # Office recalculation tests use the real engine, as release:build does.
+      - name: Point tests at the prepared Office runtime
+        run: |
+          bun -e 'import {sourceRuntimePaths} from "./apps/desktop/src/main/source-runtime-paths";
+            const p = sourceRuntimePaths(process.cwd());
+            console.log(`LXE_OFFICE_NODE=${p.node}\nLXE_OFFICE_CLI=${p.officeCli}`);' >> "$GITHUB_ENV"
+      - run: bun run verify:source
+        env:
+          PYTHONUTF8: "1"
+
+  windows:
+    name: verify:source (Windows)
+    runs-on: windows-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: package.json
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+      - run: bun install --frozen-lockfile
+      - run: uv sync --frozen
+      - run: bun run desktop:tools:fd
+      # Same managed Node and Office runtime as release:build prepares on the release machine.
+      - name: Prepare the managed desktop runtime
+        shell: pwsh
+        run: |
+          $env:LXE_DESKTOP_RUNTIME_DESCRIPTOR = Join-Path $env:RUNNER_TEMP "runtime-inputs.json"
+          powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -File scripts/prepare-desktop-runtime.ps1
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $inputs = (Get-Content -Raw $env:LXE_DESKTOP_RUNTIME_DESCRIPTOR | ConvertFrom-Json).inputs
+          "LXE_OFFICE_NODE=$(Join-Path $inputs.node_root 'node.exe')" | Out-File -Append -Encoding utf8 $env:GITHUB_ENV
+          "LXE_OFFICE_CLI=$(Join-Path $inputs.office_root 'node_modules\@deepseek-ai\libreoffice-kit\lib\cli.js')" | Out-File -Append -Encoding utf8 $env:GITHUB_ENV
+      - run: bun run verify:source
+        env:
+          PYTHONUTF8: "1"

@@ -1,0 +1,183 @@
+/* FBA capacity: CDS purpose colours. Primary text for content, secondary for
+   explanations, muted for metadata; status colour always pairs a soft
+   background with its own text colour, next to an icon and a word. */
+
+.workbench-theme .workbench-detail.fba-capacity { width: min(1440px, 100%); max-width: 1440px; }
+.workbench-theme .fba-capacity .workbench-detail-header { padding-bottom: 20px; }
+.workbench-theme .fba-capacity .workbench-detail-header .workbench-back { margin-bottom: 4px; }
+
+/* Start on the left, results on the right; one column when the page is narrow. */
+.fba-capacity-layout {
+  display: grid; grid-template-columns: minmax(300px, 380px) minmax(0, 1fr); gap: 40px; align-items: start; min-width: 0;
+}
+.fba-capacity-side, .fba-capacity-main { display: grid; min-width: 0; }
+/* A rule between the columns, starting a little below the header line: the left column
+   stretches to the row so the line reaches the bottom even when the results are taller. */
+.fba-capacity-side {
+  align-self: stretch; align-content: start; margin-right: -20px; padding-right: 20px;
+  background: linear-gradient(var(--border), var(--border)) right 20px / 1px calc(100% - 20px) no-repeat;
+}
+.workbench-theme .fba-capacity-main > .workbench-settings-card:last-child,
+.workbench-theme .fba-capacity-side > .workbench-settings-card:last-child { border-bottom: 0; }
+.workbench-theme .fba-capacity .workbench-settings-card { padding-block: 24px; }
+
+.workbench-theme .workbench-detail .fba-capacity-hint {
+  margin: 0; color: var(--text-soft); font-size: .75rem; line-height: 1.65;
+}
+.workbench-theme .workbench-detail button.fba-capacity-link {
+  min-height: 0; padding: 0; border: 0; background: none;
+  color: var(--text-soft); font-size: .75rem; font-weight: 400; text-decoration: underline; text-underline-offset: 3px;
+  text-decoration-color: var(--border-strong);
+}
+.workbench-theme .workbench-detail button.fba-capacity-link:hover:not(:disabled) { color: var(--text); background: none; }
+
+/* Form */
+.workbench-theme .fba-capacity-form { display: grid; gap: 22px; }
+.workbench-theme .fba-capacity-form fieldset { margin: 0; padding: 0; border: 0; min-width: 0; }
+.workbench-theme .fba-capacity-form legend {
+  display: flex; align-items: baseline; gap: 8px; width: 100%; margin-bottom: 10px; padding: 0;
+  color: var(--text); font-size: .875rem; font-weight: 500;
+}
+.workbench-theme .fba-capacity-form legend .fba-capacity-link { margin-left: auto; }
+.fba-capacity-count { color: var(--muted-light); font-size: .75rem; font-weight: 400; font-variant-numeric: tabular-nums; }
+.fba-capacity-chips { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; }
+.fba-capacity-chip { position: relative; display: flex; min-width: 0; cursor: pointer; }
+.fba-capacity-chip input { position: absolute; opacity: 0; inset: 0; margin: 0; cursor: pointer; }
+.fba-capacity-chip span {
+  display: flex; align-items: center; gap: 6px; width: 100%; min-width: 0; min-height: 34px; padding: 6px 10px;
+  border: 1px solid transparent; border-radius: 8px; background: transparent;
+  color: var(--text-soft); font-size: .8125rem; line-height: 1.3; overflow-wrap: anywhere;
+  transition: border-color .15s, background-color .15s, color .15s;
+}
+.fba-capacity-chip span svg { flex-shrink: 0; opacity: 0; color: var(--accent-strong); }
+.fba-capacity-chip small { margin-left: auto; color: var(--muted-light); font-size: .6875rem; white-space: nowrap; }
+/* Sites: four short tiles, code above the local name, the check mark in the corner. */
+.fba-capacity-chips[data-kind="sites"] { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+.fba-capacity-chips[data-kind="sites"] .fba-capacity-chip span {
+  position: relative; flex-direction: column; align-items: flex-start; gap: 1px; padding: 6px 8px;
+}
+.fba-capacity-chips[data-kind="sites"] .fba-capacity-chip span svg { position: absolute; top: 7px; right: 7px; }
+.fba-capacity-chips[data-kind="sites"] .fba-capacity-chip small { margin-left: 0; white-space: normal; }
+/* Unchosen options are plain text until hovered, like the workbench cards; chosen ones keep their fill. */
+.fba-capacity-chip:hover input:not(:checked) + span { background: var(--row-hover); color: var(--text); }
+.fba-capacity-chip input:checked + span { border-color: var(--accent); background: var(--cds-accent-tint); color: var(--text); }
+.fba-capacity-chip input:checked + span svg { opacity: 1; }
+.fba-capacity-chip input:focus-visible + span { outline: 2px solid var(--accent); outline-offset: 2px; }
+.fba-capacity-start { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+
+/* Full access is opt-in per device and confirmed once, like the conversation picker. */
+.fba-capacity-access { display: grid; gap: 4px; }
+.workbench-theme .workbench-detail .fba-capacity-access .fba-capacity-hint { margin-left: 42px; }
+.fba-capacity-switch { display: inline-flex; align-items: center; gap: 10px; width: fit-content; font-size: .8125rem; color: var(--text); cursor: pointer; }
+.fba-capacity-switch input {
+  appearance: none; position: relative; width: 32px; height: 18px; margin: 0; flex-shrink: 0;
+  border-radius: 999px; background: var(--cds-alpha-2); cursor: pointer; transition: background-color .15s;
+}
+.fba-capacity-switch input::after {
+  content: ""; position: absolute; top: 2px; left: 2px; width: 14px; height: 14px; border-radius: 50%;
+  background: var(--cds-surface-panel); box-shadow: 0 0 0 1px var(--border); transition: transform .15s;
+}
+.fba-capacity-switch input:checked { background: var(--warning); }
+.fba-capacity-switch input:checked::after { transform: translateX(14px); }
+.fba-capacity-switch input:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.fba-capacity-switch input:disabled { background: var(--cds-disabled-fill); cursor: not-allowed; }
+.fba-capacity-switch:has(input:disabled) { color: var(--cds-disabled-ink); cursor: not-allowed; }
+
+.workbench-theme .fba-capacity-notice {
+  display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin: 16px 0 0; padding: 12px 14px;
+  border-radius: 8px; background: var(--cds-alpha-1); color: var(--text); font-size: .8125rem;
+}
+
+/* History: bordered rows; the selected row keeps its fill under hover and focus. */
+.fba-capacity-history h2, .fba-capacity-run-header h2 { margin: 0 0 4px; color: var(--text); font-size: .9375rem; font-weight: 500; }
+.fba-capacity-history h2 { margin-bottom: 10px; }
+.fba-capacity-history ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; }
+.workbench-theme .workbench-detail .fba-capacity-history button {
+  display: flex; align-items: center; justify-content: flex-start; gap: 10px; width: 100%; min-height: 44px; padding: 6px 10px;
+  border: 0; border-radius: 8px; background: transparent; font-weight: 400; text-align: left;
+}
+.workbench-theme .workbench-detail .fba-capacity-history button:hover:not(:disabled) { background: var(--row-hover); }
+.workbench-theme .workbench-detail .fba-capacity-history button[aria-current="true"],
+.workbench-theme .workbench-detail .fba-capacity-history button[aria-current="true"]:hover:not(:disabled) { background: var(--cds-selected); }
+.workbench-theme .workbench-detail .fba-capacity-history button:focus-visible { outline-offset: -2px; }
+.fba-capacity-history-main { display: grid; gap: 1px; min-width: 0; flex: 1; }
+.fba-capacity-history-main > span { color: var(--text); font-size: .8125rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fba-capacity-history-main small { color: var(--muted-light); font-size: .6875rem; font-variant-numeric: tabular-nums; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fba-capacity-history-state { flex-shrink: 0; color: var(--text-soft); font-size: .75rem; }
+.fba-capacity-dot { flex-shrink: 0; width: 7px; height: 7px; border-radius: 50%; background: var(--muted-light); }
+.fba-capacity-dot:is([data-state="queued"], [data-state="running"], [data-state="stopping"]) { background: var(--accent); }
+.fba-capacity-dot[data-state="completed"] { background: var(--success); }
+.fba-capacity-dot:is([data-state="error"], [data-state="missing"]) { background: var(--danger); }
+.fba-capacity-dot:is([data-state="waiting_input"], [data-state="waiting_approval"]) { background: var(--warning); }
+
+.fba-capacity-main { position: sticky; top: 0; }
+.workbench-theme .fba-capacity-run {
+  display: flex; flex-direction: column; gap: 14px; min-height: 0;
+}
+.fba-capacity-run > * { flex-shrink: 0; }
+.fba-capacity-past {
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin: 0; padding: 8px 12px;
+  border-radius: 8px; background: var(--cds-alpha-1); color: var(--text-soft); font-size: .75rem;
+}
+.fba-capacity-run-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
+.fba-capacity-meta { margin: 0; color: var(--muted-light); font-size: .75rem; font-variant-numeric: tabular-nums; }
+
+.fba-capacity-state {
+  display: inline-flex; align-items: center; gap: 6px; flex-shrink: 0; padding: 4px 10px; border-radius: 999px;
+  background: var(--cds-alpha-1); color: var(--text-soft); font-size: .75rem; font-weight: 500;
+}
+.fba-capacity-state:is([data-state="loading"], [data-state="queued"], [data-state="running"], [data-state="stopping"]) { background: var(--cds-accent-tint); color: var(--accent-strong); }
+.fba-capacity-state[data-state="completed"] { background: var(--success-soft); color: var(--success); }
+.fba-capacity-state:is([data-state="error"], [data-state="missing"]) { background: var(--danger-soft); color: var(--danger); }
+.fba-capacity-state:is([data-state="waiting_input"], [data-state="waiting_approval"]) { background: var(--warning-soft); color: var(--warning); }
+
+.fba-capacity-progress { display: grid; gap: 6px; padding: 16px; border: 1px solid var(--border); border-radius: 8px; }
+.workbench-theme .workbench-detail p.fba-capacity-elapsed { margin: 0; color: var(--text); font-size: 1.125rem; font-weight: 500; font-variant-numeric: tabular-nums; }
+.fba-capacity-progress h3 { margin: 10px 0 0; color: var(--text-soft); font-size: .75rem; font-weight: 500; }
+.fba-capacity-scope { list-style: none; margin: 0; padding: 0; }
+.fba-capacity-scope li {
+  display: flex; align-items: baseline; justify-content: space-between; gap: 12px; padding: 8px 0;
+  border-top: 1px solid var(--border); font-size: .8125rem; color: var(--text);
+}
+.fba-capacity-scope li:first-child { border-top: 0; }
+.fba-capacity-scope small { color: var(--muted-light); font-size: .75rem; }
+
+.fba-capacity-actions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.fba-capacity-output { margin-left: auto; min-width: 0; color: var(--muted-light); font-size: .75rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fba-capacity-output code { font-size: .75rem; color: var(--text-soft); }
+
+.fba-capacity-gone { display: grid; gap: 6px; justify-items: start; }
+.fba-capacity-gone p { margin: 0; }
+.fba-capacity-folder {
+  max-width: 100%; padding: 4px 8px; border-radius: 6px; background: var(--cds-alpha-1);
+  color: var(--text-soft); font-size: .75rem; overflow-wrap: anywhere;
+}
+
+.fba-capacity-files h3 { margin: 0 0 8px; color: var(--text); font-size: .8125rem; font-weight: 500; }
+.fba-capacity-files ul { list-style: none; margin: 0; padding: 0; border: 1px solid var(--border); border-radius: 8px; }
+.fba-capacity-files li {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 6px 6px 6px 12px;
+  border-top: 1px solid var(--border); color: var(--text); font-size: .8125rem;
+}
+.fba-capacity-files li:first-child { border-top: 0; }
+.fba-capacity-files li > span { min-width: 0; overflow-wrap: anywhere; }
+.workbench-theme .workbench-detail .fba-capacity-files li button { min-height: 30px; padding-block: 4px; }
+
+.fba-capacity-empty {
+  margin: 24px 0 0; padding: 48px 24px; border: 1px dashed var(--border); border-radius: 8px;
+  color: var(--text-soft); font-size: .8125rem; text-align: center;
+}
+
+@container (max-width: 860px) {
+  .fba-capacity-layout { grid-template-columns: minmax(0, 1fr); gap: 0; }
+  .fba-capacity-side, .fba-capacity-main { margin: 0; padding: 0; background: none; }
+  .workbench-theme .fba-capacity-side > .workbench-settings-card:last-child { border-bottom: 1px solid var(--border); }
+  .fba-capacity-main { position: static; }
+}
+@container (max-width: 420px) {
+  .fba-capacity-chips { grid-template-columns: minmax(0, 1fr); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .fba-capacity-chip span, .fba-capacity-switch input, .fba-capacity-switch input::after { transition: none; }
+}

@@ -7,6 +7,7 @@
   "request_idle_timeout_ms": 900000,
   "models": {
     "gemini-4-hydrogen": {
+      "display_name": "Gemini 4 Hydrogen",
       "context_window_tokens": 1048576,
       "max_tokens": 65536,
       "supports_vision": true,
@@ -17,6 +18,7 @@
       "thinking_default": "high"
     },
     "gemini-4-argon": {
+      "display_name": "Gemini 4 Argon",
       "context_window_tokens": 1048576,
       "max_tokens": 32768,
       "supports_vision": true,
@@ -27,6 +29,7 @@
       "thinking_default": "medium"
     },
     "gemini-4-carbon": {
+      "display_name": "Gemini 4 Carbon",
       "context_window_tokens": 1048576,
       "max_tokens": 32768,
       "supports_vision": true,

@@ -2085,3 +2085,106 @@ def test_contract_fill_uses_actual_purchase_quantity_and_skips_zero(tmp_path: Pa
 
     assert len(grouped["厂家A"]) == 1
     assert grouped["厂家A"][0].quantity == 6
+
+
+
+def test_stock_shipments_quote_and_confirm_each_csv_independently(tmp_path, monkeypatch):
+    from functools import partial
+    from services.commands.mabang import create_stock_shipments as shipments
+
+    csv_dir = tmp_path / "csv"
+    csv_dir.mkdir()
+    _write_delivery_csv(csv_dir / "SP260710001_1.csv")
+    first_sp, second_sp = "SP260710001", "SP260710002"
+    original = (csv_dir / f"{first_sp}_1.csv").read_text(encoding="utf-8-sig")
+    (csv_dir / f"{second_sp}_1.csv").write_text(original.replace(first_sp, second_sp), encoding="utf-8-sig")
+    monkeypatch.setattr(shipments, "_build_stock_intent", partial(shipments._build_stock_intent, csv_dir=csv_dir))
+    observed = []
+    quote_id = _quote_response()["confirmation"]["quote_id"]
+
+    def send(payload):
+        assert payload["inventory_deduction_mode"] == "stock_only"
+        assert "suppliers" not in payload and "contracts" not in payload
+        sp_no = payload["shipment"]["sp_no"]
+        assert payload["shipment"]["planned_lines"] == [{"stock_sku": "SKU-A", "planned_shipment_quantity": "10"}]
+        stock_groups = [{"supplier_name": "深圳正飞科技", "lines": [
+            {"line_ref": "L0001", "model": "A-1", "planned_shipment_quantity": 10,
+             "allocations": [{"sp_no": sp_no, "stock_sku": "SKU-A", "planned_quantity": 10}]}]}]
+        observed.append((sp_no, payload["request_id"]))
+        if sp_no == first_sp:
+            raise erp.ErpHttpError("stock_shipment_insufficient_inventory", "库存不足", http_status=409,
+                                   detail={"shortages": [{"model": "A-1", "short_quantity": 6}]})
+        if "confirm_inventory_quote_id" not in payload:
+            response = _quote_response()
+            response["request_id"] = payload["request_id"]
+            quote = response["confirmation"]
+            for record in (quote, quote["affected_lines"][0]):
+                record.update(proposed_inventory_deduction_quantity=10, proposed_purchase_quantity=0)
+            source = quote["affected_lines"][0]["inventory_sources"][0]
+            source.update(original_quantity=10, current_remaining_quantity=10, available_after_release=10,
+                          proposed_applied_quantity=10)
+            response["stock_groups"] = stock_groups
+            return 409, response
+        assert payload["confirm_inventory_quote_id"] == quote_id
+        response = _erp_result()
+        response.update(contracts=[], sp_nos=[sp_no], inventory_deduction_mode="stock_only")
+        line = response["purchase_lines"][0]
+        line.update(carryover_applied_quantity=10, purchase_quantity=0, contract_no="", contract_id=None)
+        line["inventory_sources"][0].update(available_quantity=10, suggested_applied_quantity=10)
+        line["applications"][0]["applied_quantity"] = 10
+        line["allocation_details"] = [{**line["allocation_details"][0], "sp_no": sp_no, "quantity": 10}]
+        response["stock_groups"] = stock_groups
+        line.update(source_tax_unit_price=None, unit="", tax_rate="")
+        return 201, response
+
+    monkeypatch.setattr(erp, "import_purchase_intent", send)
+    args = {"delivery_no": [first_sp, second_sp]}
+    first = shipments.run(args)
+    assert [item["status"] for item in first["items"]] == ["error", "confirmation_required"], first
+    assert first["items"][0]["error"]["detail"]["shortages"][0]["short_quantity"] == 6
+    assert first["items"][1]["confirmation"]["quote_id"] == quote_id
+    pending = shipments.run({**args, "delivery_no": [second_sp]})
+    assert pending["success"] and pending["created_or_replayed_count"] == 0
+    assert pending["items"][0]["status"] == "confirmation_required"
+    confirmed = shipments.run({**args, "delivery_no": [second_sp], "confirm_quote": [f"{second_sp}={quote_id}"]})
+    assert confirmed["success"], confirmed
+    assert confirmed["items"][0]["batch_no"] == "PB20260723-0001"
+    assert [sp for sp, _ in observed] == [first_sp, second_sp, second_sp, second_sp]
+    assert observed[1][1] == observed[2][1] == observed[3][1] != observed[0][1]
+
+
+def test_stock_shipments_refuse_unmatched_skus_and_misbound_confirmations(tmp_path, monkeypatch):
+    from functools import partial
+    from services.commands.mabang import create_stock_shipments as shipments
+
+    csv_dir, master = _fixture_mixed_inputs(tmp_path)
+    monkeypatch.setattr(shipments, "_build_stock_intent", partial(shipments._build_stock_intent, csv_dir=csv_dir))
+    def no_mapping(payload):
+        assert {line["stock_sku"] for line in payload["shipment"]["planned_lines"]} == {"SKU-A", "SKU-B"}
+        raise erp.ErpHttpError("stock_shipment_sku_mapping_invalid", "SKU 无唯一映射", http_status=409,
+                               detail={"issues": [{"stock_sku": "SKU-B", "reason": "missing"}]})
+
+    monkeypatch.setattr(erp, "import_purchase_intent", no_mapping)
+    args = {"delivery_no": ["SP260710001"]}
+    assert shipments.run(args)["items"][0]["error"]["code"] == "stock_shipment_sku_mapping_invalid"
+    quote_id = _quote_response()["confirmation"]["quote_id"]
+    assert shipments.run({**args, "confirm_quote": [f"SP260710002={quote_id}"]})["error"]["code"] == "invalid_quote"
+
+
+def test_stock_shipment_rejects_another_sku_in_erp_response(tmp_path, monkeypatch):
+    from functools import partial
+    from services.commands.mabang import create_stock_shipments as shipments
+
+    sp = "SP260710001"
+    _write_delivery_csv(tmp_path / f"{sp}_1.csv")
+    monkeypatch.setattr(shipments, "_build_stock_intent", partial(shipments._build_stock_intent, csv_dir=tmp_path))
+    wrong_group = {
+        "supplier_name": "供应商", "lines": [{
+            "line_ref": "L0001", "model": "A-1", "planned_shipment_quantity": 10,
+            "allocations": [{"sp_no": sp, "stock_sku": "SKU-B", "planned_quantity": 10}],
+        }],
+    }
+    monkeypatch.setattr(erp, "import_purchase_intent", lambda _: (409, {"stock_groups": [wrong_group]}))
+    result = shipments.run({"delivery_no": [sp]})
+    assert not result["success"]
+    assert result["items"][0]["error"]["code"] == "stock_shipment_mapping_mismatch"

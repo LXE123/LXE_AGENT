@@ -51,6 +51,7 @@ const server = new AgentProtocolServer({
       skillsRoot: options.skillsRoot, userSkillsRoot: options.userSkillsRoot, environment: options.environment,
       store, tools, questions, mcpConfig: { servers: [] } });
     return {
+      syncMcpServerPresets: async () => ({ added: [], updated: [] }),
       start: () => runtime.start(), stop: async () => { await questions.stop(); await runtime.stop(); },
       runTurn: (job, handle) => runtime.runTurn(job, handle),
       ensureSession: request => store.ensureSession(request),

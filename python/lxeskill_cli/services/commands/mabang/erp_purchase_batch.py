@@ -16,7 +16,7 @@ from urllib.parse import unquote
 from services.commands.mabang import generate_fba_restock_workbook as restock_workbook
 from services.commands.mabang import generate_restock_workbook as purchase_summary
 from services.commands.mabang.erp_http import ErpHttpError, error_payload, request_json
-from services.commands.mabang.shipment_quantity_validation import read_delivery_msku_infos
+from services.commands.mabang.shipment_quantity_validation import DeliveryMskuInfo, read_delivery_msku_infos
 from shared.datasets import dataset_dir
 
 
@@ -98,8 +98,10 @@ def _unit_components(
     csv_path: str | Path,
     *,
     tracked_skus: set[str],
+    infos: Mapping[str, DeliveryMskuInfo] | None = None,
 ) -> list[dict[str, Any]]:
-    infos = read_delivery_msku_infos(csv_path)
+    if infos is None:
+        infos = read_delivery_msku_infos(csv_path)
     mskus: list[dict[str, Any]] = []
     for raw_msku, info in infos.items():
         msku = _require_text(raw_msku, label="MSKU")
@@ -425,8 +427,8 @@ def build_purchase_intent(
         "sps": sps,
         "contracts": contracts,
     }
-    if normalized_inventory_deduction_mode == "none":
-        intent["inventory_deduction_mode"] = "none"
+    if normalized_inventory_deduction_mode:
+        intent["inventory_deduction_mode"] = normalized_inventory_deduction_mode
     source_fingerprint = {
         "master_xlsx_sha256": _file_sha256(Path(master_xlsx).expanduser()),
         "delivery_csvs": csv_hashes,
@@ -698,9 +700,9 @@ def _validate_success_response(
             field="inventory_deduction_mode",
         )
     )
-    if actual_inventory_deduction_mode not in {"fifo", "none"}:
+    if actual_inventory_deduction_mode not in {"fifo", "none", "stock_only"}:
         raise _incomplete(
-            "inventory_deduction_mode 必须是 fifo 或 none",
+            "inventory_deduction_mode 必须是 fifo、none 或 stock_only",
             field="inventory_deduction_mode",
         )
     if actual_inventory_deduction_mode != expected_inventory_deduction_mode:
@@ -828,12 +830,13 @@ def _validate_success_response(
             raw_line.get("supplier_name"), field=f"{line_field}.supplier_name"
         )
         model = _required_result_text(raw_line.get("model"), field=f"{line_field}.model")
-        for name in ("tax_rate", "contract_product_name", "unit"):
-            _required_result_text(raw_line.get(name), field=f"{line_field}.{name}")
-        _required_result_decimal(
-            raw_line.get("source_tax_unit_price"),
-            field=f"{line_field}.source_tax_unit_price",
-        )
+        _required_result_text(raw_line.get("contract_product_name"), field=f"{line_field}.contract_product_name")
+        if expected_inventory_deduction_mode != "stock_only":
+            for name in ("tax_rate", "unit"):
+                _required_result_text(raw_line.get(name), field=f"{line_field}.{name}")
+            _required_result_decimal(
+                raw_line.get("source_tax_unit_price"), field=f"{line_field}.source_tax_unit_price",
+            )
         if supplier_name != expected["supplier_name"] or model.casefold() != expected["model"].casefold():
             raise _incomplete(f"成功响应行 {line_ref} 的供应商或型号与请求不一致", field=line_field)
         planned = _required_result_decimal(
@@ -848,6 +851,8 @@ def _validate_success_response(
         purchased = _required_result_decimal(
             raw_line.get("purchase_quantity"), field=f"{line_field}.purchase_quantity"
         )
+        if expected_inventory_deduction_mode == "stock_only" and purchased != 0:
+            raise _incomplete(f"仅库存发货响应行 {line_ref} 含有采购数量", field=line_field)
         if planned != expected["planned"] or planned != carryover + purchased:
             raise _incomplete(f"成功响应行 {line_ref} 不满足 计划量=采购量+库存抵扣量", field=line_field)
         if (
@@ -1060,6 +1065,8 @@ def _validate_inventory_confirmation(
         confirmation.get("proposed_purchase_quantity"),
         field="confirmation.proposed_purchase_quantity",
     )
+    if request_payload.get("inventory_deduction_mode") == "stock_only" and proposed_purchase_total != 0:
+        raise _incomplete("仅库存发货报价含有采购数量", field="confirmation.proposed_purchase_quantity")
     if planned_total != proposed_deduction_total + proposed_purchase_total:
         raise _incomplete(
             "确认总量不满足 计划量=拟抵扣量+拟采购量",

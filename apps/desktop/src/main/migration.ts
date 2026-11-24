@@ -1,21 +1,5 @@
-import {
-  constants,
-  copyFileSync,
-  existsSync,
-  mkdirSync,
-  statSync,
-} from "node:fs";
 import { cp, lstat, mkdir, readdir, rename, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-
-export function bootstrapDesktopState(mcpDefaultPath: string, dataRoot: string): void {
-  const configRoot = join(dataRoot, "config");
-  mkdirSync(configRoot, { recursive: true });
-  const mcpTarget = join(configRoot, "mcp_servers.local.json");
-  if (!existsSync(mcpTarget) && existsSync(mcpDefaultPath) && statSync(mcpDefaultPath).isFile()) {
-    copyFileSync(mcpDefaultPath, mcpTarget, constants.COPYFILE_EXCL);
-  }
-}
 
 const artifactMigration = "default-workspace-artifacts-v1";
 

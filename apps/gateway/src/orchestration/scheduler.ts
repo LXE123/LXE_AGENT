@@ -1,12 +1,9 @@
 import { randomUUID } from "node:crypto";
-import type { AgentJob, JsonObject, JsonValue } from "@lxe/protocol";
+import type { AgentJob, AgentSteeringMessage, JsonObject, JsonValue } from "@lxe/protocol";
 import { createLogger, runWithLogContext } from "@lxe/core";
 
-export interface SteeringMessage {
-  text: string;
-  response_route_id?: string;
-  message_id?: string;
-}
+export type SteeringMessage = AgentSteeringMessage;
+export type RoutedSteeringMessage = SteeringMessage & { response_route_id: string; message_id: string };
 
 export interface ManagedProcess {
   kill(): void | Promise<void>;
@@ -88,7 +85,7 @@ export class RunHandle {
 export interface RuntimePort {
   startTurn(job: AgentJob, handle: RunHandle): Promise<void>;
   cancelTurn(handle: RunHandle, reason?: "user_stop"): Promise<void>;
-  steerTurn(handle: RunHandle, message: Required<SteeringMessage>): Promise<void>;
+  steerTurn(handle: RunHandle, message: RoutedSteeringMessage): Promise<void>;
 }
 
 export type SchedulerJobState = "queued" | "running" | "stopping" | "completed" | "cancelled" | "error" | "cleared";
@@ -307,13 +304,14 @@ export class SessionScheduler {
     return request;
   }
 
-  async steerActive(sessionId: string, message: SteeringMessage): Promise<boolean> {
+  async steerActive(sessionId: string, message: SteeringMessage, expectedTurnId?: string): Promise<boolean> {
     if (this.updateFenced) throw new Error("Application update is preparing; new input is blocked");
     const handle = this.activeRun(sessionId);
     const text = clean(message.text);
-    if (!handle || handle.closing || handle.cancelRequested || handle.cancelRequest || !text) return false;
-    const safeMessage: Required<SteeringMessage> = {
-      text,
+    if (!handle || (expectedTurnId && handle.jobId !== expectedTurnId) || handle.closing || handle.cancelRequested || handle.cancelRequest
+      || (!text && !message.user_content_blocks?.length)) return false;
+    const safeMessage: RoutedSteeringMessage = {
+      ...message, text,
       response_route_id: clean(message.response_route_id),
       message_id: clean(message.message_id),
     };
@@ -364,17 +362,38 @@ export class SessionScheduler {
 
   private requeueRemainingSteering(handle: RunHandle, raw: JsonValue | undefined): void {
     if (!Array.isArray(raw)) return;
-    const messages: Required<SteeringMessage>[] = [];
+    const messages: RoutedSteeringMessage[] = [];
+    const desktopJobs: AgentJob[] = [];
     for (const value of raw) {
       const item = objectValue(value);
       if (!item) continue;
       const text = clean(item.text);
+      if (handle.originJob.source.platform === "desktop" && typeof item.client_message_id === "string") {
+        const jobId = this.id();
+        const blocks = Array.isArray(item.user_content_blocks) ? item.user_content_blocks.flatMap(value => {
+          const block = objectValue(value);
+          return block ? [block.type === "local_file" ? { ...block, turn_id: jobId } : block] : [];
+        }) : [];
+        if (text || blocks.length) desktopJobs.push({
+          ...handle.originJob, job_id: jobId, job_kind: "turn",
+          message_id: clean(item.message_id), response_route_id: clean(item.response_route_id),
+          user_input: text, user_content_blocks: blocks, diagnostics: [],
+          raw_data: { origin: "desktop", client_message_id: item.client_message_id, steering_fallback: true },
+        });
+        continue;
+      }
       if (!text) continue;
       messages.push({
         text,
         response_route_id: clean(item.response_route_id),
         message_id: clean(item.message_id),
       });
+    }
+    if (desktopJobs.length) {
+      const queue = this.pending.get(handle.sessionId) ?? [];
+      queue.unshift(...desktopJobs);
+      this.pending.set(handle.sessionId, queue);
+      for (const job of desktopJobs) this.publishJobState("queued", job);
     }
     if (messages.length === 0) return;
     const origin = handle.originJob;

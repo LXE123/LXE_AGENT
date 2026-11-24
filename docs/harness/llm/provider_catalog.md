@@ -11,7 +11,11 @@
 
 两类来源分别解析。公司模型不可用时返回配置或授权错误，不自动换用个人 Key 或本地默认模型。设备同步、加密缓存、下架与断网处理统一见 [云端接入手册](../../desktop/cloud-access.md)。
 
-使用 OpenAI 项目 Key 时，在桌面设置的「本地模型」中选择 OpenAI 并保存 Key，再在对话栏选择 GPT-6 型号。独立 CLI 从数据目录的 `config/auth.json` 读取 `openai` 凭据。五款 GPT-6 模型的本地上下文窗口均为 272,000 tokens，默认选用 `gpt-6.1-sol` 和 `medium` 推理强度；各型号可用档位见 [OpenAI 模型配置](../../../config/llm/providers/openai.json)。
+使用 OpenAI 项目 Key 时，在「设置 → 模型设置 → 本地模型密钥」选择 OpenAI 并保存 Key，即可在对话栏选择 GPT-6.2 Sol、GPT-6.2 Astra 等 GPT-6 型号。独立 CLI 从数据目录的 `config/auth.json` 读取 `openai` 凭据。两个 6.2 型号均使用 272,000 tokens 的本地上下文窗口和 128,000 tokens 的最大输出，推理档位支持 low、medium、high、xhigh、max。完整列表见 [OpenAI 模型配置](../../../config/llm/providers/openai.json)。
+
+内置型号通过目录的 `display_name` 指定桌面显示名称。会话偏好、自动化任务和供应商请求都使用目录中的原始模型 ID，例如 `gpt-6.2-sol`。
+
+首次配置个人 OpenAI Key 且尚无 OpenAI 型号偏好时，LXE 选用 `gpt-6.2-sol` 和 `medium`。在聊天里手动切换型号后，新会话会沿用最近一次选择。恢复已有会话时，先用为该会话选定的型号，再回看最近一轮实际使用的型号。详见[会话模型选择](../runtime/session-models.md)。
 
 OpenAI 直连使用无状态 Responses API。开启推理时，顶层 `reasoning.effort` 固定为 `medium`，实际档位随 `configuration_update` 追加到 `input`。后续请求在原位置回放历史档位，让切档前的输入前缀可供缓存复用。选择 `off` 时，支持关闭推理的型号使用顶层 `reasoning.effort: "none"`。上下文压缩沿用 Harness 的会话摘要流程。
 
@@ -19,7 +23,7 @@ OpenAI 直连使用无状态 Responses API。开启推理时，顶层 `reasoning
 
 | 个人凭据路线 | MCP 目录有变化 | 工具定义有变化 |
 | --- | --- | --- |
-| OpenAI 直连的五款 GPT-6 | 在本轮用户消息前追加 `developer` 指令 | 首批放在 `input` 开头的 `additional_tools`，新增和同名修改在当步追加。撤下工具时按有效清单重建声明前缀。 |
+| OpenAI 直连的 GPT-6 系列 | 在本轮用户消息前追加 `developer` 指令 | 首批放在 `input` 开头的 `additional_tools`，新增和同名修改在当步追加。撤下工具时按有效清单重建声明前缀。 |
 | DeepSeek 的 `deepseek-flash` 和 `deepseek-v4-pro` | 在本轮用户消息前追加 `system` 指令 | 下次请求更新顶层 `tools`。 |
 | Google、Kimi、智谱、OpenRouter 当前模型 | 初始指令包含最新目录 | 下次请求更新顶层 `tools`。 |
 

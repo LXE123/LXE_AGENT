@@ -1,3 +1,5 @@
+@import "./shared/workspace-subnav.css";
+
 @font-face {
   font-family: "HarmonyOS Sans SC";
   src: url("./assets/fonts/HarmonyOS_Sans_SC.ttf") format("truetype");
@@ -2690,45 +2692,6 @@ h1 {
   letter-spacing: -0.02em;
 }
 
-.workspace-subnav {
-  display: inline-flex;
-  align-items: center;
-  min-width: 0;
-  gap: 2px;
-  padding: 3px;
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  background: var(--surface-muted);
-}
-
-.workspace-subnav-item {
-  min-height: 30px;
-  padding: 5px 12px;
-  border: 0;
-  border-radius: 7px;
-  background: transparent;
-  color: var(--text-soft);
-  font-size: 0.75rem;
-  font-weight: 600;
-  cursor: pointer;
-}
-
-.workspace-subnav-item:hover,
-.workspace-subnav-item:focus-visible {
-  color: var(--text-strong);
-}
-
-.workspace-subnav-item:focus-visible {
-  outline: 2px solid var(--focus-ring);
-  outline-offset: 1px;
-}
-
-.workspace-subnav-item.active {
-  background: var(--surface);
-  color: var(--accent-strong);
-  box-shadow: 0 1px 4px var(--shadow-soft);
-}
-
 .workspace-view-content {
   min-width: 0;
 }
@@ -5202,72 +5165,6 @@ h1 {
   color: var(--muted-light);
 }
 
-.conversation-compose-actions {
-  display: flex;
-  align-items: center;
-  flex: 0 0 auto;
-  gap: 6px;
-}
-
-.conversation-send-button,
-.conversation-attach-button {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-height: 34px;
-  /* Beside a flex:1 textarea these would otherwise be squeezed out of their
-     own footprint. */
-  flex: 0 0 auto;
-  gap: 6px;
-  border-radius: 9px;
-  cursor: pointer;
-  font: inherit;
-  font-size: 0.75rem;
-  font-weight: 650;
-  white-space: nowrap;
-}
-
-/* One control with two modes. Send is solid ink once the composer has content
-   and muted grey while it is empty; stop inverts against the surface so it
-   reads as "interrupt". The glyph always keeps the surface color. */
-.conversation-send-button {
-  width: 30.6px;
-  /* Overrides the shared min-height, which would otherwise stretch the circle
-     back into an oval. */
-  min-height: 30.6px;
-  height: 30.6px;
-  border: 1px solid var(--text);
-  border-radius: 50%;
-  background: var(--text);
-  color: var(--surface);
-  transition: background 140ms ease, border-color 140ms ease, color 140ms ease;
-}
-
-.conversation-send-button[data-mode="send"]:disabled {
-  /* 10% lighter than --muted-light: the empty state should whisper, not shout. */
-  border-color: color-mix(in srgb, var(--muted-light) 90%, var(--surface));
-  background: color-mix(in srgb, var(--muted-light) 90%, var(--surface));
-  color: var(--surface);
-  opacity: 1;
-}
-
-.conversation-attach-button {
-  width: 34px;
-  border: 1px solid transparent;
-  background: transparent;
-  color: var(--muted);
-}
-
-.conversation-attach-button:hover:not(:disabled) {
-  background: var(--row-hover);
-  color: var(--text);
-}
-
-.conversation-send-button:disabled,
-.conversation-attach-button:disabled {
-  cursor: default;
-  opacity: 0.5;
-}
 
 .conversation-compose-meta {
   display: flex;
@@ -9362,8 +9259,8 @@ pre {
   align-self: flex-end;
   justify-self: end;
   margin: 22px 0 1px;
-  padding: 9px 13px;
-  border: 1px solid transparent;
+  padding: 10px 14px;
+  border: 0;
   border-radius: 14px;
   background: var(--conversation-muted-fill);
 }
@@ -9500,17 +9397,8 @@ pre {
 }
 
 .turn-file-section {
-  display: grid;
   width: min(100%, var(--assistant-content-width));
-  gap: 8px;
   margin: 8px 0 12px;
-}
-
-.turn-file-heading {
-  color: var(--muted);
-  font-size: 0.6875rem;
-  font-weight: 650;
-  letter-spacing: 0.01em;
 }
 
 /* Two columns only while both are wide enough to hold a name. Below that a
@@ -9530,10 +9418,10 @@ pre {
   min-width: 0;
   gap: 4px 8px;
   padding-right: 8px;
-  border: 1px solid var(--border);
   border-radius: 10px;
-  background: var(--surface);
-  transition: border-color 0.16s ease, background 0.16s ease;
+  background: var(--cds-surface-panel);
+  box-shadow: 0 1px 2px var(--shadow-soft), 0 3px 8px var(--shadow-soft);
+  transition: background-color 0.16s ease;
 }
 
 .turn-file-card {
@@ -9554,38 +9442,16 @@ pre {
 }
 
 .turn-file-item:has(> .turn-file-card:hover:not(:disabled)) {
-  border-color: var(--accent-muted);
-  background: var(--accent-soft);
+  background: var(--cds-alpha-1);
 }
 
 .turn-file-card:focus-visible {
-  outline: 2px solid var(--focus-ring);
+  outline: 2px solid var(--cds-accent);
   outline-offset: -2px;
-}
-
-.turn-file-item:has(> .turn-file-card:disabled) {
-  border-color: var(--accent-muted);
 }
 
 .turn-file-card:disabled {
   cursor: progress;
-}
-
-.turn-file-item.has-error {
-  border-color: var(--danger-border);
-}
-
-:root:not([data-theme="dark"]) .conversation-feed .turn-file-item {
-  box-shadow: 0 1px 2px rgb(0 0 0 / 6%), 0 3px 8px rgb(0 0 0 / 8%);
-}
-
-:root:not([data-theme="dark"]) .conversation-feed .turn-file-item:not(.has-error) {
-  border-color: var(--border-strong);
-}
-
-:root:not([data-theme="dark"]) .conversation-feed .turn-file-item:has(> .turn-file-card:hover:not(:disabled)):not(.has-error) {
-  border-color: #bdbdbd;
-  background: var(--surface);
 }
 
 /* Kept on every row, including when the whole set shares a type, because it is
@@ -9645,7 +9511,7 @@ pre {
 }
 
 .turn-file-reveal:focus-visible {
-  outline: 2px solid var(--focus-ring);
+  outline: 2px solid var(--cds-accent);
   outline-offset: 1px;
 }
 
@@ -9757,13 +9623,36 @@ pre {
 }
 
 .conversation-compose-actions {
-  justify-content: space-between;
-  gap: 12px;
+  --composer-control-size: 30px;
+  flex-wrap: wrap;
+  gap: 4px 8px;
 }
 
 .conversation-compose-leading,
 .conversation-compose-trailing {
-  gap: 7px;
+  max-width: 100%;
+}
+
+.conversation-compose-leading {
+  gap: 4px;
+}
+
+.conversation-compose-trailing {
+  --picker-outer-gap: 16px;
+  margin-inline-start: auto;
+}
+
+.conversation-compose-trailing > * + :not(.conversation-thinking-picker) {
+  margin-inline-start: 4px;
+}
+
+.conversation-compose-trailing > .conversation-context-meter + .conversation-model-picker {
+  /* The visible ring already sits about 8px inside its button. */
+  margin-inline-start: calc(var(--picker-outer-gap) - 8px);
+}
+
+.conversation-compose-trailing > :is(.conversation-model-picker, .conversation-thinking-picker) + .conversation-send-button {
+  margin-inline-start: var(--picker-outer-gap);
 }
 
 .conversation-model-picker,
@@ -9772,35 +9661,55 @@ pre {
   min-width: 0;
 }
 
-/* Tighten the model ↔ thinking pair: pull the pair closer while keeping each
-   trigger's padding symmetric, so the hovered pill stays centered. */
-.conversation-model-picker + .conversation-thinking-picker {
-  margin-left: -4.5px;
+.composer-toolbar-control,
+.conversation-send-button {
+  display: inline-flex;
+  height: var(--composer-control-size);
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 0;
+  cursor: pointer;
 }
 
-.conversation-model-trigger,
-.conversation-thinking-trigger {
-  display: inline-flex;
-  min-height: 30px;
-  align-items: center;
-  gap: 6px;
-  padding: 4px 6px;
-  border: 1px solid transparent;
+.composer-toolbar-control {
+  gap: 5px;
   border-radius: 8px;
   background: transparent;
-  color: var(--text-soft);
-  cursor: pointer;
+  color: var(--cds-secondary);
   font: inherit;
-  font-size: 0.6875rem;
-  font-weight: 600;
+  font-size: .75rem;
+  font-weight: 400;
+  line-height: 1.5;
+}
+
+.conversation-attach-button,
+.conversation-context-trigger,
+.conversation-send-button {
+  width: var(--composer-control-size);
+  flex: none;
 }
 
 .conversation-model-trigger {
-  max-width: 180px;
+  padding-inline: 8px;
+  max-width: min(100%, 180px);
+}
+
+.permission-picker > .conversation-model-trigger {
+  padding-inline: 7px;
+}
+
+.conversation-model-picker:has(+ .conversation-thinking-picker) > .conversation-model-trigger,
+.conversation-thinking-trigger {
+  padding-inline: 4px;
+}
+
+.conversation-model-trigger:enabled > .conversation-model-name {
+  color: light-dark(var(--cds-ink), #fff);
 }
 
 .conversation-thinking-trigger {
-  max-width: 112px;
+  max-width: min(100%, 112px);
 }
 
 .conversation-model-trigger > span,
@@ -9817,33 +9726,56 @@ pre {
   flex: 0 0 auto;
 }
 
-.conversation-model-trigger:hover:not(:disabled),
-.conversation-model-trigger:focus-visible,
-.conversation-thinking-trigger:hover:not(:disabled),
-.conversation-thinking-trigger:focus-visible {
-  border-color: transparent;
-  background: #ececea;
+.composer-toolbar-control:hover:not(:disabled) {
+  background: var(--cds-alpha-1);
+  color: var(--cds-ink);
 }
 
-:root[data-theme="dark"] .conversation-model-trigger:hover:not(:disabled),
-:root[data-theme="dark"] .conversation-model-trigger:focus-visible,
-:root[data-theme="dark"] .conversation-thinking-trigger:hover:not(:disabled),
-:root[data-theme="dark"] .conversation-thinking-trigger:focus-visible {
-  background: rgba(255, 255, 255, 0.08);
+.composer-toolbar-control:is(:active, [aria-expanded="true"]):not(:disabled) {
+  background: var(--cds-selected);
+  color: var(--cds-ink);
 }
 
-.conversation-model-trigger:focus-visible,
+.composer-toolbar-control:disabled {
+  color: var(--cds-disabled-ink);
+  cursor: default;
+}
+
+.composer-toolbar-control:disabled .provider-brand-mark {
+  opacity: .4;
+}
+
+.conversation-send-button {
+  border-radius: 50%;
+  background: var(--cds-primary);
+  color: var(--cds-primary-ink);
+}
+
+.conversation-send-button:hover:not(:disabled) {
+  background: var(--cds-primary-hover);
+}
+
+.conversation-send-button[data-mode="stop"] {
+  background: var(--cds-ink);
+  color: var(--cds-surface-popover);
+}
+
+.conversation-send-button[data-mode="stop"]:hover:not(:disabled) {
+  background: var(--cds-secondary);
+}
+
+.conversation-send-button:disabled {
+  background: var(--cds-disabled-fill);
+  color: var(--cds-disabled-ink);
+  cursor: default;
+}
+
+.composer-toolbar-control:focus-visible,
+.conversation-send-button:focus-visible,
 .conversation-model-option:focus-visible,
-.conversation-thinking-trigger:focus-visible,
 .conversation-thinking-level:focus-visible {
   outline: 2px solid var(--focus-ring);
   outline-offset: 1px;
-}
-
-.conversation-model-trigger:disabled,
-.conversation-thinking-trigger:disabled {
-  cursor: default;
-  opacity: 0.58;
 }
 
 .conversation-context-meter {
@@ -9853,33 +9785,9 @@ pre {
   align-items: center;
 }
 
-.conversation-context-trigger {
-  display: inline-flex;
-  width: 30px;
-  height: 30px;
-  align-items: center;
-  justify-content: center;
-  padding: 0;
-  border: 1px solid transparent;
-  border-radius: 8px;
-  background: transparent;
-  cursor: pointer;
-}
-
-.conversation-context-trigger:hover,
-.conversation-context-trigger[aria-expanded="true"] {
-  border-color: var(--border);
-  background: var(--surface-muted);
-}
-
-.conversation-context-trigger:focus-visible {
-  outline: 2px solid var(--focus-ring);
-  outline-offset: 1px;
-}
-
 .conversation-context-ring {
-  width: 16.93px;
-  height: 16.93px;
+  width: 16px;
+  height: 16px;
 }
 
 .conversation-context-ring circle {
@@ -10155,10 +10063,10 @@ pre {
   width: min(226px, calc(100vw - 52px));
   gap: 9px;
   padding: 10px 12px 9px;
-  border: 1px solid var(--border-strong);
+  border: 1px solid var(--cds-alpha-2);
   border-radius: 12px;
-  background: var(--surface);
-  box-shadow: 0 18px 50px var(--shadow-strong);
+  background: var(--cds-surface-popover);
+  box-shadow: 0 6px 24px var(--shadow-medium);
 }
 
 .conversation-thinking-heading,
@@ -10174,8 +10082,8 @@ pre {
 }
 
 .conversation-thinking-heading strong {
-  color: var(--text);
-  font-weight: 650;
+  color: var(--cds-ink);
+  font-weight: 600;
 }
 
 .conversation-thinking-help {
@@ -10202,15 +10110,15 @@ pre {
   position: absolute;
   z-index: 5;
   right: -6px;
-  bottom: calc(100% + 9px);
+  bottom: calc(100% + 18px);
   display: grid;
   width: 196px;
-  gap: 3px;
-  padding: 9px 11px;
-  border: 1px solid var(--border-strong);
-  border-radius: 11px;
-  background: var(--surface);
-  box-shadow: 0 14px 38px var(--shadow-medium);
+  gap: 4px;
+  padding: 8px 10px;
+  border: 1px solid var(--cds-alpha-1);
+  border-radius: 8px;
+  background: var(--cds-surface-popover);
+  box-shadow: 0 2px 8px var(--shadow-soft);
   color: var(--muted);
   font-size: 0.625rem;
   line-height: 1.5;
@@ -10219,11 +10127,6 @@ pre {
   text-align: left;
   transform: translateY(3px);
   transition: opacity 0.15s ease, transform 0.15s ease;
-}
-
-.conversation-thinking-tooltip strong {
-  color: var(--text);
-  font-size: 0.6875rem;
 }
 
 .conversation-thinking-tooltip small {
@@ -10305,12 +10208,10 @@ pre {
   position: absolute;
   z-index: 2;
   top: 50%;
-  width: 13px;
-  height: 18px;
-  border: 1px solid var(--border-strong);
-  border-radius: 7px;
-  background: var(--surface);
-  box-shadow: 0 1px 3px var(--shadow-soft), 0 3px 9px var(--shadow-soft);
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: var(--cds-accent);
   pointer-events: none;
   transform: translate(-50%, -50%);
   transition: left 0.18s ease;
@@ -10392,11 +10293,11 @@ pre {
   }
 
   .conversation-model-trigger {
-    max-width: 120px;
+    max-width: min(100%, 120px);
   }
 
   .conversation-thinking-trigger {
-    max-width: 84px;
+    max-width: min(100%, 84px);
   }
 
   .sessions-focus .runtime-status-floating {
@@ -10880,7 +10781,8 @@ pre {
   line-height: 1.65;
 }
 
-.workbench-page .spin {
+/* Every workbench view shares the spinner, not only the media tagging page. */
+.workbench-theme .spin {
   animation: workbench-spin 0.9s linear infinite;
 }
 
@@ -10924,7 +10826,7 @@ pre {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .workbench-page .spin {
+  .workbench-theme .spin {
     animation: none;
   }
 
@@ -11625,8 +11527,7 @@ pre {
 .session-index-item .session-index-icon[data-session-state="unavailable"] { border-style: dotted; opacity: .8; }
 @keyframes session-status-breathe { 0%,100% { opacity: 1; } 50% { opacity: .35; } }
 @media (prefers-reduced-motion: reduce) { .session-index-item .session-index-icon[data-session-state] { animation: none; } }
-.user-question-summary { box-sizing: border-box; width: min(640px, 100%); margin: 0; padding: 12px 16px; border: 1px solid #e3e3e3; border-radius: 12px; background: transparent; font-size: .85rem; line-height: 1.6; }
-:root[data-theme="dark"] .user-question-summary { border-color: var(--border); }
+.user-question-summary { box-sizing: border-box; width: min(640px, 100%); margin: 0; padding: 12px 16px; border: 1px solid var(--cds-alpha-2, var(--border)); border-radius: 12px; background: transparent; font-size: .85rem; line-height: 1.6; }
 .user-question-summary-item + .user-question-summary-item { margin-top: 14px; }
 .user-question-summary dt { color: var(--text-soft); white-space: pre-wrap; overflow-wrap: anywhere; }
 .user-question-summary dd { margin: 3px 0 0; color: var(--text-strong); white-space: pre-wrap; overflow-wrap: anywhere; }
@@ -11683,8 +11584,6 @@ pre {
 
 /* Skill management uses the existing catalog and modal surfaces. */
 .workspace-header-actions { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-width: 0; width: 100%; }
-.workspace-header-actions .workspace-subnav { overflow-x: auto; }
-.workspace-header-actions .workspace-subnav-item { flex-shrink: 0; }
 .skill-add-menu { position: relative; flex-shrink: 0; }
 .skill-add-menu-popup { position: absolute; z-index: 30; top: calc(100% + 8px); right: 0; min-width: 9rem; padding: 6px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface); box-shadow: 0 8px 24px var(--shadow-soft); }
 .skill-add-menu-popup button { display: block; width: 100%; padding: 8px 12px; border: 0; border-radius: 6px; background: transparent; color: var(--text-strong); font: inherit; text-align: left; cursor: pointer; }
@@ -11696,7 +11595,6 @@ pre {
 @media (max-width: 600px) {
   .workspace-view-header { flex-wrap: wrap; gap: 10px; }
   .workspace-header-actions { gap: 8px; }
-  .workspace-header-actions .workspace-subnav-item { padding-inline: 8px; }
 }
 .user-skill-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin: 12px 0; }
 .user-skill-actions button, .user-skill-actions select { font: inherit; border: 1px solid var(--border); border-radius: 8px; padding: 7px 10px; color: inherit; background: var(--surface); cursor: pointer; }
@@ -11789,17 +11687,7 @@ pre {
 }
 
 .desktop-erp-tabs {
-  max-width: 100%;
-  overflow-x: auto;
-  margin-bottom: 20px;
-}
-
-.desktop-erp-tabs .workspace-subnav-item {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  flex-shrink: 0;
-  white-space: nowrap;
+  margin-bottom: 28px;
 }
 
 .native-cloud-access .native-cloud-clear { justify-self: start; max-width: 100%; white-space: normal; text-align: left; }

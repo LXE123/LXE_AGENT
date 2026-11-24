@@ -185,7 +185,9 @@ export class ManualBrowsers {
     const history = tab.history;
     if (history) {
       tab.restoring = true;
-      void wc.navigationHistory.restore(history).then(() => {
+      // restore() throws synchronously for an out-of-range index; keep that inside the
+      // promise so it reaches the tab error instead of the main process.
+      void Promise.resolve().then(() => wc.navigationHistory.restore(history)).then(() => {
         if (tab.contents === wc && tab.history === history) delete tab.history;
       }).catch(fail).finally(() => {
         if (tab.contents !== wc) return;
@@ -257,7 +259,10 @@ export class ManualBrowsers {
     const wc = tab.contents;
     const history = wc && !wc.isDestroyed() ? wc.navigationHistory : undefined;
     if (!tab.restoring && history && history.length() > 0) {
-      tab.history = { entries: history.getAllEntries(), index: history.getActiveIndex() };
+      const entries = history.getAllEntries(), index = history.getActiveIndex();
+      // A page that never committed can report no entries or index -1; reload its URL instead.
+      if (index >= 0 && index < entries.length) tab.history = { entries, index };
+      else delete tab.history;
     }
     this.release(tab);
     tab.budgetPage.setVisible(false);

@@ -559,6 +559,7 @@ export class DashboardService {
       default_model: provider.defaultModel,
       model_aliases: provider.modelAliases,
       models: Object.fromEntries(Object.values(provider.models).map((model) => [model.id, {
+        display_name: model.displayName,
         context_window_tokens: model.contextWindowTokens,
         max_tokens: model.maxTokens,
         supports_vision: model.supportsVision,
@@ -822,6 +823,7 @@ export class DashboardService {
       const modelLevels = Array.isArray(modelSpec.thinking_levels) ? modelSpec.thinking_levels.map(text) : [];
       return {
         model: modelName,
+        ...(credentialSource === "local" && modelSpec.display_name ? { display_name: text(modelSpec.display_name) } : {}),
         thinking_request_style: text(modelSpec.thinking_request_style),
         thinking_levels: modelLevels,
         thinking_level_labels: object(modelSpec.thinking_level_labels) as JsonObject,

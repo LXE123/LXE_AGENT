@@ -2,6 +2,7 @@ import { takeDesktopMcpConfig } from "./desktop-mcp";
 import { McpAccess } from "./mcp-access";
 import { McpAuthStore } from "./mcp-auth-store";
 import { withMcpConfigLock } from "./mcp-config-lock";
+import { syncMcpServerPresets } from "./mcp-presets";
 import { registerMcpDiscoveryTools } from "./mcp-discovery";
 import { renderMcpServerDirectory } from "./mcp-server-directory";
 import { SessionMcpPool, sessionMcpConfig } from "./session-mcp";
@@ -24,6 +25,7 @@ import {
   type DashboardRpcResult,
   type ManagedLlmCredential,
   type ManagedLlmTarget,
+  type McpServerPreset,
 } from "@lxe/desktop-protocol";
 import { assertWorkspaceAvailable, createLogger, type Logger } from "@lxe/core";
 import {
@@ -83,6 +85,7 @@ export interface AgentRuntimeHostOptions {
 }
 
 export interface AgentRuntimeHost {
+  syncMcpServerPresets(servers: readonly McpServerPreset[]): Promise<{ added: string[]; updated: string[] }>;
   sessionStatus?: SqliteRuntimeStore["sessionStatus"];
   start(): Promise<void>;
   stop(): Promise<void>;
@@ -333,6 +336,14 @@ export function createAgentRuntimeHost(
   let started = false;
 
   return {
+    syncMcpServerPresets: async servers => {
+      if (desktopMcp && servers.some(server => mcpNamespace(server.name) === mcpNamespace(desktopMcp.name))) {
+        throw new Error("The mcp__lxe_desktop namespace is reserved for the app-managed MCP server");
+      }
+      const result = await syncMcpServerPresets(mcpConfigPath, servers);
+      refreshMcpConfig();
+      return result;
+    },
     start: async () => {
       await runtime.start();
       started = true;

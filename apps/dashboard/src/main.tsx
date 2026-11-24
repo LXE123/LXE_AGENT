@@ -1,6 +1,7 @@
 import { AutomationsPage } from "./features/automations/AutomationsPage";
 import { VietnamSettingsWorkbench } from "./features/workbench/vietnam-settings-view";
 import { AmazonV2SettingsWorkbench } from "./features/workbench/amazon-v2-settings-view";
+import { FbaCapacityWorkbench } from "./features/workbench/fba-capacity-view";
 import { SessionSidebar } from "./features/sessions/SessionSidebar";
 import { ConversationPage } from "./features/sessions/ConversationPage";
 import { CapabilitiesPage } from "./features/capabilities/CapabilitiesPage";
@@ -68,9 +69,7 @@ import { DashboardRootErrorBoundary } from "./root-error-boundary";
 import { useThreeStateSidebar } from "./shared/use-three-state-sidebar";
 import { SidebarResizer } from "./shared/sidebar-resizer";
 import { NavigationRail } from "./shared/navigation-rail";
-import type {
-  DashboardSection,
-} from "./shared/navigation";
+import { workbenchParent, type DashboardSection } from "./shared/navigation";
 import { AppFrame } from "./shared/app-frame";
 const DOCS_HOME_PATH = "README.md";
 
@@ -274,28 +273,38 @@ function App({
                 onOpenStats={() => openActivityView("stats")}
               />
             ) : null}
-            {activeSection === "workbench" && workbenchView === "index" ? (
+            {activeSection === "workbench" && (workbenchView === "tasks" || workbenchView === "tools") ? (
               <WorkbenchIndex
+                view={workbenchView}
                 assetStatus={assetSlotStatus}
                 onOpen={openWorkbenchView}
                 syntheticPerformerStatus=""
               />
             ) : null}
             {activeSection === "workbench" && workbenchView === "synthetic-performer" ? (
-              <SyntheticPerformerWorkbench onBack={() => openWorkbenchView("index")} />
+              <SyntheticPerformerWorkbench onBack={() => openWorkbenchView(workbenchParent(workbenchView))} />
             ) : null}
             {activeSection === "workbench" && workbenchView === "vietnam-settings" ? (
-              <VietnamSettingsWorkbench onBack={() => openWorkbenchView("index")} />
+              <VietnamSettingsWorkbench onBack={() => openWorkbenchView(workbenchParent(workbenchView))} />
             ) : null}
             {activeSection === "workbench" && workbenchView === "amazon-v2-settings" ? (
-              <AmazonV2SettingsWorkbench onBack={() => openWorkbenchView("index")} />
+              <AmazonV2SettingsWorkbench onBack={() => openWorkbenchView(workbenchParent(workbenchView))} />
+            ) : null}
+            {activeSection === "workbench" && workbenchView === "fba-capacity" ? (
+              <FbaCapacityWorkbench
+                ready={dashboardRuntimeReady}
+                defaultDirectory={desktopHealth.workspace_root}
+                onBack={() => openWorkbenchView(workbenchParent(workbenchView))}
+                onOpenSession={workspace.actions.openSessionRun}
+                onInstallSkill={() => openDashboardSection("team-skills")}
+              />
             ) : null}
             <TeamSkillsPage visible={activeSection === "team-skills"} />
             {activeSection === "workbench" && workbenchView === "input-assets" ? (
               <InputAssetsWorkbench
                 error={assetSlots.error}
                 loading={assetSlots.loading}
-                onBack={() => openWorkbenchView("index")}
+                onBack={() => openWorkbenchView(workbenchParent(workbenchView))}
                 refresh={assetSlots.refresh}
                 slots={assetSlots.slots}
               />

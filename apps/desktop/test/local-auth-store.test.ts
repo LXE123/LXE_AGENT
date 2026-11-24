@@ -40,6 +40,7 @@ describe("DesktopLocalAuthStore", () => {
     expect(store.snapshot()).toEqual({
       configured: {
         deepseek: true,
+        google: false,
         kimi_coding: true,
         openai: false,
         openrouter: false,
@@ -58,6 +59,7 @@ describe("DesktopLocalAuthStore", () => {
     store.delete("deepseek");
     expect(store.snapshot().configured).toEqual({
       deepseek: false,
+      google: false,
       kimi_coding: true,
       openai: false,
       openrouter: false,

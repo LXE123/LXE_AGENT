@@ -107,6 +107,79 @@ def _preview_response(
     return FakeResponse(409, payload)
 
 
+def test_all_unshipped_previews_only_the_named_sp_without_a_csv(monkeypatch, tmp_path):
+    _configure(monkeypatch, tmp_path)
+    monkeypatch.setattr(cli, "resolve_delivery_csv_path", lambda _: pytest.fail("unexpected CSV lookup"))
+    preview = _preview_response()
+    preview._payload["summary"].update(actual_quantity=0, difference_quantity=-30, carryover_quantity=30)
+    session = FakeSession([preview])
+    _mock_cloud(monkeypatch, session)
+
+    result = cli.run({"ship_no": "sp260710001", "all_unshipped": True})
+
+    assert result["success"] and result["confirmation_required"]
+    assert result["source_kind"] == "all_unshipped"
+    assert "source_file_path" not in result
+    assert len(session.calls) == 1
+    call = session.calls[0]
+    assert call["url"].endswith("/packing-snapshots/preview")
+    body = call["json"]
+    assert body["sp_no"] == "SP260710001" and body["lines"] == []
+    assert body["source_file_name"] == "人工申报：整单不发"
+    assert body["request_id"].startswith(cli.UNSHIPPED_REQUEST_PREFIX)
+
+
+@pytest.mark.parametrize("stale", [False, True])
+def test_all_unshipped_never_offers_a_replacement_quote(monkeypatch, tmp_path, stale):
+    _configure(monkeypatch, tmp_path)
+    preview = _preview_response(status="quote_stale" if stale else "confirmation_required")
+    preview._payload.update(action="replace", request_id=cli.UNSHIPPED_REQUEST_PREFIX + "original")
+    session = FakeSession([preview])
+    _mock_cloud(monkeypatch, session)
+    arguments = {"confirm_packing_quote_id": "old"} if stale else {"ship_no": "SP260710001", "all_unshipped": True}
+
+    result = cli.run(arguments)
+
+    assert result["error"]["code"] == "packing_already_recorded"
+    assert "quote_id" not in result and len(session.calls) == 1
+
+
+def test_all_unshipped_requires_a_complete_zero_preview(monkeypatch, tmp_path):
+    _configure(monkeypatch, tmp_path)
+    session = FakeSession([_preview_response()])
+    _mock_cloud(monkeypatch, session)
+    result = cli.run({"ship_no": "SP260710001", "all_unshipped": True})
+    assert result["error"]["code"] == "packing_unshipped_preview_invalid"
+    assert "quote_id" not in result
+
+
+def test_regular_upload_never_infers_a_declaration_from_zero_csv(monkeypatch, tmp_path):
+    _configure(monkeypatch, tmp_path)
+    _use_delivery(monkeypatch, tmp_path, [("MSKU-A", "0", "SKU-A × 2")])
+    session = FakeSession()
+    _mock_cloud(monkeypatch, session)
+    result = cli.run({"ship_no": "SP260710001"})
+    assert result["success"] is False and not session.calls
+
+
+@pytest.mark.parametrize(
+    "other",
+    [
+        {"confirm_identical": True},
+        {"confirm_packing_quote_id": "unrelated"},
+        {"delivery_csv": "修订版.csv"},
+        {"delivery_csv": ""},
+    ],
+)
+def test_all_unshipped_rejects_mixed_modes_before_network(monkeypatch, tmp_path, other):
+    _configure(monkeypatch, tmp_path)
+    session = FakeSession()
+    _mock_cloud(monkeypatch, session)
+    result = cli.run({"ship_no": "SP260710001", "all_unshipped": True, **other})
+    assert result["error"]["code"] == "packing_option_conflict"
+    assert not session.calls
+
+
 def _created_response() -> FakeResponse:
     return FakeResponse(
         201,

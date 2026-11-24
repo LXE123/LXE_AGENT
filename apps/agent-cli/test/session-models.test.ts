@@ -26,6 +26,23 @@ async function setup(withProvider = false) {
   return { store, service, environment, providerManager, root };
 }
 
+test("one OpenAI key lists both GPT-6.2 models and a new chat inherits the interactive selection", async () => {
+  const { service, root } = await setup();
+  writeFileSync(join(root, "config", "auth.json"), JSON.stringify({ openai: { type: "api_key", key: "fixture" } }));
+  const { items } = await service.call({ operation: "models.list", input: {} });
+  expect(items.find(item => item.provider === "openai" && item.credential_source === "local")).toMatchObject({
+    selectable: true, model: "gpt-6.2-sol", model_options: expect.arrayContaining([
+      expect.objectContaining({ model: "gpt-6.2-sol", display_name: "GPT-6.2 Sol" }),
+      expect.objectContaining({ model: "gpt-6.2-astra", display_name: "GPT-6.2 Astra" }),
+    ]),
+  });
+  await service.call({ operation: "models.update", input: {
+    session_id: "a", provider: "openai", model: "gpt-6.2-astra", credential_source: "local",
+  } });
+  expect(await service.call({ operation: "models.current", input: { session_id: "blank" } }))
+    .toMatchObject({ provider: "openai", model: "gpt-6.2-astra", thinking_state: { level: "medium" } });
+});
+
 test("one Google credential enables all three conversation models and preserves the session choice across restart", async () => {
   const { service, root, store } = await setup();
   const auth = join(root, "config", "auth.json");

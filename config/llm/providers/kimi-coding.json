@@ -11,6 +11,7 @@
   },
   "models": {
     "kimi-for-coding": {
+      "display_name": "Kimi for Coding",
       "context_window_tokens": 262144,
       "max_tokens": 32768,
       "supports_vision": true,
@@ -22,6 +23,7 @@
       "thinking_default": "high"
     },
     "k3": {
+      "display_name": "Kimi K3",
       "context_window_tokens": 262144,
       "max_tokens": 131072,
       "supports_vision": true,
