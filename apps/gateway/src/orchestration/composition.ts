@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { dirname, join } from "node:path";
+import { join } from "node:path";
 import type {
   AgentJob,
   JsonObject,
@@ -86,12 +86,12 @@ export interface DirectGatewayComposition {
 
 export function createDirectGatewayComposition(options: DirectGatewayCompositionOptions): DirectGatewayComposition {
   const environment = options.environment ?? {};
-  const sqlitePath = String(environment.LXE_SQLITE_DB_PATH ?? "").trim();
+  const dataRoot = String(environment.LXE_DATA_ROOT ?? "").trim();
   const configuredBindings = options.bindingsPath
     ?? String(environment.AGENT_SESSION_BINDINGS_PATH ?? "").trim();
   const bindingsPath = configuredBindings
-    || (sqlitePath
-      ? join(dirname(sqlitePath), "sessions.json")
+    || (dataRoot
+      ? join(dataRoot, "db", "sessions.json")
       : join(options.projectRoot, "var", "db", "sessions.json"));
   const bindings = new SessionBindingStore(bindingsPath);
   const runtimeState = new SessionRuntimeState();

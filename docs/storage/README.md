@@ -31,6 +31,8 @@ session、route 和 usage 更新使用各自数据库事务。Gateway 创建 ses
 
 独立运行 `lxeskill` 时，紫鸟会话缓存和雅仓导出状态默认共用数据目录下的 `db/lxeskill.sqlite3`，也可以通过 `LXE_SQLITE_DB_PATH` 指定数据库。旧版本独立运行时写入 `db/local_agent.sqlite3` 的紫鸟缓存，会在后续使用浏览器时按实际会话状态重新建立。
 
+桌面端和 agentcli 启动 `lxeskill` 时只传 `LXE_DATA_ROOT`，数据库文件名由 `lxeskill` 自己决定。这类受控启动会去掉继承来的 `LXE_SQLITE_DB_PATH`，保证桌面数据始终落在数据目录里；只有在终端里直接运行 `lxeskill` 时，这个变量才生效。
+
 ## 文件存储
 
 JSON、JSONL 和业务文件按各自格式及目录规则管理。文件放在 `db/` 下不代表它就是 SQLite 数据库。

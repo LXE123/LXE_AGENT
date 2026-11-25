@@ -16,7 +16,6 @@ export class DesktopVietnamSettingsService {
     const options = {
       cwd: this.options.dataRoot, timeout: 180_000, maxBuffer: 1024 * 1024, windowsHide: true,
       env: managedPythonEnvironment({ ...process.env, LXE_DATA_ROOT: this.options.dataRoot,
-        LXE_SQLITE_DB_PATH: join(this.options.dataRoot, "db", "lxeskill.sqlite3"),
         LXE_WORKSPACE_ROOT: join(this.options.dataRoot, "workspace"), TMP: temporaryRoot, TEMP: temporaryRoot,
         TMPDIR: temporaryRoot }),
     };
