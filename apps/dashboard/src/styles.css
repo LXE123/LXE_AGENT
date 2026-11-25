@@ -6419,11 +6419,11 @@ code {
 }
 
 :root[data-theme="dark"] .conversation-feed :is(.message-card.role-assistant, .timeline-text.process-message-content) .message-markdown th {
-  background: #1f1f1f;
+  background: #1e1e1e;
 }
 
 :root[data-theme="dark"] .conversation-feed :is(.message-card.role-assistant, .timeline-text.process-message-content) .message-markdown td {
-  background: #1b1b1b;
+  background: #1a1a1a;
 }
 
 /* Preserve the Markdown palette independently of enclosing UI theme aliases. */
