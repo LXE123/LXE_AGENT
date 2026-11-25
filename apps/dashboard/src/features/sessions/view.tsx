@@ -8,7 +8,7 @@ import "./session-tree.css";
 import { sessionBranchPath, sessionTree, type SessionBranch } from "./session-tree";
 import { Pencil } from "lucide-react";
 import { ApprovalGate, PermissionPicker } from "./permissions";
-import { ReferenceComposer } from "./ReferenceComposer";
+import { ReferenceComposer, type ComposerQuoteAction } from "./ReferenceComposer";
 import { UserReferenceText } from "./UserReferenceText";
 import { UserMessagePreview } from "./UserMessagePreview";
 import { FileAvailabilityBadge } from "../file-preview/FileFailure";
@@ -1128,6 +1128,7 @@ function ConversationContextMeter({
 }
 
 export function ConversationComposer({
+  quoteRef,
   permissionMode = "workspace-write", permissionSessionId,
   question, onQuestionAnswered, approvals = [], onApprovalChanged,
   contextDetail,
@@ -1151,6 +1152,7 @@ export function ConversationComposer({
   onQuestionAnswered?: () => void;
   permissionMode?: PermissionMode;
   permissionSessionId?: string;
+  quoteRef?: React.RefObject<ComposerQuoteAction>;
   contextDetail: SessionDetailPayload | null;
   activity: DesktopConversationActivityPayload | null;
   conversationKey: string;
@@ -1289,7 +1291,7 @@ export function ConversationComposer({
           <InputAttachmentList draft attachments={attachments} onRemove={sending ? undefined : removeAttachment} />
         ) : null}
         {attachmentDraft.pending > 0 ? <span className="conversation-input-hint" role="status">{t.conversation.preparingAttachments}</span> : null}
-        <ReferenceComposer ref={textareaRef} session={conversationKey} value={text} onChange={setText}
+        <ReferenceComposer ref={textareaRef} quoteRef={quoteRef} session={conversationKey} value={text} onChange={setText}
           disabled={!runtimeReady} placeholder={runtimeReady ? (activity?.active?.state === "running" ? t.conversation.steerPlaceholder : t.conversation.placeholder) : runtimeUnavailableMessage}
           onSubmit={() => void submit()} onFiles={files => {
             if (!runtimeReady || sending) return;
@@ -1574,7 +1576,9 @@ export function SessionDetailView({
   }, [messageSessionId, openPreview, directory]);
   const rows = display?.rows ?? conversationRows(messages,
     [activity?.latest, activity?.active, ...(activity?.queued ?? [])].filter((turn): turn is DesktopConversationTurnPayload => Boolean(turn)), pendingMessages);
+  const quoteRef = useRef<ComposerQuoteAction>(null);
   const linkMenu = useConversationLinkMenu({
+    quote: quoteRef,
     rows, sessionId: messageSessionId, directory, openFile: openMarkdownFile?.open,
     openBrowser: panel?.session === messageSessionId ? panel?.openBrowser : undefined,
     fork: runtimeReady && !forking ? onFork : undefined, activeTurn: activity?.active?.turn_id,
@@ -1617,6 +1621,7 @@ export function SessionDetailView({
         </OpenMarkdownFileContext.Provider>
         <div className="conversation-composer-dock">
           <ConversationComposer
+            quoteRef={quoteRef}
             permissionSessionId={session?.session_id ?? ""}
             permissionMode={session?.permission_mode ?? "workspace-write"}
             approvals={approvals} onApprovalChanged={onApprovalChanged}

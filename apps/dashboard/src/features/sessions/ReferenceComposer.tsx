@@ -9,12 +9,14 @@ import { activeAtToken, formatFileMention, rankSkills } from "@lxe/desktop-proto
 import type { SkillPayload } from "@lxe/desktop-protocol";
 import { useComposerDiscovery } from "../../api/queries";
 import { usePreviewSidebar } from "../file-preview/Sidebar";
+import { useUiText } from "../../shared/i18n";
 import { FileReferenceNode, SkillReferenceNode } from "./composer-reference-nodes";
 import { ComposerCandidateMenu, type ComposerCandidate } from "./ComposerCandidateMenu";
 import "./reference-composer.css";
 
 type Hit = { key: string; start: number; end: number; prefix: string; trigger: "@" | "/"; query: string; quoted: boolean };
 type Candidate = ComposerCandidate;
+export type ComposerQuoteAction = ((text: string) => void) | null;
 const entries = new Map<string, { editor: LexicalEditor; stop(): void }>();
 const forgotten = new Set<string>();
 export function forgetComposerEditor(session: string) {
@@ -60,7 +62,9 @@ function currentHit(): Hit | undefined {
 export const ReferenceComposer = forwardRef<HTMLDivElement, {
   session: string; value: string; onChange(text: string): void; onSubmit(): void;
   onFiles(files: File[]): void; disabled: boolean; placeholder: string;
+  quoteRef?: React.RefObject<ComposerQuoteAction>;
 }>(function ReferenceComposer(props, forwarded) {
+  const t = useUiText();
   const { skills: fetchSkills, files: fetchFiles } = useComposerDiscovery();
   const composingUntil = useRef(0);
   const editor = editorFor(props.session), element = useRef<HTMLDivElement>(null), box = useRef<HTMLDivElement>(null);
@@ -76,6 +80,14 @@ export const ReferenceComposer = forwardRef<HTMLDivElement, {
   const drilled = useRef(false);
   const generation = useRef(0), catalogGeneration = useRef(0), accepted = useRef<EditorState | undefined>(undefined);
   useImperativeHandle(forwarded, () => element.current!, [editor]);
+  useImperativeHandle<ComposerQuoteAction, ComposerQuoteAction>(props.quoteRef, () => props.disabled ? null : selected => {
+    const length = editor.read(() => $getRoot().getTextContent().length);
+    const quote = selected.replace(/\r\n?/g, "\n").split("\n").map(line => "> " + line).join("\n");
+    const insertion = (length ? "\n\n" : "") + quote + "\n\n";
+    if (length + insertion.length > 8192) throw new Error(t.conversation.quoteTooLong);
+    editor.update(() => $getRoot().selectEnd().insertRawText(insertion), { tag: "history-push" });
+    editor.focus();
+  }, [editor, props.disabled, t.conversation.quoteTooLong]);
   const close = () => { dismissed.current = signature(hitNow.current); hitNow.current = undefined; drilled.current = false; setHit(undefined); generation.current++; };
   const choose = (item: Candidate, drill = false) => {
     const current = hitNow.current; if (!current) return;

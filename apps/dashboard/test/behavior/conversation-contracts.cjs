@@ -529,6 +529,65 @@ module.exports = async ({suite,win,url,js,step,load,waitFor,click,key,focus,sett
       {level:'high',session_id:'Default chat',selection_version:0},
     ]);
   });
+  await step('message context menus snapshot the selection and append an editable quote to the current draft', async () => {
+    await load('?app=1&workspaces=1&section=sessions&forkFixture=1');
+    const session = '[data-session-id="Default chat"] .session-index-open';
+    await waitFor(`!!document.querySelector(${JSON.stringify(session)})`, 'conversation available');
+    await click(session);
+    const body = '.response-final-answer .message-markdown p';
+    await waitFor(`document.querySelector(${JSON.stringify(body)})?.textContent === 'assistant one'`, 'first answer');
+    const editor = '.reference-editor';
+    await focus(editor);
+    await win.webContents.insertText('existing draft');
+    await settle();
+    await js(`Object.defineProperty(navigator, 'clipboard', { configurable:true, value:{ writeText:async text=>{window.copied=text} } });
+      window.lxe.desktop.showConversationLinkMenu = async request => {
+        window.menuRequest = request;
+        getSelection().removeAllRanges();
+        return window.menuAction;
+      }; void 0;`);
+    const menu = async (selector, action, selected = false) => {
+      assert.equal(await js(`(() => {
+        const element = document.querySelector(${JSON.stringify(selector)});
+        const range = document.createRange();
+        if (${selected}) {
+          range.setStart(element.firstChild, 0);
+          range.setEnd(element.firstChild, 9);
+          getSelection().removeAllRanges(); getSelection().addRange(range);
+        }
+        const rect = (${selected} ? range : element).getBoundingClientRect();
+        window.menuAction = ${JSON.stringify(action)};
+        return !element.dispatchEvent(new MouseEvent('contextmenu', {bubbles:true, cancelable:true, button:2,
+          clientX:rect.left + 3, clientY:rect.top + rect.height/2}));
+      })()`), true);
+      await settle();
+    };
+    await menu('.user-reference-text', 'copy-message');
+    assert.equal(await js("window.copied"), "user one");
+    await menu(body, 'copy-message');
+    assert.equal(await js("window.copied"), "assistant one");
+    assert.equal(await js("menuRequest.kind"), "message");
+    await menu(body, 'copy-selection', true);
+    assert.equal(await js("window.copied"), "assistant");
+    assert.equal(await js("menuRequest.selection"), "copy-and-quote");
+    await menu(body, 'quote-selection', true);
+    const draft = "sessionStorage.getItem('lxe.composer-draft.' + document.querySelector('.reference-editor').dataset.session)";
+    assert.equal(await js(draft), 'existing draft\n\n> assistant\n\n');
+    assert.equal(await js("document.activeElement.matches('.reference-editor')"), true);
+    await win.webContents.insertText('follow-up');
+    await settle();
+    assert.equal(await js(draft), 'existing draft\n\n> assistant\n\nfollow-up');
+    const fullDraft = (await js(draft)).padEnd(8192, 'x');
+    await win.webContents.insertText('x'.repeat(8192 - (await js(draft)).length));
+    await settle();
+    await menu(body, 'quote-selection', true);
+    await waitFor("document.querySelector('.conversation-compose-error')?.textContent.includes('8192')", 'quote exceeds draft limit');
+    assert.equal(await js(draft), fullDraft);
+    await menu(body, 'fork');
+    await waitFor("document.querySelector('.conversation-header h2')?.textContent === 'Default chat(1)'", 'fork from reply body');
+    assert.deepEqual((await state()).calls.filter(c=>c.operation==='sessions.fork').at(-1).input, { session_id:'Default chat', turn_id:'one' });
+    assert.equal(await js("document.querySelector('.reference-editor').textContent"), "");
+  });
   await step('assistant Markdown links open in the originating session file sidebar', async () => {
     await load('?app=1&workspaces=1&section=sessions&fileLinks=1');
     const report = '.conversation-feed .markdown-file-link[title="reports/测试 report.md"]';

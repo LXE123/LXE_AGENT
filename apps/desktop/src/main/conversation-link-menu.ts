@@ -8,10 +8,13 @@ export function validateConversationLinkMenu(value: unknown): ConversationLinkMe
   const input = value as Partial<ConversationLinkMenuRequest> | null;
   if (!input || (input.language !== "zh" && input.language !== "en") ||
     !Number.isFinite(input.x) || !Number.isFinite(input.y)) throw new Error("Invalid conversation link menu");
-  const base = { language: input.language, x: input.x!, y: input.y! };
-  if (input.kind === "web" && typeof input.url === "string" && isExternallyOpenableUrl(input.url)
-    && typeof input.copyMessage === "boolean" && typeof input.fork === "boolean") {
-    return { ...base, kind: "web", url: input.url, copyMessage: input.copyMessage, fork: input.fork };
+  const { selection } = input;
+  if (selection !== undefined && selection !== "copy" && selection !== "copy-and-quote") throw new Error("Invalid conversation selection");
+  const base = { language: input.language, x: input.x!, y: input.y!, ...(selection && { selection }) };
+  if ((input.kind === "web" || input.kind === "message") && typeof input.copyMessage === "boolean" && typeof input.fork === "boolean") {
+    const actions = { ...base, copyMessage: input.copyMessage, fork: input.fork };
+    if (input.kind === "message" && (input.copyMessage || input.fork || selection)) return { ...actions, kind: "message" };
+    if (input.kind === "web" && typeof input.url === "string" && isExternallyOpenableUrl(input.url)) return { ...actions, kind: "web", url: input.url };
   }
   if (input.kind === "file") {
     const ref = validateRef(input.ref);
@@ -29,13 +32,21 @@ export async function conversationLinkMenuTemplate(
   const label = (zh: string, en: string) => request.language === "zh" ? zh : en;
   const item = (label: string, command: ConversationMenuCommand): MenuItemConstructorOptions => ({ label, click: () => select(command) });
   const copy = (text: string): ConversationLinkMenuAction => { native.copy(text); return null; };
-  if (request.kind === "web") {
-    const items: MenuItemConstructorOptions[] = [
-      item(label("在系统浏览器打开", "Open in system browser"), async () => { await native.openUrl(request.url); return null; }),
-      item(label("在右侧浏览器打开", "Open in browser pane"), () => "sidebar"),
-      item(label("复制链接", "Copy link"), () => copy(request.url)),
-    ];
-    if (request.copyMessage || request.fork) items.push({ type: "separator" });
+  const items: MenuItemConstructorOptions[] = [];
+  if (request.selection) {
+    items.push(item(label("复制选中文字", "Copy selected text"), () => "copy-selection"),
+      { ...item(label("引用到输入框", "Quote in composer"), () => "quote-selection"), enabled: request.selection === "copy-and-quote" });
+  }
+  if (request.kind !== "file") {
+    if (request.kind === "web") {
+      if (items.length) items.push({ type: "separator" });
+      items.push(
+        item(label("在系统浏览器打开", "Open in system browser"), async () => { await native.openUrl(request.url); return null; }),
+        item(label("在右侧浏览器打开", "Open in browser pane"), () => "sidebar"),
+        item(label("复制链接", "Copy link"), () => copy(request.url)),
+      );
+    }
+    if (items.length && (request.copyMessage || request.fork)) items.push({ type: "separator" });
     if (request.copyMessage) items.push(item(label("复制消息", "Copy message"), () => "copy-message"));
     if (request.fork) items.push(item(label("从这里分支", "Fork from here"), () => "fork"));
     return items;
@@ -53,6 +64,7 @@ export async function conversationLinkMenuTemplate(
   const reveal = native.platform === "darwin" ? label("在 Finder 中显示", "Show in Finder")
     : native.platform === "win32" ? label("在文件资源管理器中显示", "Show in File Explorer") : label("在文件管理器中显示", "Show in file manager");
   return [
+    ...items, ...(items.length ? [{ type: "separator" as const }] : []),
     item(label("在右侧预览", "Preview in sidebar"), () => { file.authorize(); return "preview"; }),
     { label: label("复制", "Copy"), submenu: [
       { ...item(label("相对路径", "Relative path"), () => file.relativePath ? copy(file.relativePath) : null), enabled: !!file.relativePath },

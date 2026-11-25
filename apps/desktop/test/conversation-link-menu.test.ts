@@ -47,3 +47,20 @@ test("file menu copies text without granting access and opens only the chosen fi
   expect(f.calls.slice(3)).toEqual(["grant", "grant", { operation: "open", input: { ref, application: "editor" } }, "grant", { operation: "open", input: { ref, reveal: true } }]);
   expect(() => validateConversationLinkMenu({ ...web, kind: "file", ref: { ...ref, kind: "attachment" } })).toThrow();
 });
+
+test("selected text actions precede the clicked message or link actions", async () => {
+  const f = fixture();
+  const message = { kind: "message", language: "zh", x: 2, y: 3, copyMessage: true, fork: true } as const;
+  const menu = (input: unknown) => conversationLinkMenuTemplate(validateConversationLinkMenu(input), f.files, f.native, f.select);
+  expect((await menu(message)).map(i => i.label)).toEqual(["复制消息", "从这里分支"]);
+  for (const source of [message, { ...web, language: "zh" }, { ...message, kind: "file", ref }]) {
+    const selected = await menu({ ...source, selection: "copy-and-quote" });
+    expect(selected.slice(0, 3).map(i => i.label ?? i.type)).toEqual(["复制选中文字", "引用到输入框", "separator"]);
+    expect(await f.click(selected[0]!)).toBe("copy-selection");
+    expect(await f.click(selected[1]!)).toBe("quote-selection");
+  }
+  const copyOnly = await menu({ ...message, fork: false, selection: "copy" });
+  expect(copyOnly[1]?.enabled).toBe(false);
+  expect(copyOnly.at(-1)?.label).toBe("复制消息");
+  expect(() => validateConversationLinkMenu({ ...message, selection: "other" })).toThrow();
+});

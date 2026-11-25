@@ -705,11 +705,12 @@ export interface WorkspaceApplication { id: string; name: string; icon: string |
 
 export type { DesktopTitlebarAction, DesktopTitlebarMenuRequest } from "./titlebar";
 export type ConversationFileLinkRef = Extract<import("./file-preview").SessionFileRef, { path: string }>;
-export type ConversationLinkMenuRequest = { language: "zh" | "en"; x: number; y: number } & (
+export type ConversationLinkMenuRequest = { language: "zh" | "en"; x: number; y: number; selection?: "copy" | "copy-and-quote" } & (
+  | { kind: "message"; copyMessage: boolean; fork: boolean }
   | { kind: "web"; url: string; copyMessage: boolean; fork: boolean }
   | { kind: "file"; ref: ConversationFileLinkRef }
 );
-export type ConversationLinkMenuAction = "sidebar" | "preview" | "copy-message" | "fork" | null;
+export type ConversationLinkMenuAction = "sidebar" | "preview" | "copy-message" | "copy-selection" | "quote-selection" | "fork" | null;
 
 export interface LxeDesktopBridge {
   tools?: import("./manual-tools").ManualToolsBridge;
