@@ -1,6 +1,6 @@
 const assert = require("node:assert/strict");
 
-module.exports = async ({ win, js, step, settle, waitFor }) => {
+module.exports = async ({ win, js, step, settle, waitFor, focus, key }) => {
   const resize = async (width, height) => {
     win.setContentSize(width, height);
     await waitFor(`innerWidth === ${width}`, `Markdown viewport width ${width}`);
@@ -45,6 +45,30 @@ module.exports = async ({ win, js, step, settle, waitFor }) => {
     }
     await js("document.documentElement.dataset.theme='light'");
     await resize(1280, 820);
+  });
+  await step('keyboard focus on the skill file picker fits inside the scroll viewport', async () => {
+    await mount('skill', 'Reference paragraph.\n\n'.repeat(80));
+    win.webContents.debugger.attach('1.3');
+    try {
+      await win.webContents.debugger.sendCommand('Emulation.setFocusEmulationEnabled', { enabled: true });
+      for (const theme of ['dark', 'light']) {
+        await js(`document.documentElement.dataset.theme = '${theme}'`);
+        await focus('.skill-detail-header-actions button');
+        await key('Tab', ['shift']);
+        const layout = await js(`(() => {
+          const picker = document.querySelector('.skill-file-select:focus-visible');
+          if (!picker) return null;
+          const viewport = picker.closest('.modal-content');
+          return { ring: getComputedStyle(picker).boxShadow,
+            topGap: picker.getBoundingClientRect().top - viewport.getBoundingClientRect().top };
+        })()`);
+        assert.ok(layout, theme + ': keyboard focus reached the picker');
+        assert.notEqual(layout.ring, 'none');
+        assert.ok(layout.topGap >= 3, `${theme}: the 3px focus ring has only ${layout.topGap}px of clearance`);
+      }
+    } finally {
+      win.webContents.debugger.detach();
+    }
   });
   for (const surface of ["conversation", "skill"]) {
     await step(`${surface}: all six heading levels render with a readable hierarchy`, async () => {

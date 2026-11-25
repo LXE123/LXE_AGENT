@@ -89,7 +89,7 @@ app.whenReady().then(async () => {
     } else if (suite === "streaming-markdown") {
       await require("./streaming-markdown.cjs")({win, js, step, settle, waitFor});
     } else if (suite === "markdown") {
-      await require("./markdown.cjs")({win, js, step, settle, waitFor});
+      await require("./markdown.cjs")({win, js, step, settle, waitFor, focus, key});
     } else if (suite === "conversation-content" || suite === "conversation-window") {
       await require("./conversation-contracts.cjs")({suite, win, url, js, step, load, waitFor, click, key, focus, settle, state});
     } else if (suite === "navigation-rail") {

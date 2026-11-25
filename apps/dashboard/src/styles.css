@@ -6840,6 +6840,11 @@ pre {
   font-size: 0.71875rem;
 }
 
+/* Leave room for the focus ring at the top of the scroll viewport. */
+.skill-file-select:first-child {
+  margin-block-start: 4px;
+}
+
 .skill-file-subtitle {
   margin: 0;
   padding: 8px 12px 0;
