@@ -5,6 +5,7 @@ import {useProcessRows} from "../../../src/features/sessions/process";
 import {ConversationWindow} from "../../../src/features/sessions/virtual-window";
 import {UnifiedConversationRow} from "../../../src/features/sessions/view";
 import type {SessionMessage} from "../../../src/api/payloads";
+import {compactionMessage} from "./compaction-fixture-data";
 import "../../../src/styles.css";
 const noop=async()=>{};
 const toolAnswer = new URLSearchParams(location.search).get("toolAnswer");
@@ -24,6 +25,11 @@ function Fixture(){
       {type:"tool_call",id:"c",name:"read",arguments:{path:"progress.md"}},
     ]},
     {role:"tool",content:[{type:"tool_result",tool_call_id:"c",content:"Done"}]},
+    ...(toolAnswer === "compaction" ? [
+      compactionMessage("compact", 244),
+      {role:"assistant",id:"second-request",content:[{type:"tool_call",id:"next-read",name:"read",arguments:{path:"notes.md"}}]},
+      {role:"tool",content:[{type:"tool_result",tool_call_id:"next-read",content:"Done"}]},
+    ] : []),
     {role:"assistant",id:"b",content:[
       ...(toolAnswer === "blank" ? [{type:"thinking",thinking:" \n "}] : []),
       {type:"text",text:"**文件检查已完成**，请查看结果。"},

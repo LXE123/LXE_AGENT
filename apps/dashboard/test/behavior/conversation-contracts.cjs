@@ -74,6 +74,25 @@ module.exports = async ({suite,win,url,js,step,load,waitFor,click,key,focus,sett
       assert.ok(await js(`document.querySelector('[data-conversation-row="next:4"] .redacted')?.textContent`));
       assert.equal(await js(`document.querySelector('${card("write")} .tool-op-summary').getAttribute('aria-expanded')`), 'true');
     });
+    await step('compaction between tool cards has balanced spacing and uses secondary status text', async () => {
+      await win.loadURL(new URL('../features/sessions/process-fixture.html?toolAnswer=compaction', url).href);
+      await waitFor("document.querySelector('.conversation-compaction-marker') && document.querySelectorAll('.tool-op-list').length === 2", 'compaction between calls');
+      for (const theme of ['light', 'dark']) {
+        await js(`document.documentElement.dataset.theme = '${theme}'; document.fonts.ready`);
+        await settle();
+        const { before, after, color, statusColor } = await js(`(() => {
+          const marker = document.querySelector('.conversation-compaction-marker');
+          const range = document.createRange();
+          range.selectNodeContents(marker.querySelector('span'));
+          const text = range.getBoundingClientRect();
+          const card = id => document.querySelector('[data-conversation-row="tool:t:' + id + '"] .tool-op-list').getBoundingClientRect();
+          return { before: text.top - card('c').bottom, after: card('next-read').top - text.bottom,
+            color: getComputedStyle(marker).color, statusColor: getComputedStyle(document.querySelector('.conversation-process-toggle')).color };
+        })()`);
+        assert.ok(Math.abs(before - 12) <= 2 && Math.abs(before - after) <= 2, `${theme}: visible gaps ${before}px / ${after}px`);
+        assert.equal(color, statusColor, `${theme}: marker matches the process status`);
+      }
+    });
     await step('expanded tool card has matching gaps to the completed label and final answer', async () => {
       for (const mode of ['blank', 'direct']) {
         await win.loadURL(new URL('../features/sessions/process-fixture.html?toolAnswer=' + mode, url).href);

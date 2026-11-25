@@ -1403,7 +1403,7 @@ export const UnifiedConversationRow = React.memo(function UnifiedConversationRow
   if (row.kind === "status") return <ConversationStatus row={row} />;
   if (row.kind === "compaction") {
     const count = row.message?.context_marker?.compacted_count;
-    return <div className="conversation-compaction-marker">
+    return <div className="conversation-compaction-marker conversation-chrome-theme">
       <span>{t.conversation.contextCompacted(typeof count === "number" && Number.isSafeInteger(count) && count >= 0 ? count : undefined)}</span>
     </div>;
   }

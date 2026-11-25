@@ -46,6 +46,11 @@
   outline-color: var(--cds-accent);
 }
 
+.conversation-compaction-marker.conversation-chrome-theme {
+  color: var(--cds-secondary);
+  font-size: .75rem;
+}
+
 /* Process disclosures use color feedback with the ordinary arrow cursor.
    Keep error text semantic, including while the disclosure is hovered. */
 .live-progress-status.conversation-chrome-theme,
