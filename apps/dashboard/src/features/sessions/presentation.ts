@@ -44,6 +44,18 @@ export interface ConversationHistoryProjection {
 }
 const answerRowId = (row: ConversationRow) => `answer-meta:${row.turnId ? `turn:${row.turnId}` : `group:${row.groupId}`}`;
 
+// Empty thinking can still anchor a transcript event or receive a later stream delta.
+// Filter it only when publishing rows to the UI.
+function hasVisibleRowContent(row: ConversationRow): boolean {
+  const message = row.message;
+  if (row.kind !== "message" || message?.role !== "assistant" || row.status === "error" || message.attachments?.length) return true;
+  const content = message.content;
+  if (!Array.isArray(content) || content.length !== 1) return true;
+  const block = content[0];
+  if (!isRecord(block) || block.type !== "thinking" || block.redacted) return true;
+  return String(block.thinking ?? "").trim().length > 0;
+}
+
 /** Preserve find() precedence when an ID and a block identify different operations. */
 function indexToolOperations(operations: ToolOperation[]) {
   type Entry = { operation: ToolOperation; index: number };
@@ -135,7 +147,7 @@ export function projectConversationHistory(source: readonly SessionMessage[]): C
   const ordered = restoreCompactionRows(appendAnswerMetadata(appendTurnArtifacts(orderRows(baseRows), artifacts)), compactions);
   const answerRows = new Map<string, ConversationRow | undefined>(rows.filter(row => row.presentation === "final").map(row => [answerRowId(row), undefined]));
   for (const row of ordered) if (row.kind === "answer_meta") answerRows.set(row.id, row);
-  return { source, baseRows, compactions, rows: ordered, byId: new Map(ordered.map(row => [row.id, row])), byTurn,
+  return { source, baseRows, compactions, rows: ordered.filter(hasVisibleRowContent), byId: new Map(ordered.map(row => [row.id, row])), byTurn,
     shownTurns: new Set(ordered.map(row => row.turnId)), savedStatus, artifacts,
     artifactRows: new Map(ordered.filter(row => row.kind === "artifacts").map(row => [row.id, row])),
     answerRows };
@@ -229,7 +241,8 @@ export function composeConversationRows(projection: ConversationHistoryProjectio
     }
     rows.push({ id, groupId: `pending:${item.pendingId}`, turnId: item.turnId ?? "", createdAt: item.createdAt, kind: "message", status: item.error ? "error" : item.steering ? "steering" : item.turnId ? "accepted" : "sending", error: item.error, message: { display_group_id: id, role: "user", ...(item.steering ? { source_reason: "steering" } : {}), content: item.text, attachments: item.attachments, created_at: item.createdAt / 1000 } });
   }
-  return restoreCompactionRows(appendAnswerMetadata(appendTurnArtifacts(orderRows(rows), projection.artifacts, projection.artifactRows), projection.answerRows, changedAnswers), projection.compactions);
+  return restoreCompactionRows(appendAnswerMetadata(appendTurnArtifacts(orderRows(rows), projection.artifacts, projection.artifactRows), projection.answerRows, changedAnswers), projection.compactions)
+    .filter(hasVisibleRowContent);
 }
 
 /** Compatibility entry point for callers without a persistent display controller. */

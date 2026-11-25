@@ -207,9 +207,14 @@
 .capabilities-theme .modal-header { padding: 28px 28px 20px; border-bottom-color: var(--cds-alpha-1); }
 .capabilities-theme .modal-header h2 { font-size: 1.125rem; font-weight: 600; overflow-wrap: anywhere; }
 .capabilities-theme .modal-content { padding: 24px 28px 28px; }
-.capabilities-theme .skill-detail-modal .modal-content { padding-top: 0; }
+.capabilities-theme .skill-detail-modal { --skill-detail-section-gap: 16px; }
+.capabilities-theme .skill-detail-modal .modal-header { padding-bottom: 0; }
+.capabilities-theme .skill-detail-modal .modal-content {
+  padding-top: var(--skill-detail-section-gap); gap: var(--skill-detail-section-gap);
+}
 .capabilities-theme .skill-detail-description { font-size: .8125rem; color: var(--text-soft); }
-.capabilities-theme .skill-detail-body { padding: 20px 0 0; border-top: 1px solid var(--cds-alpha-1); border-radius: 0; }
+.capabilities-theme .skill-detail-body { padding: var(--skill-detail-section-gap) 0 0; border-top: 1px solid var(--cds-alpha-1); border-radius: 0; }
+.capabilities-theme .skill-markdown { padding-top: 0; }
 .capabilities-theme .skill-detail-info { padding: 16px; border-color: var(--border); background: var(--cds-surface-nav); font-size: .8125rem; }
 .capabilities-theme .skill-content-pre { background: var(--cds-surface-nav); border-color: var(--border); color: var(--text); }
 .capabilities-theme .skill-file-select { min-height: 36px; padding: 6px 10px; font-size: .8125rem; }

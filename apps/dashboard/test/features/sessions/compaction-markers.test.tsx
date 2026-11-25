@@ -85,6 +85,16 @@ test("tool lifecycle updates preserve the marker next to its stable tool row", (
   }
 });
 
+test("invisible thinking still anchors compaction when a later stream update supplies text", () => {
+  const history = [contentMessage("user", "start"), { ...contentMessage("a", ""), content: [{ type: "thinking", thinking: "" }] },
+    compactionMessage(), contentMessage("b", "B", 3)];
+  const projection = projectConversationHistory(history);
+  expect(ids(projection.rows)).toEqual(["user:user", "compaction:compact", "b:0"]);
+  const live = compactionLive();
+  live.stream!.process_parts[0] = { type: "thinking", part_id: "a:0", sequence: 1, text: "Checking", redacted_count: 0, status: "streaming" };
+  expect(ids(composeConversationRows(projection, [live], [], true))).toEqual(["user:user", "a:0", "compaction:compact", "b:0"]);
+});
+
 test("ordinary prompt text is not a marker; success markers render a single noninteractive line", () => {
   expect(conversationRows([contentMessage("user", "[上下文已压缩：255 条消息 → 摘要]")], [], [])[0]?.kind).toBe("message");
   for (const count of [255, undefined, -1, NaN, 1.5]) {

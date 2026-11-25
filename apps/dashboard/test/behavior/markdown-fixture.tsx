@@ -1,5 +1,6 @@
 import { UnifiedConversationRow } from "../../src/features/sessions/view";
 import { SkillDetailDialog } from "../../src/shared/ui/skill-detail-dialog";
+import "../../src/features/capabilities/theme.css";
 
 export type MarkdownSurface = "conversation" | "streaming" | "streaming-process" | "skill";
 const noop = () => {};
@@ -9,10 +10,10 @@ const unusedFileAction = async () => { throw new Error("Markdown fixture has no 
 // Use an attached document: SKILL.md intentionally omits its opening H1 and
 // already has dedicated coverage in shared/skill-preview.test.tsx.
 export function MarkdownFixture({ surface, content, status }: { surface: MarkdownSurface; content: string; status?: string }) {
-  if (surface === "skill") return <SkillDetailDialog
-    title="Markdown preview" skill={{ name: "markdown-fixture", type: "default", description: "",
+  if (surface === "skill") return <SkillDetailDialog themeClassName="capabilities-theme"
+    title="Markdown preview" skill={{ name: "markdown-fixture", type: "default", description: "Skill description for the file preview.",
       location: "/skills/markdown-fixture/SKILL.md", commands: [], references: [] }}
-    close={noop} files={["reference.md"]} selectedFile="reference.md" onSelectFile={noop} content={content}
+    close={noop} files={["SKILL.md", "reference.md"]} selectedFile="reference.md" onSelectFile={noop} content={content}
   />;
   return <main className="conversation-feed" aria-label="Conversation preview">
     <UnifiedConversationRow row={{ id: "markdown-message", groupId: "markdown-group", turnId: "markdown-turn",

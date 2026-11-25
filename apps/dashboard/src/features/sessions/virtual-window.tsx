@@ -16,6 +16,9 @@ function toolCardGroup(row: ConversationRow | undefined) {
 }
 
 function rowBottomPadding(row: ConversationRow, next: ConversationRow | undefined) {
+  // The label and the first answer line have different insets inside their rows.
+  if (row.kind === "process" && toolCardGroup(next) === row.id) return 14;
+  if (next?.presentation === "final" && toolCardGroup(row) === processId(next)) return 12;
   // The status control and the first text line already have vertical insets.
   if (next && row.turnId === next.turnId) {
     if ((row.kind === "process" || row.kind === "status") && next.presentation === "final") return 6;
@@ -25,7 +28,7 @@ function rowBottomPadding(row: ConversationRow, next: ConversationRow | undefine
   return row.presentation === "process" ? 6 : 12;
 }
 
-function isBlankToolSeparator(row: ConversationRow) {
+function isBlankTextRow(row: ConversationRow) {
   const message = row.message;
   if (row.kind !== "message" || message?.role !== "assistant" || row.status === "error"
     || message.attachments?.length || message.tool_calls) return false;
@@ -34,20 +37,21 @@ function isBlankToolSeparator(row: ConversationRow) {
   if (!Array.isArray(content) || content.length !== 1) return false;
   const block = content[0];
   if (!isRecord(block)) return false;
-  if (block.type === "thinking" && !block.redacted) return !String(block.thinking ?? "").trim();
   return block.type === "text" && !String(block.text ?? "").trim();
 }
 
-function omitBlankRowsBetweenTools(source: ConversationRow[]) {
+function omitBlankRowsAroundTools(source: ConversationRow[]) {
   const rows: ConversationRow[] = [];
   for (let i = 0; i < source.length; i++) {
     const row = source[i]!;
     rows.push(row);
-    const group = toolCardGroup(row);
+    const group = row.kind === "process" ? row.id : toolCardGroup(row);
     if (!group) continue;
     let next = i + 1;
-    while (next < source.length && isBlankToolSeparator(source[next]!) && processId(source[next]!) === group) next++;
-    if (toolCardGroup(source[next]) === group) i = next - 1;
+    while (next < source.length && isBlankTextRow(source[next]!) && processId(source[next]!) === group) next++;
+    const following = source[next];
+    if (toolCardGroup(following) === group ||
+      (row.kind === "tool" && following?.presentation === "final" && processId(following) === group)) i = next - 1;
   }
   return rows;
 }
@@ -60,7 +64,7 @@ export function ConversationWindow({ rows: sourceRows, renderRow, hasOlder, hasN
   jumpToLatest: () => void; onVisibleGroups: (groups: string[]) => void; pageError: string; empty?: React.ReactNode;
 }) {
   const t = useUiText();
-  const rows = React.useMemo(() => omitBlankRowsBetweenTools(sourceRows), [sourceRows]);
+  const rows = React.useMemo(() => omitBlankRowsAroundTools(sourceRows), [sourceRows]);
   const root = useRef<HTMLDivElement>(null);
   const initial = useRef(false);
   const feed = useRef<HTMLDivElement>(null);

@@ -7,6 +7,7 @@ import {UnifiedConversationRow} from "../../../src/features/sessions/view";
 import type {SessionMessage} from "../../../src/api/payloads";
 import "../../../src/styles.css";
 const noop=async()=>{};
+const toolAnswer = new URLSearchParams(location.search).get("toolAnswer");
 function Fixture(){
   const [status,setStatus]=useState("running");
   const [tools,setTools]=useState(new Map<string,boolean>());
@@ -17,7 +18,17 @@ function Fixture(){
   const [moreTools,setMoreTools]=useState(false);
   const [visibleThinking,setVisibleThinking]=useState(false);
   const files=[{artifact_id:"sheet",turn_id:"t",tool_call_id:"c",name:"备货建议.xlsx"},...(extraFile?[{artifact_id:"notes",turn_id:"t",tool_call_id:"c",name:"补充说明.md"}]:[])];
-  const messages=[
+  const messages=(toolAnswer ? [
+    {role:"assistant",id:"read-request",content:[
+      ...(toolAnswer === "blank" ? [{type:"thinking",thinking:""}] : []),
+      {type:"tool_call",id:"c",name:"read",arguments:{path:"progress.md"}},
+    ]},
+    {role:"tool",content:[{type:"tool_result",tool_call_id:"c",content:"Done"}]},
+    {role:"assistant",id:"b",content:[
+      ...(toolAnswer === "blank" ? [{type:"thinking",thinking:" \n "}] : []),
+      {type:"text",text:"**文件检查已完成**，请查看结果。"},
+    ]},
+  ] : [
     {role:"user",content:longUser?"请检查这个文件并给出建议。".repeat(20):"Inspect the file",attachments:attached?[{attachment_id:"input",name:"input.xlsx",media_type:"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",size_bytes:20}]:undefined,display_id:"u",client_message_id:"u"},
     {role:"assistant",id:"a",content:[{type:"thinking",thinking:"I will inspect the file before answering.\n\nSecond paragraph with\n  indentation preserved.\n\n\nThird paragraph."},{type:"text",text:"Checking the implementation now."},{type:"tool_call",id:"c",name:"read",arguments:{path:"example.ts"}}]},
     {role:"tool",artifacts:files,content:[{type:"tool_result",tool_call_id:"c",content:"Example source\n".repeat(100)}]},
@@ -33,7 +44,7 @@ function Fixture(){
       {role:"assistant",id:"after",content:[{type:"text",text:"Checking the output."},{type:"tool_call",id:"last",name:"read",arguments:{path:"notes.md"}}]},
     ] : []),
     {role:"assistant",id:"b",content:[{type:"thinking",thinking:"The result is consistent.\n".repeat(40)},{type:"text",text:"**Final answer** stays outside the process."}]},
-  ].map(m=>({...m,display_group_id:"g",created_at:1,turn:{turn_id:"t",status,elapsed_ms:3723000}})) as SessionMessage[];
+  ]).map(m=>({...m,display_group_id:"g",created_at:1,turn:{turn_id:"t",status,elapsed_ms:3723000}})) as SessionMessage[];
   const process=useProcessRows(conversationRows(messages,[],[]),"fixture");
   return <div style={{width:narrow?390:"100%",maxWidth:"100%",height:"100vh",display:"flex",flexDirection:"column"}}>
     <button onClick={()=>setMoreTools(true)}>Append tool calls</button>

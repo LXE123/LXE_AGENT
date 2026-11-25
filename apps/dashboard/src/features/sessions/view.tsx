@@ -1439,11 +1439,15 @@ export const UnifiedConversationRow = React.memo(function UnifiedConversationRow
   const message = row.message!;
   const blocks = Array.isArray(message.content) ? message.content : [];
   const thinking = blocks.length === 1 && isRecord(blocks[0]) && ["thinking", "redacted_thinking"].includes(String(blocks[0].type)) ? blocks[0] : undefined;
-  if (thinking) return <div className="process-message-content">
-    {row.status === "error" ? <div className="process-thinking-text">{stateLabel}</div> : null}
-    <div className="process-thinking-paragraphs">{thinkingParagraphs(String(thinking.thinking ?? "")).map((paragraph, index) => <div className="process-thinking-text" key={index}>{paragraph}</div>)}</div>
-    {thinking.redacted || thinking.type === "redacted_thinking" ? <div className="process-thinking-text redacted">{t.message.redactedThinking}</div> : null}
-  </div>;
+  if (thinking) {
+    const paragraphs = thinkingParagraphs(String(thinking.thinking ?? ""));
+    return <div className="process-message-content">
+      {row.status === "error" ? <div className="process-thinking-text">{stateLabel}</div> : null}
+      {paragraphs.length > 0 && <div className="process-thinking-paragraphs">{paragraphs.map((paragraph, index) => <div className="process-thinking-text" key={index}>{paragraph}</div>)}</div>}
+      {thinking.redacted || thinking.type === "redacted_thinking" ? <div className="process-thinking-text redacted">{t.message.redactedThinking}</div> : null}
+      {message.attachments?.length ? <InputAttachmentList attachments={message.attachments} onOpen={onOpenAttachment} /> : null}
+    </div>;
+  }
   if (row.presentation === "process" && message.role === "assistant") return <div className="timeline-text process-message-content">
     <MessageContent content={message.content} message={message} isStreaming={isStreaming} />
     {row.status === "error" ? <div role="status">{stateLabel}</div> : null}
