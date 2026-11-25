@@ -4,7 +4,7 @@ import { copyTextToClipboard } from "../../shared/content";
 import { workspaceFileLink, type WorkspaceFileLink } from "../../shared/markdown";
 import { readerFacingMessageText } from "./conversation";
 import type { ConversationRow } from "./presentation";
-import type { ComposerQuoteAction } from "./ReferenceComposer";
+import type { ComposerQuoteAction } from "./composer-quotes";
 
 interface MenuContext {
   rows: ConversationRow[];

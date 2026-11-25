@@ -529,7 +529,7 @@ module.exports = async ({suite,win,url,js,step,load,waitFor,click,key,focus,sett
       {level:'high',session_id:'Default chat',selection_version:0},
     ]);
   });
-  await step('message context menus snapshot the selection and append an editable quote to the current draft', async () => {
+  await step('message context menus stage, preview and remove quotes without editing the draft', async () => {
     await load('?app=1&workspaces=1&section=sessions&forkFixture=1');
     const session = '[data-session-id="Default chat"] .session-index-open';
     await waitFor(`!!document.querySelector(${JSON.stringify(session)})`, 'conversation available');
@@ -572,14 +572,20 @@ module.exports = async ({suite,win,url,js,step,load,waitFor,click,key,focus,sett
     assert.equal(await js("menuRequest.selection"), "copy-and-quote");
     await menu(body, 'quote-selection', true);
     const draft = "sessionStorage.getItem('lxe.composer-draft.' + document.querySelector('.reference-editor').dataset.session)";
-    assert.equal(await js(draft), 'existing draft\n\n> assistant\n\n');
+    assert.equal(await js(draft), 'existing draft');
     assert.equal(await js("document.activeElement.matches('.reference-editor')"), true);
-    await win.webContents.insertText('follow-up');
-    await settle();
-    assert.equal(await js(draft), 'existing draft\n\n> assistant\n\nfollow-up');
-    const fullDraft = (await js(draft)).padEnd(8192, 'x');
+    await click('.composer-quote-open');
+    await waitFor("document.querySelector('.quote-preview blockquote')?.textContent === 'assistant'", 'quote preview');
+    await key('Escape');
+    assert.equal(await js("!!document.querySelector('.composer-quote')"), true);
+    await click('.composer-quote .quote-icon');
+    assert.equal(await js("!!document.querySelector('.composer-quote')"), false);
+    assert.equal(await js(draft), 'existing draft');
     await win.webContents.insertText('x'.repeat(8192 - (await js(draft)).length));
     await settle();
+    const fullDraft = await js(draft);
+    assert.equal(fullDraft.length, 8192);
+    assert.ok(fullDraft.includes('existing draft'));
     await menu(body, 'quote-selection', true);
     await waitFor("document.querySelector('.conversation-compose-error')?.textContent.includes('8192')", 'quote exceeds draft limit');
     assert.equal(await js(draft), fullDraft);
@@ -587,6 +593,71 @@ module.exports = async ({suite,win,url,js,step,load,waitFor,click,key,focus,sett
     await waitFor("document.querySelector('.conversation-header h2')?.textContent === 'Default chat(1)'", 'fork from reply body');
     assert.deepEqual((await state()).calls.filter(c=>c.operation==='sessions.fork').at(-1).input, { session_id:'Default chat', turn_id:'one' });
     assert.equal(await js("document.querySelector('.reference-editor').textContent"), "");
+  });
+  await step('selection quotes keep comments separate from the draft until confirmed and sent', async () => {
+    await load('?app=1&workspaces=1&section=sessions&forkFixture=1');
+    const shopToggle = '[data-workspace-directory="/fixture/shop"] .workspace-group-toggle';
+    const wasExpanded = await js(`document.querySelector('${shopToggle}').getAttribute('aria-expanded') === 'true'`);
+    if (!wasExpanded) await click(shopToggle);
+    await click('[data-session-id="Shop chat 2"] .session-index-open');
+    await waitFor("document.querySelector('.response-final-answer .message-markdown p')?.textContent === 'assistant one'", 'shop conversation ready');
+    const body = '.response-final-answer .message-markdown p';
+    const card = '.selection-quote-card';
+    const field = card + ' textarea';
+    const select = async () => {
+      await js(`(() => {
+        const element = document.querySelector('${body}');
+        element.scrollIntoView({block:'center'});
+        const r = document.createRange(); r.selectNodeContents(element);
+        getSelection().removeAllRanges(); getSelection().addRange(r);
+      })()`);
+      await waitFor("!!document.querySelector('.quote-trigger')", 'selection quote action');
+      const point = await js(`(() => { const r = document.querySelector('.quote-trigger').getBoundingClientRect(); return {x: Math.round(r.left+r.width/2), y: Math.round(r.top+r.height/2)}; })()`);
+      win.webContents.sendInputEvent({ type: 'mouseDown', button: 'left', clickCount: 1, ...point });
+      win.webContents.sendInputEvent({ type: 'mouseUp', button: 'left', clickCount: 1, ...point });
+      await waitFor(`document.activeElement.matches('${field}')`, 'comment editor focused');
+    };
+    const outside = () => js("document.querySelector('.conversation-body').dispatchEvent(new PointerEvent('pointerdown', {bubbles:true,button:0}))");
+    await focus('.reference-editor');
+    await win.webContents.insertText('my draft');
+    await settle();
+    await select();
+    await outside(); await settle();
+    assert.equal(await js(`!!document.querySelector('${card}')`), false);
+    await select();
+    await win.webContents.insertText('unconfirmed');
+    await js(`document.activeElement.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',isComposing:true,bubbles:true,cancelable:true}))`);
+    assert.equal(await js(`document.querySelector('${field}').value`), 'unconfirmed');
+    await key('Escape');
+    assert.equal(await js(`!!document.querySelector('${card}')`), false);
+    assert.equal(await js("document.querySelector('.reference-editor').textContent"), 'my draft');
+    await select();
+    assert.equal(await js(`document.querySelector('${field}').value`), '');
+    await win.webContents.insertText('why?');
+    await outside(); await settle();
+    assert.equal(await js(`document.querySelector('${field}').value`), 'why?');
+    await click('.quote-confirm');
+    await click('[data-session-id="Default chat"] .session-index-open');
+    await waitFor("!document.querySelector('.composer-quote')", 'quotes are scoped to their conversation');
+    await load('?app=1&workspaces=1&section=sessions&forkFixture=1');
+    await waitFor(`!!document.querySelector('[data-session-id="Shop chat 2"] .session-index-open')`, 'shop chat restored');
+    await click('[data-session-id="Shop chat 2"] .session-index-open');
+    await waitFor("document.querySelector('.reference-editor')?.textContent === 'my draft' && !!document.querySelector('.composer-quote-open')", 'draft and quote restored after reload');
+    await click('.composer-quote-open');
+    assert.equal(await js("document.querySelector('.quote-preview blockquote').textContent"), 'assistant one');
+    assert.equal(await js("document.querySelector('.quote-preview p').textContent"), 'why?');
+    await key('Escape');
+    await js("behavior.failWorkspaceSend(true)");
+    await click('.conversation-send-button');
+    await waitFor("document.querySelector('.conversation-compose-error')?.textContent.includes('EACCES')", 'send error');
+    assert.equal(await js("document.querySelector('.reference-editor').textContent"), 'my draft');
+    assert.equal(await js("!!document.querySelector('.composer-quote')"), true);
+    await js("behavior.failWorkspaceSend(false)");
+    await click('.conversation-send-button');
+    await waitFor("!document.querySelector('.composer-quote') && !document.querySelector('.reference-editor').textContent", 'sent quotes clear');
+    assert.equal((await state()).calls.findLast(c=>c.operation==='sessions.send').input.text, '> assistant one\n\nwhy?\n\nmy draft');
+    await click('[data-session-id="Default chat"] .session-index-open');
+    if (!wasExpanded) await click(shopToggle);
   });
   await step('assistant Markdown links open in the originating session file sidebar', async () => {
     await load('?app=1&workspaces=1&section=sessions&fileLinks=1');

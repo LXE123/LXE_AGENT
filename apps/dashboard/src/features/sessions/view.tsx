@@ -8,7 +8,7 @@ import "./session-tree.css";
 import { sessionBranchPath, sessionTree, type SessionBranch } from "./session-tree";
 import { Pencil } from "lucide-react";
 import { ApprovalGate, PermissionPicker } from "./permissions";
-import { ReferenceComposer, type ComposerQuoteAction } from "./ReferenceComposer";
+import { ReferenceComposer } from "./ReferenceComposer";
 import { UserReferenceText } from "./UserReferenceText";
 import { UserMessagePreview } from "./UserMessagePreview";
 import { FileAvailabilityBadge } from "../file-preview/FileFailure";
@@ -19,6 +19,9 @@ import { questionAnswerSummary, UserQuestionSummary } from "./user-question-summ
 import type { PendingUserQuestion, PendingApproval, PermissionMode } from "@lxe/desktop-protocol";
 import type { DesktopDraftAttachmentPayload } from "@lxe/desktop-protocol";
 import { conversationAttachments } from "./attachment-draft";
+import { ComposerQuotes } from "./ComposerQuotes";
+import { SelectionQuote } from "./SelectionQuote";
+import { composeQuotedMessage, removeQuotes, useComposerQuotes, type ComposerQuoteAction } from "./composer-quotes";
 import { useComposerDraft } from "./composer-draft";
 import { SentAttachmentList } from "./sent-attachments";
 import { FILE_TYPE_ICONS, FileAttachmentIcon, FileAttachmentInfo } from "./file-attachment-display";
@@ -1183,7 +1186,10 @@ export function ConversationComposer({
     tooMany: () => callbacksRef.current.t.conversation.tooManyScreenshots,
   });
   const attachments = attachmentDraft.items;
-  const hasDraft = Boolean(text.trim() || attachments.length);
+  const quotes = useComposerQuotes(conversationKey);
+  const composedText = composeQuotedMessage(quotes, text);
+  const message = composedText.trim();
+  const hasDraft = Boolean(message || attachments.length);
   useAutomationEditing(permissionSessionId, runtimeReady && hasDraft);
   const [dragActive, setDragActive] = useState(false);
   const textareaRef = useRef<HTMLDivElement>(null);
@@ -1196,7 +1202,7 @@ export function ConversationComposer({
   const actionLabel = showStop
     ? stopPending ? t.conversation.stopping : t.conversation.stop
     : sending ? t.conversation.sending : t.conversation.send;
-  const showCharacterCount = text.length >= Math.floor(8192 * 0.75);
+  const showCharacterCount = composedText.length >= Math.floor(8192 * 0.75);
   const selectFiles = () => {
     setError("");
     return attachmentDraft.stage(async () => {
@@ -1250,7 +1256,7 @@ export function ConversationComposer({
     };
   }, [runtimeReady, question, stageDroppedFiles]);
   const submit = async () => {
-    const message = text.trim();
+    if (composedText.length > 8192) { setError(t.conversation.quoteTooLong); return; }
     if (!runtimeReady || question || modelSaving || thinkingSaving || sending || attachmentDraft.pending > 0 || (!message && attachments.length === 0)) return;
     setSending(true);
     setError("");
@@ -1260,6 +1266,7 @@ export function ConversationComposer({
       await onSend(message, submitted);
       attachmentDraft.sent(submitted.map((item) => item.attachment_id));
       clearSentDraft(target, text);
+      removeQuotes(target, quotes.map(q => q.id));
       if (currentConversationKey.current !== target) return;
       if (textareaRef.current) textareaRef.current.style.height = "auto";
     } catch (cause) {
@@ -1291,7 +1298,8 @@ export function ConversationComposer({
           <InputAttachmentList draft attachments={attachments} onRemove={sending ? undefined : removeAttachment} />
         ) : null}
         {attachmentDraft.pending > 0 ? <span className="conversation-input-hint" role="status">{t.conversation.preparingAttachments}</span> : null}
-        <ReferenceComposer ref={textareaRef} quoteRef={quoteRef} session={conversationKey} value={text} onChange={setText}
+        <ComposerQuotes session={conversationKey} quotes={quotes} draft={text} quoteRef={quoteRef} editorRef={textareaRef} disabled={!runtimeReady} />
+        <ReferenceComposer ref={textareaRef} session={conversationKey} value={text} onChange={setText}
           disabled={!runtimeReady} placeholder={runtimeReady ? (activity?.active?.state === "running" ? t.conversation.steerPlaceholder : t.conversation.placeholder) : runtimeUnavailableMessage}
           onSubmit={() => void submit()} onFiles={files => {
             if (!runtimeReady || sending) return;
@@ -1335,7 +1343,7 @@ export function ConversationComposer({
             />
             {showCharacterCount ? (
               <span className="conversation-character-count">
-                {t.conversation.characterCount(formatNumber(text.length), formatNumber(8192))}
+                {t.conversation.characterCount(formatNumber(composedText.length), formatNumber(8192))}
               </span>
             ) : null}
             <button
@@ -1344,7 +1352,7 @@ export function ConversationComposer({
               data-mode={showStop ? "stop" : "send"}
               disabled={showStop
                 ? stopPending
-                : !runtimeReady || Boolean(question) || modelSaving || thinkingSaving || sending || attachmentDraft.pending > 0 || !hasDraft}
+                : !runtimeReady || Boolean(question) || modelSaving || thinkingSaving || sending || attachmentDraft.pending > 0 || composedText.length > 8192 || !hasDraft}
               onClick={() => void (showStop ? stop() : submit())}
               title={actionLabel}
               type="button"
@@ -1576,6 +1584,7 @@ export function SessionDetailView({
   }, [messageSessionId, openPreview, directory]);
   const rows = display?.rows ?? conversationRows(messages,
     [activity?.latest, activity?.active, ...(activity?.queued ?? [])].filter((turn): turn is DesktopConversationTurnPayload => Boolean(turn)), pendingMessages);
+  const bodyRef = useRef<HTMLDivElement>(null);
   const quoteRef = useRef<ComposerQuoteAction>(null);
   const linkMenu = useConversationLinkMenu({
     quote: quoteRef,
@@ -1604,7 +1613,7 @@ export function SessionDetailView({
           <PreviewHeaderActions />
         </div>
       </header></AppCaption>
-      <div className="conversation-body" onContextMenu={linkMenu.show}>
+      <div className="conversation-body" ref={bodyRef} onContextMenu={linkMenu.show}>
         {linkMenu.error && <div className="conversation-compose-error" role="alert">{linkMenu.error}</div>}
         <OpenMarkdownFileContext.Provider value={openMarkdownFile}>
           <ConversationWindow key={sessionKey} rows={process.rows} hasOlder={hasOlder} hasNewer={hasNewer}
@@ -1619,6 +1628,8 @@ export function SessionDetailView({
               onFork={onFork} forkDisabled={!!forking || !runtimeReady || row.turnId === activity?.active?.turn_id}
               onOpenFile={onOpenFile} onRevealFile={onRevealFile} onOpenAttachment={onOpenAttachment} attachmentSessionId={messageSessionId} />} />
         </OpenMarkdownFileContext.Provider>
+        {messageSessionId && runtimeReady && !question && !approvals.length &&
+          <SelectionQuote key={sessionKey} root={bodyRef} quoteRef={quoteRef} />}
         <div className="conversation-composer-dock">
           <ConversationComposer
             quoteRef={quoteRef}

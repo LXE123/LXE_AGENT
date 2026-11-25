@@ -1,0 +1,30 @@
+.composer-quotes { display: grid; gap: 3px; max-height: 24vh; overflow: auto; min-width: 0; }
+.composer-quote, .selection-quote, .quote-preview { color: var(--text); }
+.composer-quote { display: flex; align-items: center; padding: 2px 4px; border-radius: 8px; background: var(--cds-alpha-1); }
+.composer-quote button, .selection-quote button, .quote-preview button {
+  display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+  border: 0; background: transparent; color: var(--text-soft); font: inherit; cursor: pointer;
+}
+.composer-quote button:hover, .selection-quote button:hover, .quote-preview button:hover { color: var(--text); background: var(--cds-alpha-2); }
+.composer-quote button:focus-visible, .selection-quote button:focus-visible, .quote-preview button:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.composer-quote .composer-quote-open { flex: 1; min-width: 0; justify-content: flex-start; padding: 6px 8px; border-radius: 6px; text-align: left; font-size: .82rem; }
+.composer-quote-open > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.composer-quote-open > :is(svg, small) { flex: none; }
+.composer-quote-open small { margin-inline-start: auto; color: var(--muted); }
+.quote-icon { flex: none; width: 28px; height: 28px; border-radius: 6px; }
+.selection-quote, .quote-preview { background: var(--cds-surface-popover); border: 1px solid var(--border); box-shadow: var(--shadow-card); }
+.selection-quote { position: fixed; z-index: 50; border-radius: 10px; overflow: auto; max-height: 60vh; font-size: .82rem; }
+.quote-trigger, .quote-confirm { padding: 6px 10px; border-radius: 7px; }
+.selection-quote-card { box-sizing: border-box; width: 310px; max-width: 100%; padding: 9px; }
+.selection-quote-card blockquote, .quote-preview blockquote { margin: 0; padding-inline-start: 10px; border-inline-start: 2px solid var(--border-strong); color: var(--text-soft); }
+.selection-quote-card blockquote { overflow: hidden; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow-wrap: anywhere; }
+.selection-quote-card textarea { box-sizing: border-box; width: 100%; min-height: 56px; margin-block: 8px 4px; padding: 6px; resize: vertical; font: inherit; color: var(--text); background: var(--cds-surface-popover); border: 1px solid var(--border); border-radius: 6px; }
+.selection-quote-card textarea:focus-visible { outline: 1px solid var(--accent); }
+.selection-quote-card footer, .quote-preview header { display: flex; align-items: center; justify-content: space-between; }
+.selection-quote-card .quote-confirm { color: var(--text); background: var(--cds-alpha-1); }
+.selection-quote-card [role="alert"] { color: var(--danger); }
+.quote-preview { width: min(520px, 100%); max-height: 75vh; display: flex; flex-direction: column; gap: 14px; padding: 16px; border-radius: 14px; }
+.quote-preview-content { overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; }
+.quote-preview-content p { margin: 12px 0 0; }
+
+.quote-backdrop { z-index: 60; }

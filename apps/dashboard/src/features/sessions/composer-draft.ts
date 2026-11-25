@@ -1,3 +1,4 @@
+import { composeQuotedMessage, readQuotes, writeQuotes } from "./composer-quotes";
 import { useSyncExternalStore, type Dispatch, type SetStateAction } from "react";
 
 const keyFor = (key: string) => `lxe.composer-draft.${key}`;
@@ -25,13 +26,14 @@ export function prepareDraftMove(from: string, to: string): () => void {
   if (from === to) return () => {};
   const source = read(from), target = read(to);
   const merged = source && target ? `${target}\n\n${source}` : source || target;
-  if (merged.length > 8192) throw new Error("Draft exceeds 8192 characters; shorten it before switching workspaces.");
-  return () => { write(to, merged); write(from, ""); };
+  const quotes = [...readQuotes(to), ...readQuotes(from)];
+  if (composeQuotedMessage(quotes, merged).length > 8192) throw new Error("Draft exceeds 8192 characters; shorten it before switching workspaces.");
+  return () => { write(to, merged); write(from, ""); writeQuotes(to, quotes); writeQuotes(from, []); };
 }
 export function appendComposerDraftPrompt(storage: Pick<Storage, "getItem" | "setItem">, key: string, prompt: string): void {
   const previous = storage.getItem(keyFor(key)) ?? memory.get(key) ?? "";
   const next = previous ? `${previous}\n\n${prompt}` : prompt;
-  if (next.length > 8192) throw new Error("Draft exceeds 8192 characters; shorten it before adding a skill prompt.");
+  if (composeQuotedMessage(readQuotes(key), next).length > 8192) throw new Error("Draft exceeds 8192 characters; shorten it before adding a skill prompt.");
   storage.setItem(keyFor(key), next);
   memory.set(key, next); listeners.forEach(listener => listener());
 }

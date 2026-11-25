@@ -1,5 +1,6 @@
 import { expect, test } from "bun:test";
 import { appendComposerDraftPrompt, prepareDraftMove } from "../../../src/features/sessions/composer-draft";
+import { composeQuotedMessage, readQuotes, removeQuotes, writeQuotes } from "../../../src/features/sessions/composer-quotes";
 import { conversationAttachments, moveConversationAttachments } from "../../../src/features/sessions/attachment-draft";
 const callbacks = { changed() {}, error() {}, discard: async () => {}, tooMany: () => "Too many screenshots" };
 test("workspace switching merges text and attachments without overwriting or discarding registrations", () => {
@@ -18,4 +19,20 @@ test("oversized or pending draft moves leave both drafts intact", () => {
   expect(() => prepareDraftMove("large-a", "large-b")).toThrow("8192");
   const from = conversationAttachments("pending-a", callbacks); from.pending = 1;
   expect(() => moveConversationAttachments("pending-a", "pending-b")).toThrow("finish loading");
+});
+
+test("confirmed quotes move with their draft and only submitted quotes clear on acknowledgement", () => {
+  const one = { id: "1", text: "first\nline", comment: "" };
+  const two = { id: "2", text: "second", comment: "why?" };
+  writeQuotes("quote-target", [one]);
+  writeQuotes("quote-source", [two]);
+  prepareDraftMove("quote-source", "quote-target")();
+  expect(readQuotes("quote-source")).toEqual([]);
+  expect(composeQuotedMessage(readQuotes("quote-target"), "draft")).toBe("> first\n> line\n\n> second\n\nwhy?\n\ndraft");
+  removeQuotes("quote-target", ["1"]);
+  expect(readQuotes("quote-target")).toEqual([two]);
+  writeQuotes("quote-source", [{ ...one, text: "x".repeat(8190) }]);
+  expect(() => prepareDraftMove("quote-source", "quote-target")).toThrow("8192");
+  expect(readQuotes("quote-source")).toHaveLength(1);
+  expect(readQuotes("quote-target")).toEqual([two]);
 });
