@@ -5846,8 +5846,8 @@ h1 {
   overflow-wrap: anywhere;
 }
 
-.conversation-feed .markdown-file-link:is(:hover, :focus-visible) {
-  --file-link-underline: currentColor;
+.conversation-feed .message-markdown :is(a[href], .markdown-file-link):is(:hover, :focus-visible) {
+  --markdown-link-underline: currentColor;
 }
 
 /* A link the shell will not follow reads as the text it wraps, so nothing in
@@ -5873,13 +5873,9 @@ h1 {
 :root:not([data-theme="dark"]) .conversation-feed .message-markdown :is(a[href], .markdown-file-link) {
   color: #184f95;
   font-weight: 500;
-  text-decoration-color: var(--file-link-underline, #a3b7d4);
+  text-decoration-color: var(--markdown-link-underline, #a3b7d4);
   text-decoration-thickness: 1px;
   text-underline-offset: 3px;
-}
-
-:root:not([data-theme="dark"]) .conversation-feed .message-markdown a[href]:hover {
-  color: #2a78d6;
 }
 
 /* A quote carries no vertical padding of its own: the rail hugs the text and
@@ -6408,9 +6404,9 @@ code {
   color: #c3c2b7;
 }
 
-:root[data-theme="dark"] .conversation-feed :is(.message-card.role-assistant, .timeline-text.process-message-content) .message-markdown :is(a[href]:not(:hover), .markdown-file-link) {
+:root[data-theme="dark"] .conversation-feed :is(.message-card.role-assistant, .timeline-text.process-message-content) .message-markdown :is(a[href], .markdown-file-link) {
   color: #6da8ed;
-  text-decoration-color: var(--file-link-underline, #39506a);
+  text-decoration-color: var(--markdown-link-underline, #39506a);
 }
 
 :root[data-theme="dark"] .conversation-feed :is(.message-card.role-assistant, .timeline-text.process-message-content) .message-markdown :is(th, td) {

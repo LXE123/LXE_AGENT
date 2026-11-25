@@ -532,6 +532,7 @@ module.exports = async ({suite,win,url,js,step,load,waitFor,click,key,focus,sett
   await step('assistant Markdown links open in the originating session file sidebar', async () => {
     await load('?app=1&workspaces=1&section=sessions&fileLinks=1');
     const report = '.conversation-feed .markdown-file-link[title="reports/测试 report.md"]';
+    const website = '.conversation-feed .message-markdown a[href="https://example.com/docs"]';
     const shopToggle = '[data-workspace-directory="/fixture/shop"] .workspace-group-toggle';
     await waitFor(`Boolean(document.querySelector(${JSON.stringify(shopToggle)}))`, 'shop workspace');
     await click(shopToggle);
@@ -541,28 +542,31 @@ module.exports = async ({suite,win,url,js,step,load,waitFor,click,key,focus,sett
       await click(row);
       await waitFor(`document.querySelector('.conversation-header h2')?.textContent === ${JSON.stringify(session)} && Boolean(document.querySelector(${JSON.stringify(report)}))`, 'report link in selected chat');
       if (session === 'Default chat') {
-        const element = `document.querySelector(${JSON.stringify(report)})`;
-        const colors = () => js(`((s) => [s.color, s.textDecorationColor])(getComputedStyle(${element}))`);
-        for (const theme of ['light', 'dark']) {
-          // Following the latest output keeps programmatic scrolls at the bottom.
-          // A user wheel releases it, so a short window can bring the link into view.
-          await js(`document.documentElement.dataset.theme = ${JSON.stringify(theme)};
-            document.querySelector('.conversation-transcript').dispatchEvent(new WheelEvent('wheel', { bubbles: true, deltaY: -50 }));
-            ${element}.scrollIntoView({ block: 'center' })`);
+        async function checkHover(selector, theme) {
+          const element = `document.querySelector(${JSON.stringify(selector)})`;
+          const colors = () => js(`((s) => [s.color, s.textDecorationColor])(getComputedStyle(${element}))`);
+          await js(`${element}.scrollIntoView({ block: 'center' })`);
           win.webContents.sendInputEvent({ type: 'mouseMove', x: 1, y: 1 });
           await settle();
           const [text, underline] = await colors();
           assert.notEqual(underline, text);
           // The link can wrap; aim at its first line box.
           const point = await js(`((r) => ({x: Math.round(r.left + r.width / 2), y: Math.round(r.top + r.height / 2)}))(${element}.getClientRects()[0])`);
-          assert.ok(await js(`${element}.contains(document.elementFromPoint(${point.x}, ${point.y}))`),
-            `${theme} file link is visible at ${JSON.stringify(point)}: ` + await js(`document.elementFromPoint(${point.x}, ${point.y})?.outerHTML.slice(0, 200)`));
+          assert.ok(await js(`${element}.contains(document.elementFromPoint(${point.x}, ${point.y}))`), `${theme} ${selector} is visible`);
           win.webContents.sendInputEvent({ type: 'mouseMove', ...point });
-          await waitFor(`${element}.matches(':hover')`, theme + ' file link hover');
-          assert.deepEqual(await colors(), [text, text]);
+          await waitFor(`${element}.matches(':hover')`, `${theme} ${selector} hover`);
+          assert.deepEqual(await colors(), [text, text], `${theme} ${selector} hover colors`);
           win.webContents.sendInputEvent({ type: 'mouseMove', x: 1, y: 1 });
           await settle();
           assert.deepEqual(await colors(), [text, underline]);
+          return [text, underline];
+        }
+        for (const theme of ['dark', 'light']) {
+          // Release follow mode so both links can scroll into view.
+          await js(`document.documentElement.dataset.theme = ${JSON.stringify(theme)};
+            document.querySelector('.conversation-transcript').dispatchEvent(new WheelEvent('wheel', { bubbles: true, deltaY: -50 }))`);
+          const fileColors = await checkHover(report, theme);
+          assert.deepEqual(await checkHover(website, theme), fileColors);
         }
       }
       await focus(report);
@@ -602,7 +606,6 @@ module.exports = async ({suite,win,url,js,step,load,waitFor,click,key,focus,sett
     assert.ok((await state()).calls.some(call => call.operation === 'prepare' && call.input.ref.kind === 'linked'
       && call.input.ref.path === '/fixture/shared/reference.ts' && call.input.ref.session_id === 'Shop chat 1'));
 
-    const website = '.conversation-feed .message-markdown a[href="https://example.com/docs"]';
     await js(`Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: async text => { window.copied = text; } } });
       let live;
       window.lxe.tools = { subscribe: () => () => {}, call: async ({operation, input}) => {
