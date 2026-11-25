@@ -1,6 +1,7 @@
 import { DesktopVietnamSettingsService } from "./main/vietnam-settings";
 import { DesktopAmazonV2SettingsService } from "./main/amazon-v2-settings";
 import { sendEditingShortcut, titlebarMenuTemplate } from "./main/titlebar-menu";
+import { conversationLinkMenuTemplate, type ConversationMenuCommand } from "./main/conversation-link-menu";
 import { WINDOWS_TITLEBAR_COLOURS } from "./main/window-options";
 import type { DesktopTitlebarAction } from "@lxe/desktop-protocol";
 import { registerTeamSkillsGuest } from "./main/team-skills-view";
@@ -20,6 +21,7 @@ import { join } from "node:path";
 import {
   app,
   BrowserWindow,
+  clipboard,
   dialog,
   Menu,
   nativeTheme,
@@ -510,7 +512,31 @@ async function bootstrap(): Promise<void> {
   activeUpdates = updates;
   updates.start();
   let captionMenuOpen = false;
+  let linkMenuGeneration = 0;
   const ipcApplication: DesktopIpcApplication = {
+    showConversationLinkMenu: async request => {
+      const owner = window;
+      if (!owner || owner.isDestroyed()) return null;
+      const frame = owner.webContents.mainFrame;
+      const generation = ++linkMenuGeneration;
+      const current = () => generation === linkMenuGeneration && window === owner && !owner.isDestroyed() && owner.webContents.mainFrame === frame;
+      let choose: (command: ConversationMenuCommand | null) => void;
+      const selection = new Promise<ConversationMenuCommand | null>(resolve => { choose = resolve; });
+      const template = await conversationLinkMenuTemplate(request, gateway, {
+        copy: text => clipboard.writeText(text), openUrl: url => shell.openExternal(url), platform: process.platform,
+      }, command => choose(command));
+      if (!current()) return null;
+      const menu = Menu.buildFromTemplate(template);
+      const zoom = owner.webContents.getZoomFactor();
+      const cancel = () => choose(null);
+      owner.once("closed", cancel);
+      try {
+        menu.popup({ window: owner, x: Math.round(request.x * zoom), y: Math.round(request.y * zoom),
+          callback: () => setImmediate(cancel) });
+        const command = await selection;
+        return command && current() ? await command() : null;
+      } finally { owner.removeListener("closed", cancel); }
+    },
     showTitlebarMenu: async request => {
       const owner = window;
       if (desktopPlatform !== "win32" || !owner || owner.isDestroyed()) throw new Error("Windows titlebar menus are unavailable");
@@ -738,7 +764,7 @@ async function bootstrap(): Promise<void> {
       buttons: ["取消", "覆盖安装"], defaultId: 0, cancelId: 0, noLink: true,
     })).response === 1,
   });
-  trackFilePreviewLifecycle(window.webContents, () => gateway.releaseFilePreviews());
+  trackFilePreviewLifecycle(window.webContents, () => { ++linkMenuGeneration; gateway.releaseFilePreviews(); });
   window.webContents.on("context-menu", (_event, params) => {
     const template = editContextMenuTemplate(params);
     const ownerWindow = window;

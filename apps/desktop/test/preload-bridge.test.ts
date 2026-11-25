@@ -3,6 +3,23 @@ import { IPC_CHANNELS } from "../src/ipc-channels";
 import { createDesktopBridge, type IpcRendererPort } from "../src/preload-bridge";
 
 describe("preload bridge", () => {
+  test("external link menus need a gesture for the exact session and path", async () => {
+    const sent: string[] = [];
+    const port: IpcRendererPort = {
+      invoke: async <T>(channel: string) => { sent.push(channel); return null as T; },
+      on() {}, removeListener() {},
+    };
+    const bridge = createDesktopBridge(port, "darwin", undefined, (session, path) => session === "a" && path === "../report.md");
+    const show = bridge.desktop.showConversationLinkMenu!;
+    const ref = { kind: "linked", session_id: "a", path: "../report.md" } as const;
+    const menu = { kind: "file", ref, language: "zh", x: 1, y: 2 } as const;
+    await show({ ...menu, ref: { ...ref, session_id: "b" } });
+    await show({ ...menu, ref: { ...ref, path: "../other.md" } });
+    expect(sent).toEqual([]);
+    await show(menu);
+    expect(sent).toEqual([IPC_CHANNELS.conversationLinkMenu]);
+  });
+
   test("exposes only the typed Dashboard, desktop and file whitelist", async () => {
     const invocations: Array<{ channel: string; arguments: unknown[] }> = [];
     const listeners = new Map<string, (event: unknown, ...arguments_: unknown[]) => void>();
@@ -23,7 +40,7 @@ describe("preload bridge", () => {
     expect(Object.keys(bridge).sort()).toEqual(["dashboard", "desktop", "files", "tools"]);
     expect(Object.keys(bridge.dashboard)).toEqual(["call"]);
     expect(Object.keys(bridge.desktop).sort()).toEqual([
-      "showTitlebarMenu", "getUpdateState", "checkForUpdate", "downloadUpdate", "installUpdate",
+      "showTitlebarMenu", "showConversationLinkMenu", "getUpdateState", "checkForUpdate", "downloadUpdate", "installUpdate",
       "activateCloudEnrollment",
       "confirmCloudDevice", "refreshCloudContext", "clearCloudModelCache",
       "applyAppearance",

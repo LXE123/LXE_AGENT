@@ -28,7 +28,7 @@ function TabIcon({ tab }: { tab: PreviewTab }) {
     : ["pdf", "md", "txt", "doc", "docx"].includes(ext) ? FileText : File;
   return <Icon size={14} />;
 }
-interface Controls { session: string; shown: boolean; toggleRef: RefObject<HTMLButtonElement | null>; open(ref: SessionFileRef, name?: string, imageTarget?: "dialog" | "sidebar", line?: number, endLine?: number): Promise<void>; toggle(): void }
+interface Controls { session: string; shown: boolean; toggleRef: RefObject<HTMLButtonElement | null>; open(ref: SessionFileRef, name?: string, imageTarget?: "dialog" | "sidebar", line?: number, endLine?: number): Promise<void>; openBrowser(url: string): Promise<void>; toggle(): void }
 const Context = createContext<Controls | null>(null);
 export const usePreviewSidebar = () => useContext(Context);
 function storage() { try { return window.localStorage; } catch { return undefined; } }
@@ -96,7 +96,20 @@ export function FilePreviewLayout({ sessionId, children }: { sessionId: string; 
       return openTab({ ...current, tabs: current.tabs.filter(tab => !existing || tab.key !== existing.key || existing.key === key) }, { key, name: name ?? existing?.name ?? metadata?.name ?? ("path" in ref ? ref.path.split(/[\\/]/).pop()! : ref.id), ref });
     });
   }, [update]);
-  const controls = useMemo<Controls>(() => ({ session: sessionId, shown: layout.shown, toggleRef, open, toggle: () => { ++intent.current; focusToggle.current = true; update(current => current.tabs.length ? { ...current, shown: !current.shown } : openTab(current, { key: "start", name: toolsText.start, kind: "start" })); } }), [sessionId, layout.shown, open, update, toolsText.start]);
+  const openBrowser = useCallback(async (url: string) => {
+    const request = ++intent.current;
+    const id = `browser:${crypto.randomUUID()}`;
+    const api = toolBridge();
+    // The explicit click creates a live tab. Restoring a saved URL still requires confirmation.
+    const tab = await api.call({ operation: "browser.create", input: { sessionId, id, url } });
+    if (sessionNow.current !== sessionId || intent.current !== request) {
+      await api.call({ operation: "browser.close", input: { sessionId, id } });
+      return;
+    }
+    setImage(undefined);
+    update(current => openToolTab(current, { key: id, kind: "browser", name: toolsText.browser, url: tab.url }));
+  }, [sessionId, toolsText.browser, update]);
+  const controls = useMemo<Controls>(() => ({ session: sessionId, shown: layout.shown, toggleRef, open, openBrowser, toggle: () => { ++intent.current; focusToggle.current = true; update(current => current.tabs.length ? { ...current, shown: !current.shown } : openTab(current, { key: "start", name: toolsText.start, kind: "start" })); } }), [sessionId, layout.shown, open, openBrowser, update, toolsText.start]);
   useEffect(() => {
     if (!focusToggle.current) return;
     focusToggle.current = false;

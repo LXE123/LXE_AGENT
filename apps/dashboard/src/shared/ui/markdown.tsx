@@ -84,7 +84,7 @@ export const markdownComponents = {
       return <a {...props} href={target} rel="noreferrer noopener" target="_blank">{children}</a>;
     }
     const link = openFile && workspaceFileLink(target, openFile.directory);
-    if (openFile && link) return <button type="button" role="link" className="markdown-file-link" title={props.title ?? link.path + (link.line ? ":" + link.line : "") + (link.endLine ? "-" + link.endLine : "")}
+    if (openFile && link) return <button type="button" role="link" className="markdown-file-link" data-file-href={target} title={props.title ?? link.path + (link.line ? ":" + link.line : "") + (link.endLine ? "-" + link.endLine : "")}
       data-linked-session={link.kind === "linked" ? openFile.sessionId : undefined} data-linked-path={link.kind === "linked" ? link.path : undefined}
       onClick={event => {
         if (event.detail > 0 && window.getSelection()?.isCollapsed === false) return;

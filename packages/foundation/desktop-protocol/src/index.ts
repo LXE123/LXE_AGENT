@@ -704,6 +704,12 @@ export interface DesktopUsageBalance {
 export interface WorkspaceApplication { id: string; name: string; icon: string | null }
 
 export type { DesktopTitlebarAction, DesktopTitlebarMenuRequest } from "./titlebar";
+export type ConversationFileLinkRef = Extract<import("./file-preview").SessionFileRef, { path: string }>;
+export type ConversationLinkMenuRequest = { language: "zh" | "en"; x: number; y: number } & (
+  | { kind: "web"; url: string; copyMessage: boolean; fork: boolean }
+  | { kind: "file"; ref: ConversationFileLinkRef }
+);
+export type ConversationLinkMenuAction = "sidebar" | "preview" | "copy-message" | "fork" | null;
 
 export interface LxeDesktopBridge {
   tools?: import("./manual-tools").ManualToolsBridge;
@@ -712,6 +718,7 @@ export interface LxeDesktopBridge {
   desktop: {
     readonly platform: DesktopPlatform;
     showTitlebarMenu?(request: import("./titlebar").DesktopTitlebarMenuRequest): Promise<import("./titlebar").DesktopTitlebarAction>;
+    showConversationLinkMenu?(request: ConversationLinkMenuRequest): Promise<ConversationLinkMenuAction>;
     getUpdateState?(): Promise<import("./updates").DesktopUpdateState>;
     checkForUpdate?(): Promise<import("./updates").DesktopUpdateState>;
     downloadUpdate?(target: import("./updates").DesktopUpdateIdentity): Promise<import("./updates").DesktopUpdateState>;

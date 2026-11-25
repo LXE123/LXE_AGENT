@@ -1,5 +1,6 @@
 export const IPC_CHANNELS = {
   showTitlebarMenu: "lxe:desktop:titlebar-menu",
+  conversationLinkMenu: "lxe:desktop:conversation-link-menu",
   teamSkillsBrowser: "lxe:workbench:team-skills-browser",
   teamSkillVersions: "lxe:catalog:versions",
   teamSkillUninstall: "lxe:catalog:uninstall",

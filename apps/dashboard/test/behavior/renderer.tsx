@@ -176,7 +176,7 @@ function workspaceRpc(call: { operation: string; input: Record<string, unknown> 
         const ids = origin?.turn_id === "one" ? ["one"] : ["one", "two"];
         const messages = ids.flatMap((id, index) => ["user", "assistant"].map((role, block) => ({
           role, content: fileLinksFixture && role === "assistant"
-            ? `[查看完整分析](./reports/测试%20report.md) [Missing](./missing.txt)\n\n| 文件 | 位置 |\n| --- | --- |\n| [源文件](${session.workspace.directory}/scripts/source.ts) | [起点](${session.workspace.directory}/scripts/source.ts:42) · [终点](${session.workspace.directory}/scripts/source.ts:50) |\n\n[远处](./scripts/source.ts:6500) [越界行](./scripts/source.ts:9999) [对照](file:///fixture/shared/reference.ts#L42-L50)` : role + " " + id,
+            ? `[网站](https://example.com/docs) [查看完整分析](./reports/测试%20report.md) [Missing](./missing.txt)\n\n| 文件 | 位置 |\n| --- | --- |\n| [源文件](${session.workspace.directory}/scripts/source.ts) | [起点](${session.workspace.directory}/scripts/source.ts:42) · [终点](${session.workspace.directory}/scripts/source.ts:50) |\n\n[远处](./scripts/source.ts:6500) [越界行](./scripts/source.ts:9999) [对照](file:///fixture/shared/reference.ts#L42-L50)` : role + " " + id,
           display_id: id + role, display_group_id: id + block, created_at: index + 1,
           turn: { turn_id: id, status: "completed", elapsed_ms: 1, forkable: block === 1 },
         })));

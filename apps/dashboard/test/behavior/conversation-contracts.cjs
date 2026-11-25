@@ -589,11 +589,36 @@ module.exports = async ({suite,win,url,js,step,load,waitFor,click,key,focus,sett
     await waitFor("!!document.querySelector('.file-sidebar .code-line[data-line=\"1\"]')", 'return to beginning of distant source link');
     await click(link(9999));
     await waitFor("!!document.querySelector('.file-sidebar .file-line-missing')", 'line past end of file');
-    await click('.conversation-feed .markdown-file-link[data-linked-path="/fixture/shared/reference.ts"]');
+    const menu = async (selector, action) => js(`(() => {
+      window.lxe.desktop.showConversationLinkMenu = async request => { window.lastLinkMenu = request; return ${JSON.stringify(action)}; };
+      const link = document.querySelector(${JSON.stringify(selector)});
+      return !link.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, button: 2 }));
+    })()`);
+    assert.equal(await menu('.conversation-feed .markdown-file-link[data-linked-path="/fixture/shared/reference.ts"]', 'preview'), true);
+    assert.deepEqual(await js("lastLinkMenu.ref"), { kind: 'linked', session_id: 'Shop chat 1', path: '/fixture/shared/reference.ts' });
     await waitFor("document.querySelectorAll('.file-sidebar .file-target-line').length === 9", 'external file source range');
     assert.deepEqual(await js("Array.from(document.querySelectorAll('.file-sidebar .file-target-line'), row => Number(row.dataset.line))"),
       [42, 43, 44, 45, 46, 47, 48, 49, 50]);
     assert.ok((await state()).calls.some(call => call.operation === 'prepare' && call.input.ref.kind === 'linked'
       && call.input.ref.path === '/fixture/shared/reference.ts' && call.input.ref.session_id === 'Shop chat 1'));
+
+    const website = '.conversation-feed .message-markdown a[href="https://example.com/docs"]';
+    await js(`Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: async text => { window.copied = text; } } });
+      let live;
+      window.lxe.tools = { subscribe: () => () => {}, call: async ({operation, input}) => {
+        if (operation === 'browser.create') return live ??= { ...input, mountSrc: 'about:blank#menu-test', title: 'Docs' };
+        if (operation === 'browser.get') return live;
+        if (operation === 'browser.visible') return true;
+      } }; void 0;`);
+    assert.equal(await menu(website, 'copy-message'), true);
+    await waitFor("window.copied?.includes('[查看完整分析]')", 'copy the whole reply from the website menu');
+    assert.equal(await js("lastLinkMenu.fork"), true);
+    assert.equal(await menu(website, 'sidebar'), true);
+    await waitFor("!!document.querySelector('.sidebar-browser-frame:not([hidden])')", 'open website in an active browser tab');
+    assert.equal(await js("document.querySelector('.tool-browser-restore') === null"), true);
+    assert.equal(await js("JSON.parse(localStorage.getItem('lxe.file-preview.v1.Shop chat 1')).tabs.find(t => t.kind === 'browser').url"), 'https://example.com/docs');
+    assert.equal(await menu(website, 'fork'), true);
+    await waitFor("document.querySelector('.conversation-header h2')?.textContent === 'Default chat(1)'", 'fork from the linked reply');
+    assert.deepEqual((await state()).calls.filter(call => call.operation === 'sessions.fork').at(-1).input, { session_id: 'Shop chat 1', turn_id: 'one' });
   });
 };

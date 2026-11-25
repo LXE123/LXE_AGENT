@@ -167,6 +167,7 @@ export class DesktopGateway {
   }
   fileCall<K extends keyof DesktopFileOperations>(call: DesktopFileCall<K>): Promise<DesktopFileOperations[K]["result"]> { return this.fileService().call(call); }
   clickedFileLink(session: string, path: string): void { this.fileService().clickedFileLink(session, path); }
+  fileLinkMenu(ref: import("@lxe/desktop-protocol").ConversationFileLinkRef) { return this.fileService().fileLinkMenu(ref); }
   fileRead(handle: string, relativeImage?: string): Promise<Uint8Array> { return this.fileService().read(handle, relativeImage); }
   htmlPreviewDocument(token: string): Promise<string> { return this.fileService().htmlDocument(token); }
   releaseFilePreviews(): void { this.files?.releaseAll(); }

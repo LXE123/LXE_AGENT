@@ -1,4 +1,5 @@
 import { ForkMenu } from "./ForkMenu";
+import { useConversationLinkMenu } from "./use-conversation-link-menu";
 import { AppCaption } from "../../shared/app-frame";
 import { useAutomationEditing } from "./use-automation-editing";
 import { projectSessionTitle } from "../../api/session-titles";
@@ -1573,6 +1574,11 @@ export function SessionDetailView({
   }, [messageSessionId, openPreview, directory]);
   const rows = display?.rows ?? conversationRows(messages,
     [activity?.latest, activity?.active, ...(activity?.queued ?? [])].filter((turn): turn is DesktopConversationTurnPayload => Boolean(turn)), pendingMessages);
+  const linkMenu = useConversationLinkMenu({
+    rows, sessionId: messageSessionId, directory, openFile: openMarkdownFile?.open,
+    openBrowser: panel?.session === messageSessionId ? panel?.openBrowser : undefined,
+    fork: runtimeReady && !forking ? onFork : undefined, activeTurn: activity?.active?.turn_id,
+  });
   const process = useProcessRows(groupImageViewRows(rows), sessionKey);
   const [expandedRows, setExpandedRows] = useState<Map<string, boolean>>(() => new Map());
   useEffect(() => { setExpandedRows(new Map()); }, [sessionKey]);
@@ -1594,7 +1600,8 @@ export function SessionDetailView({
           <PreviewHeaderActions />
         </div>
       </header></AppCaption>
-      <div className="conversation-body">
+      <div className="conversation-body" onContextMenu={linkMenu.show}>
+        {linkMenu.error && <div className="conversation-compose-error" role="alert">{linkMenu.error}</div>}
         <OpenMarkdownFileContext.Provider value={openMarkdownFile}>
           <ConversationWindow key={sessionKey} rows={process.rows} hasOlder={hasOlder} hasNewer={hasNewer}
             connection={display?.connection} jumpVersion={display?.jump} onFollowingChange={onFollowingChange}

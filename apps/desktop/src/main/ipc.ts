@@ -1,4 +1,5 @@
 import { validateTitlebarMenu } from "./titlebar-menu";
+import { validateConversationLinkMenu } from "./conversation-link-menu";
 import { isAmazonV2Settings } from "./amazon-v2-settings";
 import { fileResult } from "./file-preview/errors";
 import { mkdirSync } from "node:fs";
@@ -48,6 +49,7 @@ import {
 } from "./ipc-validation";
 
 export interface DesktopIpcApplication {
+  showConversationLinkMenu?(request: import("@lxe/desktop-protocol").ConversationLinkMenuRequest): Promise<import("@lxe/desktop-protocol").ConversationLinkMenuAction>;
   showTitlebarMenu?(request: import("@lxe/desktop-protocol").DesktopTitlebarMenuRequest): Promise<import("@lxe/desktop-protocol").DesktopTitlebarAction>;
   isTrustedFileSender(event: Pick<Electron.IpcMainInvokeEvent, "sender" | "senderFrame">): boolean;
   clickedFileLink(session: string, path: string): void;
@@ -141,6 +143,10 @@ export function registerDesktopIpc(application: DesktopIpcApplication): () => vo
     if (!application.fileRead) throw new Error("File previews are unavailable");
     return application.fileRead(handle, relativeImage);
   }));
+  ipcMain.handle(IPC_CHANNELS.conversationLinkMenu, (event, input: unknown) => {
+    if (!application.isTrustedFileSender(event) || !application.showConversationLinkMenu) throw new Error("Conversation menus require the desktop main frame");
+    return application.showConversationLinkMenu(validateConversationLinkMenu(input));
+  });
   ipcMain.handle(IPC_CHANNELS.showTitlebarMenu, (event, input: unknown) => {
     if (!application.isTrustedFileSender(event)) throw new Error("Titlebar menus are only available to the desktop main frame");
     if (!application.showTitlebarMenu) throw new Error("Windows titlebar menus are unavailable");
