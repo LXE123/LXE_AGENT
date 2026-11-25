@@ -132,21 +132,34 @@ module.exports = async ({suite,win,url,js,step,load,waitFor,click,key,focus,sett
           const previous=rows[rows.indexOf(anchor)-1];
           if(!previous)throw new Error('Missing a mounted row above the reading anchor');
           const initial=anchor.getBoundingClientRect().top-top,scroll=root.scrollTop,samples=[];
-          const read=()=>samples.push({offset:anchor.getBoundingClientRect().top-top,scroll:root.scrollTop,connected:anchor.isConnected});
+          const initialHeight=previous.getBoundingClientRect().height;
+          let onSample;
           // The production observer queues its measurement into rAF. Sample after
           // it in that same frame: checking only the settled position misses a flash.
-          const observer=new ResizeObserver(()=>requestAnimationFrame(read));
+          const observer=new ResizeObserver(([entry])=>requestAnimationFrame(()=>{
+            const height=entry.borderBoxSize[0].blockSize;
+            samples.push({height,offset:anchor.getBoundingClientRect().top-top,scroll:root.scrollTop,connected:anchor.isConnected});
+            onSample?.(height);
+          }));
+          const waitForHeight=expected=>new Promise((resolve,reject)=>{
+            const timeout=setTimeout(()=>reject(new Error(document.documentElement.dataset.theme+
+              ': missing resize sample for height '+expected+'; observed '+JSON.stringify(samples))),4000);
+            onSample=height=>{
+              if(Math.abs(height-expected)>0.01)return;
+              clearTimeout(timeout);onSample=undefined;resolve();
+            };
+          });
           observer.observe(previous,{box:'border-box'});
           const delay=ms=>new Promise(resolve=>setTimeout(resolve,ms));
           const original=previous.style.paddingBottom,padding=parseFloat(getComputedStyle(previous).paddingBottom);
-          // Resizes 155 ms apart land just after the virtualizer's 150 ms scroll-end
-          // fallback, where a stale offset once marked a compensation as an upward
-          // scroll and the next resize went uncompensated.
+          // Cross the virtualizer's 150 ms scroll-end fallback between writes.
+          // A slow renderer must also get to sample each size before we reverse it.
           try{
-            await delay(200);
+            await Promise.all([delay(200),waitForHeight(initialHeight)]);
             for(let i=0;i<8;i++){
-              previous.style.paddingBottom=(padding+(i%2?0:4))+'px';
-              await delay(155);
+              const delta=i%2?0:4;
+              previous.style.paddingBottom=(padding+delta)+'px';
+              await Promise.all([delay(155),waitForHeight(initialHeight+delta)]);
             }
             return {initial,scroll,samples};
           }finally{observer.disconnect();previous.style.paddingBottom=original;}
