@@ -39,6 +39,16 @@ flowchart TB
 
 agentcli 与 lxeskillCLI 分别管理自己的数据，通过 CLI 契约协作。对 agentcli 而言，`lxeskill` 与其他外部命令行工具一样，由模型通过 `exec` 调用；它的安装与运行不是 Agent Harness 自身成立的前提。
 
+[packages/foundation](packages/foundation) 下放着 Electron 和 agentcli 共用的 TypeScript 代码，打包时直接编进各自的程序里。它不是第四个模块：没有自己的进程，也不保存任何数据。lxeskillCLI 是 Python 写的，用不到这些代码。
+
+| 包 | 内容 |
+| --- | --- |
+| [protocol](packages/foundation/protocol) | 跨进程消息的格式定义，例如 Agent 任务和事件 |
+| [desktop-protocol](packages/foundation/desktop-protocol) | Electron 与 agentcli 之间 JSON-RPC 的类型 |
+| [core](packages/foundation/core) | 日志、环境变量、工作区路径等通用工具 |
+
+这里只放两类东西：多个模块都要用的通用工具，以及模块之间的协议定义。只有一个模块用到的代码，放回那个模块自己的目录；某个模块的业务逻辑和数据读写，也不要放进来。否则 Electron 和 agentcli 会经由这些共享代码绑在一起，模块之间的边界就看不清了。
+
 [skills/](skills) 存放通用和业务 Skill，为模型提供任务知识、工作上下文与操作指引，实际操作由工具或程序执行。Office 的三种调用方式见 [Office 文件能力](docs/office-runtime.md)。
 
 ## 安装与使用
