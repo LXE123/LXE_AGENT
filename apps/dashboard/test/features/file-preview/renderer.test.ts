@@ -49,6 +49,6 @@ test("file previews work in the isolated Chromium renderer with React 19", async
     expect(code, `${stdout}\n${stderr}`).toBe(0);
     const report = stdout.split("\n").find(line => line.startsWith("LXE_PREVIEW_RESULT="));
     expect(report).toBeDefined();
-    expect(JSON.parse(report!.slice(19)).passed.length).toBe(21);
+    expect(JSON.parse(report!.slice(19)).passed.length).toBe(22);
   } finally { clearTimeout(timer); if (child.exitCode === null) { child.kill(); await child.exited; } rmSync(profile, { recursive: true, force: true, maxRetries: 5 }); }
 }, 115_000);
