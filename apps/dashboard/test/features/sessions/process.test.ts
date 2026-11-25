@@ -2,6 +2,7 @@ import { expect, test } from "bun:test";
 import { conversationRows, type ConversationRow } from "../../../src/features/sessions/presentation";
 import { processHeaders, reconcileProcesses, visibleProcessRows } from "../../../src/features/sessions/process";
 import type { SessionMessage } from "../../../src/api/payloads";
+import { compactionLive } from "./compaction-fixture-data";
 
 const history = (status = "completed") => [
   {role:"user",content:"question",display_id:"user",client_message_id:"client"},
@@ -44,6 +45,47 @@ test("failed and cancelled history remains expanded and terminal status survives
 test("a final-only reply has no empty process toggle",()=>{
   const rows=conversationRows([{display_group_id:"g",id:"answer",role:"assistant",content:"only answer"}],[],[]);
   expect(processHeaders(rows)).toHaveLength(0);
+});
+
+test("blank thinking at the beginning, middle and end of a saved reply adds no rows or disclosure", () => {
+  const messages: SessionMessage[] = [{ role: "assistant", display_group_id: "g", id: "reply", content: [
+    { type: "thinking", thinking: "", signature: "saved" },
+    { type: "text", text: "First" },
+    { type: "thinking", thinking: " \t\n" },
+    { type: "text", text: "Last" },
+    { type: "thinking" },
+  ] }];
+  const rows = conversationRows(messages, [], []);
+  expect(rows.filter(row => row.kind === "message").map(row => row.id)).toEqual(["reply:1", "reply:3"]);
+  expect(processHeaders(rows)).toHaveLength(0);
+  expect(messages[0]!.content).toHaveLength(5);
+});
+
+test("a streamed thinking part first becomes visible with text, a redaction notice or an error", () => {
+  const turn = compactionLive();
+  const part = { type: "thinking" as const, part_id: "reply:0", sequence: 0, text: " \n", redacted_count: 0, status: "streaming" as const };
+  for (const [update, visible] of [
+    [{}, false], [{ text: "A check" }, true], [{ redacted_count: 1 }, true], [{ status: "error" }, true],
+  ] as const) {
+    turn.stream!.process_parts = [{ ...part, ...update }];
+    const rows = conversationRows([], [turn], []);
+    expect(rows.some(row => row.id === part.part_id)).toBe(visible);
+    expect(processHeaders(rows)).toHaveLength(visible ? 1 : 0);
+    expect(rows.some(row => row.kind === "status" && row.status === "running")).toBe(true);
+  }
+});
+
+test("saved redaction, failure and attachments survive even without thinking text", () => {
+  const message: SessionMessage = { role: "assistant", display_group_id: "g", id: "reply", content: [{ type: "thinking" }] };
+  for (const addition of [
+    { content: [{ type: "redacted_thinking", data: "hidden" }] },
+    { content: [{ type: "thinking", redacted: true }] },
+    { stopReason: "error" },
+    { attachments: [{ attachment_id: "file", name: "note.txt", size_bytes: 1, media_type: "text/plain" }] },
+  ]) {
+    const rows = conversationRows([{ ...message, ...addition }], [], []);
+    expect(rows.some(row => row.id === "reply:0")).toBe(true);
+  }
 });
 
 test("a reply without process keeps its status above the answer through completion and history handoff",()=>{

@@ -28,7 +28,7 @@ function rowBottomPadding(row: ConversationRow, next: ConversationRow | undefine
   return row.presentation === "process" ? 6 : 12;
 }
 
-function isBlankToolSeparator(row: ConversationRow) {
+function isBlankTextRow(row: ConversationRow) {
   const message = row.message;
   if (row.kind !== "message" || message?.role !== "assistant" || row.status === "error"
     || message.attachments?.length || message.tool_calls) return false;
@@ -37,7 +37,6 @@ function isBlankToolSeparator(row: ConversationRow) {
   if (!Array.isArray(content) || content.length !== 1) return false;
   const block = content[0];
   if (!isRecord(block)) return false;
-  if (block.type === "thinking" && !block.redacted) return !String(block.thinking ?? "").trim();
   return block.type === "text" && !String(block.text ?? "").trim();
 }
 
@@ -49,7 +48,7 @@ function omitBlankRowsAroundTools(source: ConversationRow[]) {
     const group = row.kind === "process" ? row.id : toolCardGroup(row);
     if (!group) continue;
     let next = i + 1;
-    while (next < source.length && isBlankToolSeparator(source[next]!) && processId(source[next]!) === group) next++;
+    while (next < source.length && isBlankTextRow(source[next]!) && processId(source[next]!) === group) next++;
     const following = source[next];
     if (toolCardGroup(following) === group ||
       (row.kind === "tool" && following?.presentation === "final" && processId(following) === group)) i = next - 1;
