@@ -11,7 +11,7 @@ const unusedFileAction = async () => { throw new Error("Markdown fixture has no 
 // already has dedicated coverage in shared/skill-preview.test.tsx.
 export function MarkdownFixture({ surface, content, status }: { surface: MarkdownSurface; content: string; status?: string }) {
   if (surface === "skill") return <SkillDetailDialog themeClassName="capabilities-theme"
-    title="Markdown preview" skill={{ name: "markdown-fixture", type: "default", description: "",
+    title="Markdown preview" skill={{ name: "markdown-fixture", type: "default", description: "Skill description for the file preview.",
       location: "/skills/markdown-fixture/SKILL.md", commands: [], references: [] }}
     close={noop} files={["SKILL.md", "reference.md"]} selectedFile="reference.md" onSelectFile={noop} content={content}
   />;

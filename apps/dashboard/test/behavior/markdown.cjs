@@ -46,12 +46,13 @@ module.exports = async ({ win, js, step, settle, waitFor, focus, key }) => {
     await js("document.documentElement.dataset.theme='light'");
     await resize(1280, 820);
   });
-  await step('keyboard focus on the skill file picker fits inside the scroll viewport', async () => {
+  await step('skill file picker has even section gaps and room for keyboard focus', async () => {
     await mount('skill', 'Reference paragraph.\n\n'.repeat(80));
     win.webContents.debugger.attach('1.3');
     try {
       await win.webContents.debugger.sendCommand('Emulation.setFocusEmulationEnabled', { enabled: true });
-      for (const theme of ['dark', 'light']) {
+      for (const [theme, width] of [['dark', 1280], ['light', 380]]) {
+        await resize(width, 820);
         await js(`document.documentElement.dataset.theme = '${theme}'`);
         await focus('.skill-detail-header-actions button');
         await key('Tab', ['shift']);
@@ -59,15 +60,23 @@ module.exports = async ({ win, js, step, settle, waitFor, focus, key }) => {
           const picker = document.querySelector('.skill-file-select:focus-visible');
           if (!picker) return null;
           const viewport = picker.closest('.modal-content');
-          return { ring: getComputedStyle(picker).boxShadow,
-            topGap: picker.getBoundingClientRect().top - viewport.getBoundingClientRect().top };
+          const select = picker.getBoundingClientRect();
+          const description = document.querySelector('.skill-detail-description').getBoundingClientRect();
+          const body = viewport.querySelector('.skill-detail-body');
+          const divider = body.getBoundingClientRect().top;
+          const firstBlock = body.querySelector('.skill-markdown > :first-child').getBoundingClientRect();
+          return { ring: getComputedStyle(picker).boxShadow, topGap: select.top - viewport.getBoundingClientRect().top,
+            sectionGaps: [select.top - description.bottom, divider - select.bottom,
+              firstBlock.top - divider - body.clientTop] };
         })()`);
         assert.ok(layout, theme + ': keyboard focus reached the picker');
         assert.notEqual(layout.ring, 'none');
         assert.ok(layout.topGap >= 3, `${theme}: the 3px focus ring has only ${layout.topGap}px of clearance`);
+        assert.deepEqual(layout.sectionGaps, [16, 16, 16], `${theme} at ${width}px: section gaps`);
       }
     } finally {
       win.webContents.debugger.detach();
+      await resize(1280, 820);
     }
   });
   for (const surface of ["conversation", "skill"]) {
