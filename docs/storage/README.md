@@ -29,7 +29,7 @@ session、route 和 usage 更新使用各自数据库事务。Gateway 创建 ses
 
 独立 CLI 为每个持久化 thread 使用单独的数据库，并用独占锁保证同一时刻只有一个 `exec resume` 写入。`--ephemeral` 改用临时存储并在结束时删除，具体规则见 [Agent CLI exec](../harness/runtime/agent_cli_exec.md#会话与存储)。
 
-测试 fixture 或旧源码环境里仍可能出现 `local_agent.sqlite3` 这个文件名；它不是 Desktop 当前默认的单库布局。
+独立运行 `lxeskill` 时，紫鸟会话缓存和雅仓导出状态默认共用数据目录下的 `db/lxeskill.sqlite3`，也可以通过 `LXE_SQLITE_DB_PATH` 指定数据库。旧版本独立运行时写入 `db/local_agent.sqlite3` 的紫鸟缓存，会在后续使用浏览器时按实际会话状态重新建立。
 
 ## 文件存储
 

@@ -3,12 +3,11 @@ from __future__ import annotations
 
 from contextlib import contextmanager
 import json
-import os
-from pathlib import Path
 import sqlite3
 import time
-from shared.process_lock import interprocess_lock
+from shared.db.sqlite.engine import database_path
 from shared.filesystem import filesystem_path
+from shared.process_lock import interprocess_lock
 from shared.repository import state_root
 from .errors import YacangError
 
@@ -17,8 +16,7 @@ class ExportState:
     def __init__(self, account_id):
         self.account_id = account_id
         self.root = filesystem_path(state_root() / "db" / "lxeskill" / "yacang")
-        # Desktop injects its Python-owned database; never touch the Agent database.
-        self.db = filesystem_path(Path(os.getenv("LXE_SQLITE_DB_PATH") or state_root() / "db" / "lxeskill.sqlite3"))
+        self.db = filesystem_path(database_path())
 
     @contextmanager
     def connection(self):
