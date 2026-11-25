@@ -56,10 +56,16 @@ module.exports = async ({ win, js, step, settle, waitFor, focus, key }) => {
             return { page:document.documentElement.scrollWidth, viewport:innerWidth, feed:bounds.toJSON(),
               root:root.getBoundingClientRect().toJSON(), table:table.getBoundingClientRect().toJSON(),
               scrollWidth:table.scrollWidth, clientWidth:table.clientWidth, text:table.textContent,
+              headerFill:getComputedStyle(table.querySelector('th')).backgroundColor,
+              cellFill:getComputedStyle(table.querySelector('td')).backgroundColor,
+              feedFill:getComputedStyle(feed).backgroundColor,
               lines:Array.from(range.getClientRects()).map(r=>({left:r.left,right:r.right})) };
           })()`);
           const context = `${surface}/${theme}/${width}: ${JSON.stringify(layout)}`;
           assert.ok(layout.text.includes(cell), 'table preserves the full streamed cell');
+          assert.notEqual(layout.cellFill, 'rgba(0, 0, 0, 0)', context);
+          assert.notEqual(layout.cellFill, layout.feedFill, context);
+          assert.notEqual(layout.cellFill, layout.headerFill, context);
           assert.ok(layout.page <= layout.viewport + 1, context);
           assert.ok(layout.root.right <= layout.feed.right + 1 && layout.table.right <= layout.feed.right + 1, context);
           assert.ok(layout.scrollWidth > layout.clientWidth, 'wide table scrolls inside its own wrapper');

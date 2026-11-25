@@ -6423,7 +6423,7 @@ code {
 }
 
 :root[data-theme="dark"] .conversation-feed :is(.message-card.role-assistant, .timeline-text.process-message-content) .message-markdown td {
-  background: transparent;
+  background: #1c1c1c;
 }
 
 /* Preserve the Markdown palette independently of enclosing UI theme aliases. */
