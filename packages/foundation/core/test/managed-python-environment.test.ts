@@ -16,3 +16,12 @@ test("managed launches ignore inherited Python configuration without changing th
   expect(inherited.PYTHONHOME).toBe("/foreign");
   expect(inherited.PYTHONNOUSERSITE).toBe("0");
 });
+
+test("managed launches let lxeskill choose its database under LXE_DATA_ROOT", () => {
+  const prepared = managedPythonEnvironment({
+    LXE_DATA_ROOT: "/data", LXE_SQLITE_DB_PATH: "/standalone/business.sqlite3", lxe_sqlite_db_path: "/lowercase.sqlite3",
+    LXE_AGENT_SQLITE_DB_PATH: "/data/db/agent.sqlite3",
+  });
+  expect(Object.keys(prepared).filter(key => key.toUpperCase() === "LXE_SQLITE_DB_PATH")).toEqual([]);
+  expect(prepared).toMatchObject({ LXE_DATA_ROOT: "/data", LXE_AGENT_SQLITE_DB_PATH: "/data/db/agent.sqlite3" });
+});

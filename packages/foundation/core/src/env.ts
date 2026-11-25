@@ -5,8 +5,11 @@ export function managedPythonEnvironment(env: Environment): Record<string, strin
   const result = { ...env };
   // Match case-insensitively for Windows. Removing the whole namespace also
   // prevents PYTHONINSPECT/PYTHONUSERBASE/etc. from changing controlled launches.
+  // A managed launch keeps lxeskill state under LXE_DATA_ROOT, where lxeskill
+  // picks its own database; an inherited standalone override must not redirect it.
   for (const key of Object.keys(result)) {
-    if (key.toUpperCase().startsWith("PYTHON")) delete result[key];
+    const name = key.toUpperCase();
+    if (name.startsWith("PYTHON") || name === "LXE_SQLITE_DB_PATH") delete result[key];
   }
   return {
     ...result,

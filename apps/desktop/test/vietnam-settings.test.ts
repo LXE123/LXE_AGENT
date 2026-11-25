@@ -17,7 +17,7 @@ test("settings use the lxeskill entrypoint and pass parameters and selections as
   const store = service(async (args, options) => {
     calls.push(args);
     expect(options.env?.LXE_DATA_ROOT).toContain("vietnam-settings-");
-    expect(options.env?.LXE_SQLITE_DB_PATH).toEndWith("lxeskill.sqlite3");
+    expect(options.env).not.toHaveProperty("LXE_SQLITE_DB_PATH");
     expect(options.env?.LXE_WORKSPACE_ROOT).toEndWith("workspace");
     return { stdout: JSON.stringify({ type: "result", ok: true, data: { success: true, data: args[4] === "export" ? { path: args[6] } : state } }), stderr: "", error: null };
   });

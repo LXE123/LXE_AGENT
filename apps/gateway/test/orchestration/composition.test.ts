@@ -318,4 +318,15 @@ describe("direct Gateway composition", () => {
     });
     await composition.stop();
   });
+
+  test("session bindings default to the data root, not to the lxeskill database location", () => {
+    const root = mkdtempSync(join(tmpdir(), "lxe-bindings-composition-"));
+    roots.push(root);
+    const composition = createDirectGatewayComposition({
+      projectRoot: join(root, "project"), defaultWorkspace: () => testWorkspace, storage: storage(),
+      environment: { LXE_DATA_ROOT: root, LXE_SQLITE_DB_PATH: join(root, "elsewhere", "business.sqlite3") },
+      runtime: { isReady: true, start: async () => undefined, stop: async () => undefined, runTurn: async () => { throw new Error("not started"); } },
+    });
+    expect(composition.parts.bindings.path).toBe(join(root, "db", "sessions.json"));
+  });
 });

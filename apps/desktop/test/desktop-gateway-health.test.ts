@@ -14,7 +14,7 @@ const serviceFor = (overrides: Partial<Options> = {}) => {
   const service = new DesktopLxeSkillHealth({
     executablePath: join(process.cwd(), ".venv", process.platform === "win32" ? "Scripts/lxeskill.exe" : "bin/lxeskill"),
     dataRoot: root, recovery: "repair CLI",
-    environment: { ...process.env, LOCAL_LOGS_ENABLED: "0", LXE_DATA_ROOT: root, LXE_SQLITE_DB_PATH: join(root, "lxeskill.sqlite3") },
+    environment: { ...process.env, LOCAL_LOGS_ENABLED: "0", LXE_DATA_ROOT: root },
     ...overrides,
   });
   services.push(service); return service;
@@ -35,7 +35,8 @@ describe("desktop lxeskill health", () => {
         expect(file).toContain("lxeskill");
         expect(args).toEqual(["list"]);
         expect(options.timeout).toBe(30_000);
-        expect(options.env).toMatchObject({ LXE_SQLITE_DB_PATH: "/business.sqlite3", PYTHONNOUSERSITE: "1" });
+        expect(options.env).toMatchObject({ PYTHONNOUSERSITE: "1" });
+        expect(options.env).not.toHaveProperty("LXE_SQLITE_DB_PATH");
         expect(options.env).not.toHaveProperty("LXE_AGENT_SQLITE_DB_PATH");
         expect(options.env).not.toHaveProperty("LXE_USER_SKILLS_ROOT");
         return success();
