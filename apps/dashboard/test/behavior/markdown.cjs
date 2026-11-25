@@ -11,12 +11,38 @@ module.exports = async ({ win, js, step, settle, waitFor, focus, key }) => {
     await settle();
     assert.equal(await js("document.querySelectorAll('.message-markdown').length"), 1);
   };
-  await step('streamed wide tables stay scrollable without widening surrounding prose before turn completion', async () => {
+  await step('comparison tables wrap long prose within the chat column', async () => {
+    const comparison = [
+      '| 项目 | npx 缓存的使用方式和下载位置 | npm 全局安装 |',
+      '| --- | --- | --- |',
+      '| 怎么用 | `npx rea-agents@6.9.0 --version`，可以每次指定版本。 | 安装后直接运行命令。 |',
+      '| 缓存 | 缓存被清理后，下次需要重新下载；不适合把缓存里的具体路径当长期配置。 | A global installation gives the command a stable location for repeated use. |',
+    ].join('\n');
+    for (const width of [1280, 380]) {
+      await resize(width, 820);
+      for (const surface of ['streaming', 'conversation']) {
+        await mount(surface, comparison);
+        const layout = await js(`(() => {
+          const wrapper = document.querySelector('.markdown-table-scroll');
+          const cells = wrapper.querySelector('tbody tr:last-child').cells;
+          const text = document.createRange();
+          text.selectNodeContents(cells[1]);
+          return { visible: wrapper.clientWidth, full: wrapper.scrollWidth, lines: text.getClientRects().length,
+            label: cells[0].clientWidth, description: cells[1].clientWidth };
+        })()`);
+        assert.ok(layout.visible > 0 && layout.full <= layout.visible + 1, 'all three columns fit');
+        assert.ok(layout.lines > 1, 'the long description wraps within its own cell');
+        if (width === 1280) assert.ok(layout.label < layout.description, 'short labels leave room for prose');
+      }
+    }
+  });
+  await step('ten-column tables stay scrollable without widening surrounding prose before turn completion', async () => {
     const prose = '测量条件与证据等级：正文应当在聊天列内自动换行。'.repeat(12);
-    const header = '| 项目 | Claude 值 | 证据 | LXE 当前 | 视觉影响 |\n|---|---|---|---|---|';
-    const cell = 'unbroken-evidence-'.repeat(60);
+    const header = '| 项目 | Claude 值 | 证据 | LXE 当前 | 视觉影响 | 主题 | 字号 | 平台 | 版本 | 备注 |\n' +
+      '|---'.repeat(10) + '|';
+    const cell = '标题的字号和行高随主题设置变化。';
     const partial = `${prose}\n\n${header}\n| 标题尺寸 | ${cell}`;
-    const complete = `${partial} | 测试页 | 14px | 对照 |\n\n${prose}`;
+    const complete = `${partial} | 测试页 | 14px | 对照 | 浅色 | 默认 | 桌面 | 当前 | 完成 |\n\n${prose}`;
     for (const width of [1280, 380]) {
       await resize(width, 820);
       for (const theme of ['light', 'dark']) {

@@ -113,9 +113,6 @@ export const markdownComponents = {
       </code>
     );
   },
-  // A bare <table> in a narrow column shrinks to fit and breaks names and dates
-  // mid-word. The wrapper takes the overflow so the table can stay at its
-  // natural width and scroll instead.
   table({ children, ...props }) {
     return (
       <div className="markdown-table-scroll">

@@ -5933,8 +5933,6 @@ h1 {
   color: inherit;
 }
 
-/* The wrapper owns horizontal overflow so tables keep their natural width
-   instead of compressing long values. */
 .markdown-table-scroll {
   max-width: 100%;
   overflow-x: auto;
@@ -5950,14 +5948,15 @@ h1 {
 }
 
 .message-markdown table {
-  width: max-content;
-  min-width: 100%;
+  width: 100%;
   border-collapse: separate;
   border-spacing: 3px;
 }
 
 .message-markdown th,
 .message-markdown td {
+  /* When the columns no longer fit at a readable width, scroll the wrapper. */
+  min-width: 6rem;
   padding: 7px 11px;
   border: 0;
   border-radius: 6px;
@@ -5972,7 +5971,6 @@ h1 {
   color: var(--text-strong);
   font-size: 0.75rem;
   font-weight: 650;
-  white-space: nowrap;
 }
 
 .message-block {
