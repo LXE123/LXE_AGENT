@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { delimiter, join } from "node:path";
 import { LxeSkillClient, LxeSkillError, settingsPayload } from "../src/main/lxeskill-client";
@@ -137,26 +137,51 @@ process.stderr.write("fixture traceback\\n"); process.exitCode = 4;
     expect(Date.now() - started).toBeLessThan(4_000);
   });
 
-  test("returns at the deadline when a helper keeps the pipes open after the command exited", async () => {
-    const { client, root } = fixtureClient("");
-    const pidPath = join(root, "helper.pid");
-    writeFileSync(join(root, "lxeskill-fixture.mjs"), `
+  const helperFixture = (body: string) => {
+    const fixture = fixtureClient("");
+    const pidPath = join(fixture.root, "helper.pid");
+    writeFileSync(join(fixture.root, "lxeskill-fixture.mjs"), `
 const { spawn } = await import("node:child_process");
 const { writeFileSync } = await import("node:fs");
 const helper = spawn(process.execPath, ["-e", "setTimeout(() => {}, 5_000)"], { stdio: ["ignore", "inherit", "inherit"] });
 writeFileSync(${JSON.stringify(pidPath)}, String(helper.pid));
-helper.unref();
+${body}
 `, "utf8");
-    const started = Date.now();
-    expect((await failure(client.run(["x"], { timeoutMs: 400 }))).message).toContain("lxeskill timed out after 400ms");
-    expect(Date.now() - started).toBeLessThan(2_500);
-    if (process.platform !== "win32") {
-      const helper = Number(readFileSync(pidPath, "utf8"));
-      const alive = () => { try { process.kill(helper, 0); return true; } catch { return false; } };
-      const deadline = Date.now() + 2_000;
+    const alive = () => {
+      try { process.kill(Number(readFileSync(pidPath, "utf8")), 0); return true; } catch { return false; }
+    };
+    const waitUntilGone = async () => {
+      const deadline = Date.now() + 3_000;
       while (alive() && Date.now() < deadline) await new Promise(resolve => setTimeout(resolve, 20));
-      expect(alive()).toBe(false);
+      return !alive();
+    };
+    return { client: fixture.client, pidPath, waitUntilGone };
+  };
+
+  test("does not wait for a helper that outlives the command", async () => {
+    const { client, waitUntilGone } = helperFixture("helper.unref();");
+    const started = Date.now();
+    const message = (await failure(client.run(["x"], { timeoutMs: 400 }))).message;
+    expect(Date.now() - started).toBeLessThan(2_500);
+    if (process.platform === "win32") {
+      // Windows closes the command's pipes when it exits, even though the helper inherited them.
+      expect(message).toContain("lxeskill produced no result");
+    } else {
+      // The helper holds the pipes open; the deadline stops its process group and closes them.
+      expect(message).toContain("lxeskill timed out after 400ms");
+      expect(await waitUntilGone()).toBe(true);
     }
+  });
+
+  test("cancellation also ends tools the running command started", async () => {
+    const { client, pidPath, waitUntilGone } = helperFixture("setInterval(() => {}, 1_000);");
+    const controller = new AbortController();
+    const pending = client.run(["x"], { timeoutMs: 10_000, signal: controller.signal });
+    const deadline = Date.now() + 5_000;
+    while (!existsSync(pidPath) && Date.now() < deadline) await new Promise(resolve => setTimeout(resolve, 20));
+    controller.abort();
+    expect((await failure(pending)).cancelled).toBe(true);
+    expect(await waitUntilGone()).toBe(true);
   });
 
   test("keeps the business error when stderr is long", async () => {
