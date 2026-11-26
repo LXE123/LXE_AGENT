@@ -49,6 +49,7 @@ import {
 import { publicDashboardChannelHealth } from "./dashboard-channel-health";
 import { DesktopLxeSkillHealth } from "./lxeskill-health";
 import { listLxeSkillCommands } from "./lxeskill-commands";
+import { desktopLxeSkillClient } from "./lxeskill-client";
 import type { LxeSkillQueryOptions } from "@lxe/core";
 import {
   previewConversationAttachment,
@@ -254,9 +255,7 @@ export class DesktopGateway {
       executablePath: this.options.paths.lxeskillExecutablePath, cwd: this.options.paths.dataRoot, environment: { ...environment },
     };
     this.lxeskillHealth = new DesktopLxeSkillHealth({
-      executablePath: this.options.paths.lxeskillExecutablePath,
-      dataRoot: this.options.paths.dataRoot,
-      environment: { ...environment },
+      client: desktopLxeSkillClient(this.options.paths),
       recovery: this.options.packaged ? "Reinstall or rebuild LXE Agent"
         : `Run uv sync --frozen --all-groups --python 3.12.10 in ${this.options.paths.sourceRoot}`,
       onChanged: () => this.publishHealth(),

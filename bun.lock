@@ -14,7 +14,6 @@
       "version": "0.1.0",
       "dependencies": {
         "@earendil-works/pi-codemode": "1.5.0",
-        "@larksuiteoapi/node-sdk": "1.70.0",
         "@lxe/core": "workspace:*",
         "@lxe/desktop-protocol": "workspace:*",
         "@lxe/protocol": "workspace:*",

@@ -1,9 +1,5 @@
-import { managedPythonEnvironment } from "@lxe/core";
-import { execFile } from "node:child_process";
-import { mkdirSync } from "node:fs";
-import { join } from "node:path";
 import type { DesktopAmazonV2Settings } from "@lxe/desktop-protocol";
-import { redactAndBound, type AssetCommandExecution, type DesktopInputAssetsOptions } from "./input-assets";
+import { LxeSkillError, redactAndBound, settingsPayload, type LxeSkillClient } from "./lxeskill-client";
 
 export function isAmazonV2Settings(input: unknown): input is DesktopAmazonV2Settings {
   if (!input || typeof input !== "object" || Array.isArray(input) || Object.keys(input).length !== 2) return false;
@@ -16,33 +12,17 @@ export function isAmazonV2Settings(input: unknown): input is DesktopAmazonV2Sett
 
 /** Desktop consumes the lxeskill contract; Python owns validation and storage. */
 export class DesktopAmazonV2SettingsService {
-  constructor(private readonly options: DesktopInputAssetsOptions) {}
+  constructor(private readonly lxeskill: LxeSkillClient) {}
 
   private async call(action: "read" | "save", value?: string): Promise<DesktopAmazonV2Settings> {
-    const temporaryRoot = join(this.options.dataRoot, "tmp");
-    mkdirSync(temporaryRoot, { recursive: true });
     const args = ["replenish", "v2", "settings", "--action", action];
     if (value !== undefined) args.push("--parameters", value);
-    const options = {
-      cwd: this.options.dataRoot, timeout: 30_000, maxBuffer: 1024 * 1024, windowsHide: true,
-      env: managedPythonEnvironment({ ...process.env, LXE_DATA_ROOT: this.options.dataRoot,
-        LXE_WORKSPACE_ROOT: join(this.options.dataRoot, "workspace"), TMP: temporaryRoot, TEMP: temporaryRoot,
-        TMPDIR: temporaryRoot }),
-    };
-    const execution = this.options.execute ? await this.options.execute(args, options)
-      : await new Promise<AssetCommandExecution>(resolve => {
-        execFile(this.options.executablePath, args, options, (error, stdout, stderr) => resolve({ error, stdout, stderr }));
-      });
-    let result: { type?: unknown; ok?: unknown; data?: { success?: unknown; data?: unknown }; error?: { message?: unknown } } | undefined;
-    const terminal = execution.stdout.split(/\r?\n/u).filter(line => line.trim()).at(-1) ?? "";
-    try { result = JSON.parse(terminal); } catch { /* Preserve actual process diagnostics below. */ }
-    if (execution.error || result?.type !== "result" || result.ok !== true
-      || result.data?.success !== true || !isAmazonV2Settings(result.data.data)) {
-      const observed = typeof result?.error?.message === "string" && result.error.message.trim() ? result.error.message : undefined;
-      throw new Error(redactAndBound(observed || execution.stderr || execution.error?.message
-        || `Invalid lxeskill settings result: ${terminal}`));
+    const result = await this.lxeskill.run(args, { timeoutMs: 30_000 });
+    const settings = settingsPayload(result);
+    if (!isAmazonV2Settings(settings)) {
+      throw new LxeSkillError(redactAndBound(`Invalid lxeskill settings result: ${JSON.stringify(result.record)}`));
     }
-    return result.data.data;
+    return settings;
   }
 
   read(): Promise<DesktopAmazonV2Settings> { return this.call("read"); }
