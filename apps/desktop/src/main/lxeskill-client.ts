@@ -3,12 +3,18 @@ import { spawn, type ChildProcess } from "node:child_process";
 import { mkdirSync } from "node:fs";
 import { delimiter, join } from "node:path";
 import { createInterface } from "node:readline";
+import { StringDecoder } from "node:string_decoder";
 
 type Environment = Record<string, string | undefined>;
 
 const MAX_ERROR_BYTES = 4_096;
+// The command's own explanation keeps this much room; stderr gets what is left of MAX_ERROR_BYTES.
+const MAX_REPORTED_ERROR_BYTES = 2_048;
 const DEFAULT_MAX_OUTPUT_BYTES = 1024 * 1024;
-const MIN_REDACTED_LENGTH = 6;
+// Short credentials are still redacted. One- or two-character values (placeholders, CLAUDE_CODE_CHILD_SESSION=1)
+// and switch values are not secrets, and replacing every "1" or "T" would garble the actual error.
+const MIN_SECRET_LENGTH = 3;
+const FLAG_VALUE = /^(?:true|false|yes|no|on|off)$/iu;
 // Desktop launches read settings, assets and local media; none of them authenticates to a business system.
 const CREDENTIAL_NAME = /(?:PASSWORD|PASSWD|SECRET|TOKEN|COOKIE|SESSION|API_?KEY|AUTHORIZATION|CREDENTIALS?|MOBILE)$/iu;
 // Set for the Agent's own lxeskill calls. A desktop launch is not an Agent turn.
@@ -53,20 +59,22 @@ export class LxeSkillError extends Error {
 const objectValue = (value: unknown): Record<string, unknown> | null =>
   value !== null && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : null;
 
+/** The last `bytes` of `text`, without a character cut in half at the start. */
 const tail = (text: string, bytes: number): string => {
   const encoded = Buffer.from(text, "utf8");
-  return encoded.length <= bytes ? text : encoded.subarray(-bytes).toString("utf8");
+  return encoded.length <= bytes ? text : encoded.subarray(-bytes).toString("utf8").replace(/^\uFFFD+/u, "");
 };
 
 /** Remove credential values found in `environment`, then keep the last bytes of an over-long message. */
-export function redactAndBound(message: string, environment: Environment = process.env): string {
+export function redactAndBound(message: string, environment: Environment = process.env, maxBytes = MAX_ERROR_BYTES): string {
   let detail = message.trim();
   for (const [name, secret] of Object.entries(environment)) {
-    if (secret && secret.length >= MIN_REDACTED_LENGTH && CREDENTIAL_NAME.test(name)) {
+    const value = secret?.trim() ?? "";
+    if (secret && value.length >= MIN_SECRET_LENGTH && !FLAG_VALUE.test(value) && CREDENTIAL_NAME.test(name)) {
       detail = detail.replaceAll(secret, "[redacted]");
     }
   }
-  return Buffer.byteLength(detail, "utf8") <= MAX_ERROR_BYTES ? detail : `[truncated] ${tail(detail, MAX_ERROR_BYTES)}`;
+  return Buffer.byteLength(detail, "utf8") <= maxBytes ? detail : `[truncated] ${tail(detail, maxBytes)}`;
 }
 
 const structuredMessage = (record: Record<string, unknown> | undefined): string => {
@@ -117,10 +125,7 @@ export class LxeSkillClient {
 
   async run(args: readonly string[], options: LxeSkillRunOptions): Promise<LxeSkillResult> {
     const redactionSource = this.options.environment?.() ?? process.env;
-    const fail = (message: string, cancelled = false): never => {
-      throw new LxeSkillError(redactAndBound(message, redactionSource), cancelled);
-    };
-    if (options.signal?.aborted) fail("lxeskill call was cancelled before it started", true);
+    if (options.signal?.aborted) throw new LxeSkillError("lxeskill call was cancelled before it started", true);
     mkdirSync(join(this.options.dataRoot, "tmp"), { recursive: true });
     const maxOutputBytes = options.maxOutputBytes ?? DEFAULT_MAX_OUTPUT_BYTES;
     const child = spawn(this.options.executablePath, [...(this.options.commandPrefix ?? []), ...args], {
@@ -139,20 +144,40 @@ export class LxeSkillClient {
     let cancelled = false;
     let result: Record<string, unknown> | undefined;
     let spawnError: Error | undefined;
+    let exited: { code: number | null; signal: NodeJS.Signals | null } | undefined;
+    let settle!: (exit: { code: number | null; signal: NodeJS.Signals | null }) => void;
+    const finished = new Promise<{ code: number | null; signal: NodeJS.Signals | null }>(resolve => { settle = resolve; });
+    child.once("exit", (code, signal) => { exited = { code, signal }; });
+    child.once("close", (code, signal) => settle({ code, signal }));
+    child.once("error", error => {
+      spawnError = error;
+      if (child.pid === undefined) settle({ code: null, signal: null });
+    });
     const stop = (reason: string) => {
-      if (!stopReason) stopReason = reason;
-      void terminate(child);
+      if (stopReason) return;
+      stopReason = reason;
+      void terminate(child).then(() => {
+        // A tool the command started can keep the pipes open after the command itself exits,
+        // which would hold back "close". The call is over once the process tree was told to stop.
+        child.stdout?.destroy();
+        child.stderr?.destroy();
+        if (exited) settle(exited);
+        else child.once("exit", (code, signal) => settle({ code, signal }));
+      });
     };
     const protocolFailure = (message: string) => {
       if (!protocolError) protocolError = message;
       stop(message);
     };
 
+    // Count bytes as they arrive: a line without a newline would otherwise grow without limit.
+    child.stdout!.on("data", (chunk: Buffer) => {
+      outputBytes += chunk.length;
+      if (outputBytes > maxOutputBytes) protocolFailure(`lxeskill output exceeds ${maxOutputBytes} bytes`);
+    });
     const lines = createInterface({ input: child.stdout! });
     lines.on("line", line => {
       if (protocolError) return;
-      outputBytes += Buffer.byteLength(line, "utf8") + 1;
-      if (outputBytes > maxOutputBytes) return protocolFailure(`lxeskill output exceeds ${maxOutputBytes} bytes`);
       if (!line.trim()) return;
       let record: Record<string, unknown> | null;
       try { record = objectValue(JSON.parse(line)); } catch { record = null; }
@@ -165,30 +190,31 @@ export class LxeSkillClient {
         protocolFailure(`lxeskill progress handling failed: ${error instanceof Error ? error.message : String(error)}`);
       }
     });
-    child.stderr!.on("data", (chunk: Buffer) => {
-      const text = chunk.toString("utf8");
+    // Decode across chunks so a character split between two writes stays intact.
+    const stderrDecoder = new StringDecoder("utf8");
+    let stderrLine = "";
+    const takeStderr = (text: string, final = false) => {
       stderr = tail(stderr + text, MAX_ERROR_BYTES * 4);
-      if (options.onStderr) for (const line of text.split(/\r?\n/u)) if (line.trim()) options.onStderr(line);
-    });
+      if (!options.onStderr) return;
+      const parts = (stderrLine + text).split(/\r?\n/u);
+      stderrLine = final ? "" : parts.pop() ?? "";
+      for (const line of parts) if (line.trim()) options.onStderr(line);
+    };
+    child.stderr!.on("data", (chunk: Buffer) => takeStderr(stderrDecoder.write(chunk)));
     child.stdin!.on("error", () => { /* The command may exit without reading its input. */ });
     child.stdin!.end(options.stdin ?? "");
 
     const timer = setTimeout(() => stop(`lxeskill timed out after ${options.timeoutMs}ms`), options.timeoutMs);
     const onAbort = () => { cancelled = true; stop("lxeskill call was cancelled"); };
     options.signal?.addEventListener("abort", onAbort, { once: true });
-    const exit = await new Promise<{ code: number | null; signal: NodeJS.Signals | null }>(resolve => {
-      child.once("error", error => {
-        spawnError = error;
-        if (child.pid === undefined) resolve({ code: null, signal: null });
-      });
-      child.once("close", (code, signal) => resolve({ code, signal }));
-    }).finally(() => {
+    const exit = await finished.finally(() => {
       clearTimeout(timer);
       options.signal?.removeEventListener("abort", onAbort);
       lines.close();
+      takeStderr(stderrDecoder.end(), true);
     });
 
-    if (cancelled) fail("lxeskill call was cancelled", true);
+    if (cancelled) throw new LxeSkillError("lxeskill call was cancelled", true);
     const data = objectValue(result?.data);
     const succeeded = !stopReason && !spawnError && exit.code === 0 && result?.ok === true && data !== null
       && data.success !== false;
@@ -198,34 +224,40 @@ export class LxeSkillClient {
     const structured = structuredMessage(result);
     const exitDetail = exit.code !== null && exit.code !== 0 ? `lxeskill exited with code ${exit.code}`
       : exit.signal ? `lxeskill was terminated by ${exit.signal}` : "";
-    const detail = [
+    const reported = redactAndBound([
       structured,
       stopReason,
       spawnError?.message,
       !structured ? exitDetail : "",
       !structured && !stopReason && !spawnError && !exitDetail
         ? (result ? `Invalid lxeskill result: ${tail(JSON.stringify(result), 1_024)}` : "lxeskill produced no result") : "",
-      stderr.trim(),
-    ].filter(Boolean).join("\n");
-    return fail(detail);
+    ].filter(Boolean).join("\n"), redactionSource, MAX_REPORTED_ERROR_BYTES);
+    // stderr is bounded separately so a long traceback cannot push the command's own explanation out.
+    const diagnostics = redactAndBound(stderr, redactionSource, MAX_ERROR_BYTES - Buffer.byteLength(reported, "utf8"));
+    throw new LxeSkillError([reported, diagnostics].filter(Boolean).join("\n"));
   }
 }
 
+const hasExited = (child: ChildProcess): boolean => child.exitCode !== null || child.signalCode !== null;
+
 async function terminate(child: ChildProcess): Promise<void> {
-  if (child.exitCode !== null || child.signalCode !== null || !child.pid) return;
+  if (!child.pid) return;
   if (process.platform === "win32") {
+    // taskkill finds the tree through the running parent; once the CLI exited, closing its pipes is what is left.
+    if (hasExited(child)) return;
     await new Promise<void>(resolve => {
       const killer = spawn("taskkill", ["/PID", String(child.pid), "/T", "/F"], { stdio: "ignore", windowsHide: true, timeout: 4_000 });
       killer.once("error", () => resolve());
       killer.once("close", () => resolve());
     });
   } else {
+    // The group outlives the CLI while a tool it started is still running, so signal it even after the CLI exited.
     const group = -child.pid;
     try { process.kill(group, "SIGTERM"); } catch { /* The group already exited. */ }
     await new Promise<void>(resolve => {
-      if (child.exitCode !== null || child.signalCode !== null) return resolve();
+      if (hasExited(child)) return resolve();
       const timer = setTimeout(resolve, 1_500);
-      child.once("close", () => { clearTimeout(timer); resolve(); });
+      child.once("exit", () => { clearTimeout(timer); resolve(); });
     });
     try { process.kill(group, "SIGKILL"); } catch { /* The complete group already exited. */ }
   }

@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { delimiter, join } from "node:path";
 import { LxeSkillClient, LxeSkillError, settingsPayload } from "../src/main/lxeskill-client";
@@ -109,7 +109,7 @@ process.stderr.write("fixture traceback\\n"); process.exitCode = 4;
     const { client } = fixtureClient(`process.stderr.write("x".repeat(5000) + " refused fixture-sensitive-token\\n"); process.exitCode = 1;`,
       { environment: () => ({ ...process.env, API_TOKEN: "fixture-sensitive-token" }) });
     const message = (await failure(client.run(["x"], { timeoutMs: 5_000 }))).message;
-    expect(message).toStartWith("[truncated] ");
+    expect(message).toStartWith("lxeskill exited with code 1\n[truncated] ");
     expect(message).toContain("refused [redacted]");
     expect(message).not.toContain("fixture-sensitive-token");
   });
@@ -128,6 +128,64 @@ process.stderr.write("fixture traceback\\n"); process.exitCode = 4;
     setTimeout(() => controller.abort(), 100);
     const error = await failure(pending);
     expect(error.cancelled).toBe(true);
+  });
+
+  test("enforces the output limit before a newline arrives", async () => {
+    const { client } = fixtureClient(`process.stdout.write("x".repeat(8 * 1024)); setInterval(() => {}, 1_000);`);
+    const started = Date.now();
+    expect((await failure(client.run(["x"], { timeoutMs: 10_000, maxOutputBytes: 1_024 }))).message).toContain("output exceeds 1024 bytes");
+    expect(Date.now() - started).toBeLessThan(4_000);
+  });
+
+  test("returns at the deadline when a helper keeps the pipes open after the command exited", async () => {
+    const { client, root } = fixtureClient("");
+    const pidPath = join(root, "helper.pid");
+    writeFileSync(join(root, "lxeskill-fixture.mjs"), `
+const { spawn } = await import("node:child_process");
+const { writeFileSync } = await import("node:fs");
+const helper = spawn(process.execPath, ["-e", "setTimeout(() => {}, 5_000)"], { stdio: ["ignore", "inherit", "inherit"] });
+writeFileSync(${JSON.stringify(pidPath)}, String(helper.pid));
+helper.unref();
+`, "utf8");
+    const started = Date.now();
+    expect((await failure(client.run(["x"], { timeoutMs: 400 }))).message).toContain("lxeskill timed out after 400ms");
+    expect(Date.now() - started).toBeLessThan(2_500);
+    if (process.platform !== "win32") {
+      const helper = Number(readFileSync(pidPath, "utf8"));
+      const alive = () => { try { process.kill(helper, 0); return true; } catch { return false; } };
+      const deadline = Date.now() + 2_000;
+      while (alive() && Date.now() < deadline) await new Promise(resolve => setTimeout(resolve, 20));
+      expect(alive()).toBe(false);
+    }
+  });
+
+  test("keeps the business error when stderr is long", async () => {
+    const { client } = fixtureClient(`
+emit({ type: "result", command: "x", ok: false, data: {}, files: [], error: { message: "模板缺少『库存』工作表" } });
+process.stderr.write("traceback line\\n".repeat(400)); process.exitCode = 4;
+`);
+    const message = (await failure(client.run(["x"], { timeoutMs: 5_000 }))).message;
+    expect(message).toStartWith("模板缺少『库存』工作表\n[truncated] ");
+    expect(Buffer.byteLength(message, "utf8")).toBeLessThan(4_200);
+  });
+
+  test("decodes a character split across two stderr writes", async () => {
+    const { client } = fixtureClient(`
+const bytes = Buffer.from("模板无法读取");
+process.stderr.write(bytes.subarray(0, 2));
+await new Promise(resolve => setTimeout(resolve, 50));
+process.stderr.write(bytes.subarray(2)); process.exitCode = 1;
+`);
+    const message = (await failure(client.run(["x"], { timeoutMs: 5_000 }))).message;
+    expect(message).toContain("模板无法读取");
+    expect(message).not.toContain("�");
+  });
+
+  test("redacts short credential values but not switch values", async () => {
+    const { client } = fixtureClient(`process.stderr.write("login refused for ab12x\\n"); process.exitCode = 1;`,
+      { environment: () => ({ LXE_YACANG_PASSWORD: "ab12x", FIXTURE_CHILD_SESSION: "1", ZINIAO_PASSWORD: "T", FIXTURE_TOKEN: "true" }) });
+    const message = (await failure(client.run(["x"], { timeoutMs: 5_000 }))).message;
+    expect(message).toBe("lxeskill exited with code 1\nlogin refused for [redacted]");
   });
 
   test("reports the actual spawn failure for an absent executable", async () => {
