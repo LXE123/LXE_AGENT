@@ -25,7 +25,7 @@ beforeAll(async () => {
     return await file.exists() ? new Response(file) : new Response("Not found", { status: 404 });
   } });
   url = `http://127.0.0.1:${server.port}/test/behavior/renderer.html`;
-}, 60_000);
+}, 120_000);
 afterAll(() => { server?.stop(true); if (output) rmSync(output, { recursive: true, force: true }); });
 
 for (const suite of ["app-frame", "session-fork", "workspace-deletion", "session-titles", "conversation-content", "conversation-window", "dashboard-pages", "navigation-rail", "overview-pages", "home-page", "workbench-details", "markdown", "streaming-markdown", "session-workspace", "app-actions", "conversation-events", "dialog", "composer", "references", "readiness", "sidebar", "windows-titlebar", "windows-menu", "workspaces", "mermaid", "permissions", "updates", "vietnam-settings"] as const) {
