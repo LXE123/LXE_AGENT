@@ -59,6 +59,7 @@ const invalidAttachment = (message: string): never => {
 export class DesktopConversationAttachmentService {
   onDraftReleased?: () => void;
   private readonly unsentPastes = new Set<string>();
+  private readonly writingPastes = new Set<string>();
   private generation = 0;
   private readonly staged = new Map<string, StagedConversationAttachment>();
   private readonly sending = new Map<string, { discardRequested: boolean }>();
@@ -100,20 +101,24 @@ export class DesktopConversationAttachmentService {
     if (!lstatSync(this.pastedTextDirectory).isDirectory()) return invalidAttachment("Invalid pasted text directory");
     const directory = join(realpathSync(this.pastedTextDirectory), id);
     const path = join(directory, name);
-    await mkdir(directory, { mode: 0o700 });
+    // The startup orphan sweep must not remove a paste that is not staged yet.
+    this.writingPastes.add(path);
     try {
-      await writeFile(path, text, { encoding: "utf8", flag: "wx", mode: 0o600 });
-      if (generation !== this.generation) throw new Error("Text attachment staging was cancelled");
-    } catch (cause) {
-      removePastedText(this.pastedTextDirectory, path);
-      throw cause;
-    }
-    const item: StagedConversationAttachment = {
-      attachment_id: id, name, path, size_bytes: Buffer.byteLength(text), media_type: "text/plain", origin: "pasted-text",
-    };
-    this.unsentPastes.add(path);
-    this.staged.set(id, item);
-    return this.public(item);
+      await mkdir(directory, { mode: 0o700 });
+      try {
+        await writeFile(path, text, { encoding: "utf8", flag: "wx", mode: 0o600 });
+        if (generation !== this.generation) throw new Error("Text attachment staging was cancelled");
+      } catch (cause) {
+        removePastedText(this.pastedTextDirectory, path);
+        throw cause;
+      }
+      const item: StagedConversationAttachment = {
+        attachment_id: id, name, path, size_bytes: Buffer.byteLength(text), media_type: "text/plain", origin: "pasted-text",
+      };
+      this.unsentPastes.add(path);
+      this.staged.set(id, item);
+      return this.public(item);
+    } finally { this.writingPastes.delete(path); }
   }
 
   registerPaste(input: unknown): DesktopDraftAttachmentPayload[] {
@@ -224,6 +229,7 @@ export class DesktopConversationAttachmentService {
   }
 
   isStaged(path: string): boolean {
+    if (this.writingPastes.has(path)) return true;
     for (const item of this.staged.values()) if (item.path === path) return true;
     return false;
   }

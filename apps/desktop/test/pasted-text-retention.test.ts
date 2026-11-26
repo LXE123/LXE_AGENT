@@ -1,7 +1,7 @@
 import { afterEach, expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
 import type { DatabaseSync } from "node:sqlite";
-import { existsSync, mkdtempSync, readFileSync, renameSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { ProcessAgentRuntime } from "@lxe/gateway/desktop";
@@ -170,4 +170,32 @@ test("cleanup cannot follow a replacement paste-directory symlink", async () => 
   symlinkSync(external, dirname(file.path), "junction");
   await f.removeSession("parent");
   expect(readFileSync(join(external, file.name), "utf8")).toBe("saved text");
+});
+
+test("startup removes unsent pastes a crash left behind, but keeps referenced, staged and unrelated files", async () => {
+  const f = await fixture();
+  // Sent before owner rows existed: only the transcript refers to it.
+  const sent = await f.paste();
+  await f.append("parent", "one", sent);
+  // A crash skips clear(), so these drafts never get an owner row.
+  const crashed = await f.drafts.registerTextPaste("unsent draft", "Pasted text.txt");
+  const [crashedFile] = f.drafts.resolve([crashed.attachment_id]);
+  const unrelated = join(f.directory, crypto.randomUUID(), "notes.txt");
+  mkdirSync(dirname(unrelated)); writeFileSync(unrelated, "not a paste");
+
+  // After restart, a fresh draft service holds a new unsent paste of its own.
+  const restarted = new DesktopConversationAttachmentService(undefined, f.directory);
+  const current = await restarted.registerTextPaste("current draft", "粘贴的文本.txt");
+  const [currentFile] = restarted.resolve([current.attachment_id]);
+  const sweep = (orphans: boolean) => f.retention.collect(async candidates => f.agent.unusedAttachmentPaths(candidates),
+    path => restarted.isStaged(path), undefined, { orphans });
+
+  await sweep(false);
+  expect(existsSync(crashedFile!.path)).toBe(true);
+  await sweep(true);
+  expect(existsSync(dirname(crashedFile!.path))).toBe(false);
+  expect(readFileSync(sent.path, "utf8")).toBe("saved text");
+  expect(readFileSync(currentFile!.path, "utf8")).toBe("current draft");
+  expect(readFileSync(unrelated, "utf8")).toBe("not a paste");
+  expect(f.retention.takeDeferred()).toBe(true);
 });

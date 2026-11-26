@@ -146,14 +146,14 @@ export class DesktopGateway {
     };
   }
 
-  private async collectPastedText(sessionId?: string): Promise<void> {
+  private async collectPastedText(sessionId?: string, options?: { orphans?: boolean }): Promise<void> {
     const runtime = this.runtime;
     if (!runtime?.isReady) return;
     try {
       await this.store?.pastedText?.collect(
         candidates => runtime.unusedAttachmentPaths(candidates),
         path => this.options.attachments.isStaged(path),
-        sessionId,
+        sessionId, options,
       );
     } catch (error) {
       // Deletion is already committed. Keep the receipt so cleanup can retry on startup.
@@ -369,7 +369,8 @@ export class DesktopGateway {
       });
       await this.automations.openPipe();
       await composition.start();
-      void this.collectPastedText();
+      // Startup also removes unsent pastes that a crash or forced quit left without an owner.
+      void this.collectPastedText(undefined, { orphans: true });
       this.automations.service.start();
       this.gatewayState = "ready";
       this.lastError = "";

@@ -1,4 +1,4 @@
-import { lstatSync, realpathSync, rmdirSync, unlinkSync } from "node:fs";
+import { lstatSync, readdirSync, realpathSync, rmdirSync, unlinkSync } from "node:fs";
 import { basename, dirname, join, relative, sep } from "node:path";
 import type { DatabaseSync } from "node:sqlite";
 import { randomUUID } from "node:crypto";
@@ -89,7 +89,11 @@ export class PastedTextRetention {
     this.stopped = true;
   }
 
-  async collect(findUnused: FindUnused, staged: (path: string) => boolean, sessionId?: string): Promise<void> {
+  /**
+   * `orphans` also checks pastes that have no owner row, such as drafts left by a crash.
+   * Only startup asks for it: those files reach the agent with no receiving session.
+   */
+  async collect(findUnused: FindUnused, staged: (path: string) => boolean, sessionId?: string, options: { orphans?: boolean } = {}): Promise<void> {
     if (this.stopped) return;
     const root = storageRoot(this.directory);
     if (!root) return;
@@ -106,6 +110,18 @@ export class PastedTextRetention {
       candidate.session_ids.push(String(row.session_id));
       candidates.set(path, candidate);
     }
+    if (options.orphans && sessionId === undefined) {
+      const owned = new Set(this.db.prepare("SELECT DISTINCT file_key FROM desktop_pasted_text_owners").all().map(row => String(row.file_key)));
+      for (const folder of readdirSync(root, { withFileTypes: true })) {
+        if (!folder.isDirectory() || !uuid.test(folder.name)) continue;
+        for (const file of readdirSync(join(root, folder.name), { withFileTypes: true })) {
+          const key = folder.name + "/" + file.name;
+          if (!file.isFile() || !pastedTextName.test(file.name) || owned.has(key)) continue;
+          const path = join(root, folder.name, file.name);
+          if (!candidates.has(path)) candidates.set(path, { path, session_ids: [] });
+        }
+      }
+    }
     const files = [...candidates.values()];
     let firstError: unknown;
     for (let i = 0; i < files.length; i += 128) {
@@ -113,7 +129,7 @@ export class PastedTextRetention {
       const unused = new Set(await findUnused(batch));
       if (this.stopped) return;
       // A paste can be sent while the reference query is crossing the process boundary.
-      if (revision !== this.revision) return this.collect(findUnused, staged, sessionId);
+      if (revision !== this.revision) return this.collect(findUnused, staged, sessionId, options);
       for (const { path } of batch) {
         if (!unused.has(path)) continue;
         if (staged(path)) { this.deferred = true; continue; }
