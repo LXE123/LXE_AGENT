@@ -122,6 +122,19 @@ async function verifyModelPreferenceScope() {
   assert.deepEqual(saved, [["p", "m", "high", "local"], ["p", "m", "high", "local"]]);
 }
 
+/** Automations work before agentcli is ready; everything else waits, and unhandled operations are forwarded. */
+async function verifyReadinessOrder() {
+  const forwarded: string[] = [];
+  const automations = { call: async (rpc: { operation: string }) => ({ handled: rpc.operation }) };
+  const runtime = { isReady: false, dashboardCall: async (rpc: { operation: string }) => { forwarded.push(rpc.operation); return {}; } };
+  const gateway: DesktopGateway = Object.assign(Object.create(DesktopGateway.prototype), { automations, runtime, composition: { parts: {} } });
+  assert.deepEqual(await gateway.dashboardCall({ operation: "automations.list", input: {} } as never), { handled: "automations.list" });
+  await assert.rejects(gateway.dashboardCall({ operation: "sessions.rename", input: { session_id: "chat", title: "x" } }), /not ready/);
+  runtime.isReady = true;
+  await gateway.dashboardCall({ operation: "sessions.rename", input: { session_id: "chat", title: "x" } });
+  assert.deepEqual(forwarded, ["sessions.rename"]);
+}
+
 app.disableHardwareAcceleration();
 app.setPath("userData", join(process.argv[2]!, "profile"));
 app.whenReady().then(async () => {
@@ -129,6 +142,7 @@ app.whenReady().then(async () => {
   await verifyStop("queued");
   await verifyTaskOptions();
   await verifyModelPreferenceScope();
+  await verifyReadinessOrder();
   console.log("automation-stop-routing-passed");
   app.exit(0);
 }).catch(error => { console.error(error); app.exit(1); });

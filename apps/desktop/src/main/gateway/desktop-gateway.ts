@@ -1,15 +1,12 @@
 import { DesktopAutomations } from "./automations";
 import { loadDesktopMcpPresets } from "./mcp-presets";
-import { DESKTOP_MCP_NAME, AUTOMATION_OPERATIONS, type AutomationOperation } from "@lxe/desktop-protocol";
+import { AUTOMATION_OPERATIONS, type AutomationOperation } from "@lxe/desktop-protocol";
 import { FilePreviewService } from "../file-preview/service";
 import { OfficePreviewCache } from "../file-preview/office-cache";
 import type { DesktopFileCall, DesktopFileOperations } from "@lxe/desktop-protocol";
-import { imageBytesThumbnail } from "../conversations/attachment-thumbnail";
 import { UpdateBusyError } from "../updates/update-service";
-import { prepareConversationAttachments } from "../conversations/conversation-submission";
 import { join } from "node:path";
 import { shell } from "electron";
-import { DashboardRpcError } from "@lxe/desktop-protocol";
 import type {
   BackgroundTaskChangedPayload,
   AgentDashboardRpcCall,
@@ -32,7 +29,6 @@ import {
   createDirectGatewayComposition,
   loadFeishuConfig,
   ProcessAgentRuntime,
-  LocalConversationSessionNotFoundError,
   type DirectGatewayComposition,
   type DirectGatewayStorage,
   type ResponseRoutePatch,
@@ -46,17 +42,12 @@ import {
   ALL_DASHBOARD_DATA_DOMAINS,
   dashboardInvalidationForAgentEvent,
 } from "./dashboard-invalidation";
-import { publicDashboardChannelHealth } from "./dashboard-channel-health";
 import { DesktopLxeSkillHealth } from "../lxeskill/lxeskill-health";
 import { listLxeSkillCommands } from "../lxeskill/lxeskill-commands";
-import { runSessionDeletion } from "./session-deletion";
+import { attachmentThumbnail, imageBytesThumbnail } from "../conversations/attachment-thumbnail";
+import { DASHBOARD_HANDLERS, type DashboardHandler, type DashboardHandlerContext } from "./dashboard-handlers";
 import { desktopLxeSkillClient } from "../lxeskill/lxeskill-client";
 import type { LxeSkillQueryOptions } from "@lxe/core";
-import {
-  previewConversationAttachment,
-  previewConversationImageView,
-} from "../conversations/conversation-artifacts";
-import { attachmentThumbnail } from "../conversations/attachment-thumbnail";
 import type { DesktopConversationAttachmentService } from "../conversations/conversation-attachments";
 import {
   resolveDataServerRuntimeEnvironment,
@@ -512,172 +503,27 @@ export class DesktopGateway {
       return await this.automations.call(call as DashboardRpcCall<AutomationOperation>) as DashboardRpcResult<O>;
     }
     if (!this.composition || !this.runtime?.isReady) throw new Error("Desktop Gateway is not ready");
-    if (call.operation === "mcp.servers.update" && call.input.name === DESKTOP_MCP_NAME) {
-      if (!this.automations) throw new Error("Desktop automations are unavailable");
-      return await this.automations.setMcpEnabled(call.input.enabled) as DashboardRpcResult<O>;
-    }
-    if (call.operation === "channels.health") {
-      const items = publicDashboardChannelHealth(
-        await this.composition.parts.channels.healthSnapshot(),
-      );
-      return { items, total: Object.keys(items).length } as DashboardRpcResult<O>;
-    }
-    if (call.operation === "sessions.fork") {
-      const activity = this.composition.parts.conversations.activity(call.input.session_id);
-      if (call.input.turn_id ? activity.active?.turn_id === call.input.turn_id :
-        this.composition.parts.scheduler.hasInflightWork(call.input.session_id) || activity.active || activity.queued.length) {
-        throw new DashboardRpcError("failed_precondition", "Wait for the current turn to finish");
-      }
-      return this.runtime.dashboardCall(call as AgentDashboardRpcCall<"sessions.fork">) as Promise<DashboardRpcResult<O>>;
-    }
-    if (call.operation === "sessions.delete") {
-      await this.composition.parts.sessionStatus?.flush();
-      const sessionId = call.input.session_id;
-      const sessionKeys = Object.values(this.composition.parts.bindings.loadAll())
-        .filter((entry) => entry.session_id === sessionId)
-        .map((entry) => entry.session_key);
-      const releaseFence = this.composition.parts.scheduler.beginSessionDeletion(sessionId, sessionKeys);
-      if (!releaseFence) {
-        throw new DashboardRpcError(
-          "failed_precondition",
-          "session has an active or queued turn; stop it before deleting",
-        );
-      }
-      const runtime = this.runtime;
-      const parts = this.composition.parts;
-      try {
-        return await runSessionDeletion({
-          detach: async onUndo => {
-            await this.options.beforeDeleteSession?.(sessionId);
-            this.store?.pastedText?.prepareDeletion(sessionId, await runtime.sessionAttachmentPaths(sessionId));
-            const gatewaySnapshot = this.store?.detachSession(sessionId);
-            onUndo(() => this.store?.restoreSession(gatewaySnapshot));
-            const removedBindings = parts.bindings.removeSession(sessionId);
-            onUndo(() => parts.bindings.restore(removedBindings));
-          },
-          deleteAgentSession: () => runtime.dashboardCall(call as AgentDashboardRpcCall<"sessions.delete">),
-          // A bound automation that stays active after a failed pause pauses itself at its next
-          // run, when it finds the target session missing.
-          cleanup: [
-            ["session_delete_automation_pause_failed",
-              () => this.automations?.service.pauseSession(sessionId, "绑定的会话已删除，请修改任务")],
-            ["session_delete_conversation_forget_failed", () => parts.conversations.forgetSession(sessionId)],
-            ["session_delete_runtime_state_forget_failed", () => parts.runtimeState.forget(sessionId)],
-          ],
-          afterCommit: () => this.collectPastedText(sessionId),
-          logFailure: (event, error) =>
-            createLogger("desktop.sessions").error(event, { session_id: sessionId, error: String(error) }),
-        }) as DashboardRpcResult<O>;
-      } finally {
-        releaseFence();
-      }
-    }
-    if (call.operation === "sessions.send") {
-      const attachmentIds = call.input.attachment_ids ?? [];
-      let held = false;
-      let rollbackAdmission: (() => void) | undefined;
-      try {
-        const result = await this.composition.parts.conversations.send({
-          ...(call.input.directory === undefined ? {} : { directory: call.input.directory }),
-          ...(call.input.session_id ? { session_id: call.input.session_id } : {}),
-          text: call.input.text,
-          ...(call.input.steer_turn_id ? { steer_turn_id: call.input.steer_turn_id } : {}),
-          ...(call.input.client_message_id ? { client_message_id: call.input.client_message_id } : {}),
-          attachments: () => {
-            if (!attachmentIds.length) return [];
-            const staged = this.options.attachments.beginSend(attachmentIds);
-            held = true;
-            return prepareConversationAttachments(staged,
-              (bytes, mediaType) => this.imageProcessor.prepareModelBlock(bytes, mediaType));
-          },
-          beforeAttachmentAdmission: (sessionId, files) => {
-            rollbackAdmission = this.store?.pastedText?.admit(sessionId, files.map(file => file.path));
-          },
-        });
-        rollbackAdmission = undefined;
-        if (held) this.options.attachments.consume(attachmentIds);
-        return result as DashboardRpcResult<O>;
-      } catch (error) {
-        rollbackAdmission?.();
-        if (error instanceof LocalConversationSessionNotFoundError) {
-          throw new DashboardRpcError("not_found", error.message);
-        }
-        throw error;
-      } finally {
-        if (held) this.options.attachments.finishSend(attachmentIds);
-      }
-    }
-    if (call.operation === "sessions.stop") {
-      return await this.composition.parts.conversations.stop(call.input.session_id, call.input.turn_id) as DashboardRpcResult<O>;
-    }
-    if (call.operation === "sessions.activity") {
-      return this.composition.parts.conversations.activity(call.input.session_id) as DashboardRpcResult<O>;
-    }
-    if (call.operation === "sessions.status.list" || call.operation === "sessions.status.ack") {
-      const status=this.composition.parts.sessionStatus;
-      if (!status) throw new Error("Session status service is unavailable");
-      return await (call.operation === "sessions.status.list" ? status.list(call.input.session_ids)
-        : status.ack(call.input.session_id,call.input.turn_id,call.input.version)) as DashboardRpcResult<O>;
-    }
-    if (call.operation === "sessions.file.open") {
-      const { session_id: sessionId, artifact_id: artifactId } = call.input;
-      try {
-        await this.fileCall({ operation: "open", input: { ref: { session_id: sessionId, kind: "artifact", id: artifactId } } });
-        return { opened: true, error: "" } as DashboardRpcResult<O>;
-      } catch (error) { return { opened: false, error: error instanceof Error ? error.message : String(error) } as DashboardRpcResult<O>; }
-    }
-    if (call.operation === "sessions.file.reveal") {
-      const { session_id: sessionId, artifact_id: artifactId } = call.input;
-      try {
-        await this.fileCall({ operation: "open", input: { ref: { session_id: sessionId, kind: "artifact", id: artifactId }, reveal: true } });
-        return { revealed: true, error: "" } as DashboardRpcResult<O>;
-      } catch (error) { return { revealed: false, error: error instanceof Error ? error.message : String(error) } as DashboardRpcResult<O>; }
-    }
-    if (call.operation === "sessions.image_view.preview") {
-      return await previewConversationImageView({
-        resolvePreview: (sessionId, viewId) => this.runtime!.resolveImagePreview(sessionId, "image_view", viewId),
-        thumbnail: attachmentThumbnail, imageThumbnail: imageBytesThumbnail,
-      }, call.input.session_id, call.input.view_id, call.input.variant) as DashboardRpcResult<O>;
-    }
-    if (call.operation === "sessions.attachment.preview") {
-      return await previewConversationAttachment({
-        resolvePreview: async (sessionId, attachmentId) => {
-          const stored = await this.runtime!.resolveImagePreview(sessionId, "attachment", attachmentId);
-          if (stored?.source === "history") return stored;
-          const conversations = this.composition!.parts.conversations;
-          const image = conversations.resolveAttachmentPreviewImage(sessionId, attachmentId);
-          if (image) return { source: "history", image };
-          if (stored) return stored;
-          const path = conversations.resolveAttachmentPreview(sessionId, attachmentId);
-          return path ? { source: "current_file", path } : undefined;
-        },
-        thumbnail: attachmentThumbnail, imageThumbnail: imageBytesThumbnail,
-      }, call.input.session_id, call.input.attachment_id, call.input.variant) as DashboardRpcResult<O>;
-    }
-    if (call.operation === "sessions.attachment.open") {
-      const { session_id: sessionId, attachment_id: attachmentId } = call.input;
-      try {
-        await this.fileCall({ operation: "open", input: { ref: { session_id: sessionId, kind: "attachment", id: attachmentId } } });
-        return { opened: true, error: "" } as DashboardRpcResult<O>;
-      } catch (error) { return { opened: false, error: error instanceof Error ? error.message : String(error) } as DashboardRpcResult<O>; }
-    }
-    const result = await this.runtime.dashboardCall(call as AgentDashboardRpcCall) as DashboardRpcResult<O>;
-    if ((call.operation === "models.update" || call.operation === "models.thinking.update") && call.input.remember_default !== false) {
-      const model = result as unknown as {
-        provider: string;
-        model: string;
-        credential_source: import("@lxe/desktop-protocol").CredentialSource;
-        thinking_state: { level: string };
-      };
-      try {
-        this.options.config.saveRuntimePreference(model.provider, model.model, model.thinking_state.level, model.credential_source);
-      } catch (error) {
-        if (!call.input.session_id) throw error;
-        // The runtime has committed the conversation choice; a default-save failure cannot undo it.
-        createLogger("desktop.models").warn("default_model_save_failed", { session_id: call.input.session_id, error: String(error) });
-      }
-    }
-    return result;
+    const handler = DASHBOARD_HANDLERS[call.operation] as DashboardHandler<O> | undefined;
+    if (handler) return handler(call, this.handlerContext(this.composition, this.runtime));
+    return this.runtime.dashboardCall(call as AgentDashboardRpcCall) as Promise<DashboardRpcResult<O>>;
+  }
+
+  /** Read on use, like the fields the handlers replaced, so a handler sees the Gateway's current state. */
+  private handlerContext(composition: DirectGatewayComposition, runtime: ProcessAgentRuntime): DashboardHandlerContext {
+    const gateway = this;
+    return {
+      parts: composition.parts,
+      runtime,
+      get store() { return gateway.store; },
+      get automations() { return gateway.automations; },
+      get attachments() { return gateway.options.attachments; },
+      get config() { return gateway.options.config; },
+      get beforeDeleteSession() { return gateway.options.beforeDeleteSession; },
+      prepareImage: (bytes, mediaType) => gateway.imageProcessor.prepareModelBlock(bytes, mediaType),
+      fileCall: call => gateway.fileCall(call),
+      collectPastedText: sessionId => gateway.collectPastedText(sessionId),
+      thumbnails: { thumbnail: attachmentThumbnail, imageThumbnail: imageBytesThumbnail },
+    };
   }
 
   health(): DesktopHealth {
