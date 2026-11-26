@@ -3,14 +3,14 @@ import { mkdtempSync, readdirSync, readFileSync, rmSync, statSync } from "node:f
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Logger } from "@lxe/core";
-import type { CloudEnrollmentPayload } from "../src/main/cloud/cloud-enrollment";
+import type { CloudEnrollmentPayload } from "../src/main/cloud/rules/cloud-enrollment";
 import {
   MACOS_WIREGUARD_PATHS,
   MacOSWireGuardProvisioner,
   type MacOSWireGuardCommand,
 } from "../src/main/cloud/macos-wireguard-provisioner";
 import { WireGuardProvisioningError } from "../src/main/cloud/wireguard-provisioner";
-import { wireGuardTunnelFromEnrollment } from "../src/main/cloud/wireguard-types";
+import { wireGuardTunnelFromEnrollment } from "../src/main/cloud/rules/wireguard-types";
 
 const roots: string[] = [];
 afterEach(() => {

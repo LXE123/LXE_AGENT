@@ -58,6 +58,8 @@ uv sync --frozen --all-groups --python 3.12.10
 
 路径、日志、IPC 注册等各子系统共用的文件直接放在 `main/` 下。
 
+`cloud/rules/` 放公司服务器地址、托管模型支持、权限解析、接入包格式这类纯规则，只依赖共享包（`@lxe/desktop-protocol`、`@lxe/core`）和 Node 内置模块。`config-store/` 可以用它们；`cloud/` 下的云端服务反过来依赖 `config-store/`。所以新规则如果不需要读写配置，放进 `cloud/rules/`，别让它 import `config-store/`。
+
 独立 TUI 的安装和运行说明以 [`lxe-agent-TUI` 分支](https://github.com/LXE123/LXE_AGENT/tree/lxe-agent-TUI)为准。`main` 也提供 [一次性 Agent CLI exec](../harness/runtime/agent_cli_exec.md)，可独立从终端调用。
 
 ## 桌面配置与安全

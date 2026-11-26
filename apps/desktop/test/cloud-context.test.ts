@@ -6,7 +6,7 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { mkdtempSync, readdirSync, rmSync } from "node:fs";
 import { DesktopCloudContextClient, CloudContextError, parseContextResult } from "../src/main/cloud/cloud-context";
-import { parseDeviceContext } from "../src/main/cloud/cloud-permissions";
+import { parseDeviceContext } from "../src/main/cloud/rules/cloud-permissions";
 
 export const fixtureContext = (skills = ["amazon_fba"], version = 1) => ({
   response_schema: "lxe.device-context.v1", device: { id: "device-a", kind: "managed_device", display_name: "设备 A", wireguard_ip: "10.88.0.8" },

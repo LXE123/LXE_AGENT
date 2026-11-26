@@ -4,7 +4,7 @@ import {
   parseServerDevicePermissionV2,
   parseStoredDevicePermission,
   permissionSnapshotsEqual,
-} from "../src/main/cloud/cloud-permissions";
+} from "../src/main/cloud/rules/cloud-permissions";
 
 const v2Permission = (patch: Record<string, unknown> = {}) => ({
   response_schema: "lxe.device-permission.v2",

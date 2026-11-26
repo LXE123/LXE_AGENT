@@ -7,7 +7,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Logger } from "@lxe/core";
 import { resolveMachineIdentity } from "@lxe/core/machine-identity";
-import { DesktopCloudEnrollmentManager, type CloudEnrollmentPayload } from "../src/main/cloud/cloud-enrollment";
+import { DesktopCloudEnrollmentManager, type CloudEnrollmentPayload } from "../src/main/cloud/rules/cloud-enrollment";
 import { DesktopConfigStore } from "../src/main/config-store";
 import { DesktopCloudService, type DesktopCloudClock } from "../src/main/cloud/desktop-cloud";
 import { WireGuardProvisioningError } from "../src/main/cloud/wireguard-provisioner";

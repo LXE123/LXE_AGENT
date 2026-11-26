@@ -4,7 +4,7 @@
 
 ## 接入与自动发现
 
-电脑已连接公司 WireGuard 时，安装版、源码开发和预览目录都可自动识别设备，无需每个目录重复导入接入包。未配置接入信息时使用公司默认地址；已接入目录使用自己的服务器地址；切换绑定期间暂停查询和地址注入。地址选择以 [company-server.ts](../../apps/desktop/src/main/cloud/company-server.ts) 为准。
+电脑已连接公司 WireGuard 时，安装版、源码开发和预览目录都可自动识别设备，无需每个目录重复导入接入包。未配置接入信息时使用公司默认地址；已接入目录使用自己的服务器地址；切换绑定期间暂停查询和地址注入。地址选择以 [company-server.ts](../../apps/desktop/src/main/cloud/rules/company-server.ts) 为准。
 
 建立或更换受管连接仍需接入包：v5 用于受管 WireGuard，v4 用于已有手工隧道或更换凭据。Windows 通过 UAC 安装或复用隧道，关闭桌面不卸载系统隧道；macOS 源码环境见 [WireGuard 服务](macos-wireguard-service.md)。旧身份的恢复流程见 [身份迁移](identity-migration.md)。
 
@@ -74,7 +74,7 @@
 
 服务端需先具备对应原生接口和会话来源迁移（`0039_native_browser_sessions`），再更新客户端。旧身份、权限类型的升级和回退按各自迁移手册处理；是否已部署必须核实实际环境，不能从历史验收推断。
 
-- [desktop-cloud.ts](../../apps/desktop/src/main/cloud/desktop-cloud.ts)、[cloud-permissions.ts](../../apps/desktop/src/main/cloud/cloud-permissions.ts)：权限同步、身份连续性、缓存和版本校验。
+- [desktop-cloud.ts](../../apps/desktop/src/main/cloud/desktop-cloud.ts)、[cloud-permissions.ts](../../apps/desktop/src/main/cloud/rules/cloud-permissions.ts)：权限同步、身份连续性、缓存和版本校验。
 - [native-cloud-access.ts](../../apps/desktop/src/main/cloud/native-cloud-access.ts)、[native-cloud-client.ts](../../apps/desktop/src/main/cloud/native-cloud-client.ts)：模型凭据、网页交接与原生 HTTP；[cloud-context.ts](../../apps/desktop/src/main/cloud/cloud-context.ts)：CLI 进程桥接。
 - [桌面云端测试](../../apps/desktop/test/desktop-cloud.test.ts)、[自动访问测试](../../apps/desktop/test/native-cloud-access.test.ts)、[CLI 桥接测试](../../apps/desktop/test/cloud-context.test.ts)：按改动范围选用。
 - 隔离页面验收：`bun scripts/device-context-acceptance.ts` 与 `bun scripts/native-cloud-acceptance.ts`。使用临时配置、本地模拟服务、实际 CLI 和 Electron 组件；截图默认位于系统临时目录，不代替完整桌面或 Windows 真机联调。

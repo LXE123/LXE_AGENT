@@ -11,7 +11,7 @@ import {
 import { join } from "node:path";
 import serviceScript from "../../../resources/wireguard/macos-service.sh" with { type: "text" };
 import type { Logger } from "@lxe/core";
-import type { ManagedCloudEnrollmentPayload as CloudEnrollmentPayload } from "./cloud-enrollment";
+import type { ManagedCloudEnrollmentPayload as CloudEnrollmentPayload } from "./rules/cloud-enrollment";
 import {
   WireGuardProvisioningError,
   type WireGuardDependencyStatus,
@@ -21,7 +21,7 @@ import {
   wireGuardConfiguration,
   wireGuardTunnelFromEnrollment,
   type WireGuardTunnelConfiguration,
-} from "./wireguard-types";
+} from "./rules/wireguard-types";
 
 const BREW_PATH = "/opt/homebrew/bin/brew";
 const WG_PATH = "/opt/homebrew/bin/wg";

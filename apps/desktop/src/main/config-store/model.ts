@@ -19,11 +19,11 @@ import {
 } from "@lxe/core";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { parseStoredDevicePermission, parseObservedDevice } from "../cloud/cloud-permissions";
+import { parseStoredDevicePermission, parseObservedDevice } from "../cloud/rules/cloud-permissions";
 import {
   parseWireGuardTunnelConfiguration,
   type WireGuardTunnelConfiguration,
-} from "../cloud/wireguard-types";
+} from "../cloud/rules/wireguard-types";
 
 const logger = createLogger("desktop.config.model");
 

@@ -6,7 +6,7 @@ import { join } from "node:path";
 import { managedTargetKey, type ManagedLlmState, type Logger } from "@lxe/core";
 import { DesktopConfigStore } from "../src/main/config-store";
 import { DesktopCloudService } from "../src/main/cloud/desktop-cloud";
-import { DesktopCloudEnrollmentManager } from "../src/main/cloud/cloud-enrollment";
+import { DesktopCloudEnrollmentManager } from "../src/main/cloud/rules/cloud-enrollment";
 import { resolveMachineIdentity } from "@lxe/core/machine-identity";
 const roots: string[] = [];
 afterEach(() => roots.splice(0).forEach((root) => rmSync(root, { recursive: true, force: true })));

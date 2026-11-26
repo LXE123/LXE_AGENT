@@ -8,7 +8,7 @@ import type { Logger } from "@lxe/core";
 import { resolveMachineIdentity } from "@lxe/core/machine-identity";
 import { DesktopConfigStore } from "../src/main/config-store";
 import { DesktopCloudService } from "../src/main/cloud/desktop-cloud";
-import { DesktopCloudEnrollmentManager } from "../src/main/cloud/cloud-enrollment";
+import { DesktopCloudEnrollmentManager } from "../src/main/cloud/rules/cloud-enrollment";
 import { resolveDataServerRuntimeEnvironment } from "../src/main/cloud/data-server-policy";
 
 const roots: string[] = [];

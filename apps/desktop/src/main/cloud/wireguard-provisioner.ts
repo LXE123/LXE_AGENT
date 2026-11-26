@@ -6,15 +6,15 @@ import { join } from "node:path";
 import type { DesktopCloudDependencyState } from "@lxe/desktop-protocol";
 import type { Logger } from "@lxe/core";
 import { resolveMachineIdentity } from "@lxe/core/machine-identity";
-import type { ManagedCloudEnrollmentPayload as CloudEnrollmentPayload } from "./cloud-enrollment";
+import type { ManagedCloudEnrollmentPayload as CloudEnrollmentPayload } from "./rules/cloud-enrollment";
 import {
   wireGuardConfiguration,
   wireGuardTunnelFromEnrollment,
   type WireGuardTunnelConfiguration,
-} from "./wireguard-types";
+} from "./rules/wireguard-types";
 
-export { wireGuardConfiguration } from "./wireguard-types";
-export type { WireGuardTunnelConfiguration } from "./wireguard-types";
+export { wireGuardConfiguration } from "./rules/wireguard-types";
+export type { WireGuardTunnelConfiguration } from "./rules/wireguard-types";
 
 export interface WindowsWireGuardProvisionerOptions {
   platform: NodeJS.Platform;

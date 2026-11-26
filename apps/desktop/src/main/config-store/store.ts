@@ -18,7 +18,7 @@ import type {
   DesktopCloudEnrollmentConfig,
   DesktopConfigStoreOptions,
 } from "./public-types";
-import type { WireGuardTunnelConfiguration } from "../cloud/wireguard-types";
+import type { WireGuardTunnelConfiguration } from "../cloud/rules/wireguard-types";
 import { DesktopConfigRepository, type SafeStoragePort } from "./repository";
 import { DesktopSetupService } from "./setup";
 import { DesktopConfigValidation } from "./validation";

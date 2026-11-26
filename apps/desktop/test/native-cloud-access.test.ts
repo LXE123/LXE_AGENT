@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Logger } from "@lxe/core";
 import { DesktopCloudService } from "../src/main/cloud/desktop-cloud";
-import { DesktopCloudEnrollmentManager } from "../src/main/cloud/cloud-enrollment";
+import { DesktopCloudEnrollmentManager } from "../src/main/cloud/rules/cloud-enrollment";
 import { DesktopConfigStore } from "../src/main/config-store";
 import { CloudContextError } from "../src/main/cloud/cloud-context";
 import { CloudHttpError, parseCloudError } from "../src/main/cloud/cloud-errors";

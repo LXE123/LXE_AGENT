@@ -1,6 +1,6 @@
 import { NativeCloudAccess, NativeIdentityChanged } from "./native-cloud-access";
 import { DirectNativeCloudClient, type NativeCloudClient } from "./native-cloud-client";
-import { companyServerUrl } from "./company-server";
+import { companyServerUrl } from "./rules/company-server";
 import type { DesktopObservedDevice } from "@lxe/desktop-protocol";
 import { CloudHttpError, cloudErrorMessage, limitCloudText, parseCloudError } from "./cloud-errors";
 import { randomUUID } from "node:crypto";
@@ -16,20 +16,20 @@ import type {
   DesktopCloudState,
   ManagedLlmCredential,
 } from "@lxe/desktop-protocol";
-import { DesktopCloudEnrollmentManager } from "./cloud-enrollment";
+import { DesktopCloudEnrollmentManager } from "./rules/cloud-enrollment";
 import type { DesktopConfigStore } from "../config-store";
 import {
   previousEnrollmentRemoved,
   type WireGuardDependencyStatus,
   type WireGuardProvisionerPort,
 } from "./wireguard-provisioner";
-import { wireGuardTunnelFromEnrollment } from "./wireguard-types";
+import { wireGuardTunnelFromEnrollment } from "./rules/wireguard-types";
 import {
   legacySnapshotCanUpgrade,
   parseDeviceContext,
   sameObservedDevice,
   permissionSnapshotsEqual,
-} from "./cloud-permissions";
+} from "./rules/cloud-permissions";
 import { CloudContextError, contextDiagnostic, type CloudContextQuery } from "./cloud-context";
 
 export interface DesktopCloudClock {
@@ -599,7 +599,7 @@ export class DesktopCloudService {
     }
   }
 
-  private async activateExistingEnrollment(payload: import("./cloud-enrollment").ExistingCloudEnrollmentPayload): Promise<DesktopCloudState> {
+  private async activateExistingEnrollment(payload: import("./rules/cloud-enrollment").ExistingCloudEnrollmentPayload): Promise<DesktopCloudState> {
     const target: ManagedCloudProbeTarget = { source: "managed", dataServerUrl: payload.data_server.url,
       apiToken: payload.data_server.api_token, deviceId: payload.device.id, deviceName: payload.device.name,
       vpnIp: payload.wireguard.address.replace(/\/32$/u, "") };

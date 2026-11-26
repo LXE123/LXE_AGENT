@@ -6,7 +6,7 @@ import { createRequire } from "node:module";
 import { DesktopCloudService } from "../apps/desktop/src/main/cloud/desktop-cloud";
 import { DesktopCloudContextClient, CloudContextError } from "../apps/desktop/src/main/cloud/cloud-context";
 import { DesktopConfigStore } from "../apps/desktop/src/main/config-store";
-import { DesktopCloudEnrollmentManager } from "../apps/desktop/src/main/cloud/cloud-enrollment";
+import { DesktopCloudEnrollmentManager } from "../apps/desktop/src/main/cloud/rules/cloud-enrollment";
 import { createLogger } from "../packages/foundation/core/src/logging";
 
 const root = resolve(import.meta.dirname, "..");

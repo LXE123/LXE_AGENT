@@ -1,7 +1,8 @@
-import type { ConversationLinkMenuRequest, ConversationLinkMenuAction } from "@lxe/desktop-protocol";
+import type {
+  ConversationFileLinkRef, ConversationLinkMenuRequest, ConversationLinkMenuAction, DesktopFileCall, DesktopFileOperations,
+} from "@lxe/desktop-protocol";
 import type { MenuItemConstructorOptions } from "electron";
-import type { DesktopGateway } from "../gateway/desktop-gateway";
-import type { FileApplicationLookup } from "../file-preview/service";
+import type { FileApplicationLookup, FilePreviewService } from "../file-preview/service";
 import { validateRef } from "../file-preview/paths";
 import { isExternallyOpenableUrl } from "../app-shell/launch-mode";
 
@@ -24,6 +25,12 @@ export function validateConversationLinkMenu(value: unknown): ConversationLinkMe
   throw new Error("Invalid conversation link target");
 }
 
+/** The two file operations the menu needs; DesktopGateway provides them. */
+export interface ConversationLinkFiles {
+  fileLinkMenu(ref: ConversationFileLinkRef): ReturnType<FilePreviewService["fileLinkMenu"]>;
+  fileCall<K extends keyof DesktopFileOperations>(call: DesktopFileCall<K>): Promise<DesktopFileOperations[K]["result"]>;
+}
+
 export type ConversationMenuCommand = () => ConversationLinkMenuAction | Promise<ConversationLinkMenuAction>;
 type MenuSelect = (command: ConversationMenuCommand) => void;
 export const APPLICATION_MENU_WAIT_MS = 300;
@@ -36,7 +43,7 @@ async function settledWithin<T>(value: Promise<T>, milliseconds: number): Promis
 }
 
 export async function conversationLinkMenuTemplate(
-  request: ConversationLinkMenuRequest, files: Pick<DesktopGateway, "fileLinkMenu" | "fileCall">,
+  request: ConversationLinkMenuRequest, files: ConversationLinkFiles,
   native: {
     copy(text: string): void; openUrl(url: string): Promise<void>; platform: NodeJS.Platform;
     /** Pops a follow-up menu at the original point and runs the chosen command. */

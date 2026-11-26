@@ -18,4 +18,4 @@
 
 ## 实现与历史验证
 
-客户端缓存转换见 [cloud-permissions.ts](../../apps/desktop/src/main/cloud/cloud-permissions.ts)，统计分组见 [usage-store.ts](../../packages/agent/runtime/src/state/usage-store.ts)。当时的测试结果及未完成事项见 [2026-09-22 迁移验收](../acceptance/cloud-migrations-20260922.md#备货类型改名)。
+客户端缓存转换见 [cloud-permissions.ts](../../apps/desktop/src/main/cloud/rules/cloud-permissions.ts)，统计分组见 [usage-store.ts](../../packages/agent/runtime/src/state/usage-store.ts)。当时的测试结果及未完成事项见 [2026-09-22 迁移验收](../acceptance/cloud-migrations-20260922.md#备货类型改名)。
