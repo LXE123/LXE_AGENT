@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { cloudErrorMessage, parseCloudError } from "../src/main/cloud-errors";
+import { cloudErrorMessage, parseCloudError } from "../src/main/cloud/cloud-errors";
 
 const body = (user_message: unknown, code: unknown = "future_error", message = "technical diagnostic") => JSON.stringify({ detail: { code, user_message, message } });
 

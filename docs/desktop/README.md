@@ -40,6 +40,24 @@ uv sync --frozen --all-groups --python 3.12.10
 
 验证范围按 [AGENTS.md](../../AGENTS.md#工具链与验证)选择。新 checkout 执行真实 `find` 测试前先运行 `bun run desktop:tools:fd`；正式发布的构建和验收要求见 [Windows 更新与发布](updates.md)。
 
+### 主进程代码目录
+
+`apps/desktop/src/main.ts` 是主进程入口，负责装配各项服务。具体实现放在 `apps/desktop/src/main/`，按子系统分目录，新文件放进对应目录：
+
+| 目录 | 内容 |
+| --- | --- |
+| `gateway/` | Desktop Gateway 装配、会话删除、定时任务、渠道状态 |
+| `conversations/` | 对话提交、附件、粘贴文本保留、产物 |
+| `lxeskill/` | lxeskill client、设置页、输入素材、媒体任务、CLI 状态检查 |
+| `cloud/` | 公司云端接入、权限、WireGuard、受管模型凭据 |
+| `updates/` | 客户端更新的检查、下载、校验与安装 |
+| `data/` | 数据目录初始化、搬迁、凭据校验和运行时状态 |
+| `app-shell/` | 窗口、标题栏菜单、品牌资源、`app://` 协议、启动模式 |
+| `auth-browser/` | 登录浏览器窗口 |
+| `config-store/`、`file-preview/`、`manual-tools/`、`workspace-apps/` | 桌面配置、文件预览、手动终端、工作台应用 |
+
+路径、日志、IPC 注册等各子系统共用的文件直接放在 `main/` 下。
+
 独立 TUI 的安装和运行说明以 [`lxe-agent-TUI` 分支](https://github.com/LXE123/LXE_AGENT/tree/lxe-agent-TUI)为准。`main` 也提供 [一次性 Agent CLI exec](../harness/runtime/agent_cli_exec.md)，可独立从终端调用。
 
 ## 桌面配置与安全
@@ -72,7 +90,7 @@ POSIX 创建配置目录时使用 `0700`，`auth.json` 和锁文件使用 `0600`
 
 Electron 通过 lxeskillCLI 暴露的命令调用业务能力。应用只向自己创建的子进程提供私有工具路径，不修改系统 `PATH`。私有 Agent CLI、Python wheel、Node 和外部工具的构建与分发由 [打包手册](packaging-pipeline.md)维护。
 
-Main 进程里的设置页、输入素材、媒体任务和 CLI 状态检查，都通过同一个 [lxeskill client](../../apps/desktop/src/main/lxeskill-client.ts) 启动命令，各功能不再自己拼环境变量、解析输出。client 负责几件事：
+Main 进程里的设置页、输入素材、媒体任务和 CLI 状态检查，都通过同一个 [lxeskill client](../../apps/desktop/src/main/lxeskill/lxeskill-client.ts) 启动命令，各功能不再自己拼环境变量、解析输出。client 负责几件事：
 
 - **环境变量**：继承 Main 进程的变量，去掉业务凭据和只给 Agent 用的变量（`LXE_AGENT_*` 等），再补上数据目录、Skill 目录、私有工具路径和临时目录。数据库位置由 lxeskill 自己根据数据目录决定。
 - **输出解析**：按 CLI 协议严格解析。每行都必须是协议记录，前面是若干 `progress`，最后恰好一条 `result`。

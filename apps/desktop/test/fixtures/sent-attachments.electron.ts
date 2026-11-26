@@ -6,8 +6,8 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { IPC_CHANNELS } from "../../src/ipc-channels";
 import { parseDashboardRpcCall } from "@lxe/desktop-protocol";
-import { previewConversationAttachment } from "../../src/main/conversation-artifacts";
-import { imageBytesThumbnail, attachmentThumbnail } from "../../src/main/attachment-thumbnail";
+import { previewConversationAttachment } from "../../src/main/conversations/conversation-artifacts";
+import { imageBytesThumbnail, attachmentThumbnail } from "../../src/main/conversations/attachment-thumbnail";
 
 app.whenReady().then(async () => {
   const root = mkdtempSync(join(tmpdir(), "lxe-sent-preview-"));

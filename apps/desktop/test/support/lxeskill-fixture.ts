@@ -1,7 +1,7 @@
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { LxeSkillClient, type LxeSkillClientOptions } from "../../src/main/lxeskill-client";
+import { LxeSkillClient, type LxeSkillClientOptions } from "../../src/main/lxeskill/lxeskill-client";
 
 const roots: string[] = [];
 

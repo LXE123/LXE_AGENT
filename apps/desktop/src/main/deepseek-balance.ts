@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import type { CredentialSource, DesktopUsageBalance } from "@lxe/desktop-protocol";
-import { limitCloudText, sanitizeCloudText } from "./cloud-errors";
+import { limitCloudText, sanitizeCloudText } from "./cloud/cloud-errors";
 
 /** Main-process only. Credentials never cross the renderer bridge. */
 export interface DeepSeekBalanceCredential {

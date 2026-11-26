@@ -1,12 +1,12 @@
 import { DesktopAutomations } from "./automations";
 import { loadDesktopMcpPresets } from "./mcp-presets";
 import { DESKTOP_MCP_NAME, AUTOMATION_OPERATIONS, type AutomationOperation } from "@lxe/desktop-protocol";
-import { FilePreviewService } from "./file-preview/service";
-import { OfficePreviewCache } from "./file-preview/office-cache";
+import { FilePreviewService } from "../file-preview/service";
+import { OfficePreviewCache } from "../file-preview/office-cache";
 import type { DesktopFileCall, DesktopFileOperations } from "@lxe/desktop-protocol";
-import { imageBytesThumbnail } from "./attachment-thumbnail";
-import { UpdateBusyError } from "./update-service";
-import { prepareConversationAttachments } from "./conversation-submission";
+import { imageBytesThumbnail } from "../conversations/attachment-thumbnail";
+import { UpdateBusyError } from "../updates/update-service";
+import { prepareConversationAttachments } from "../conversations/conversation-submission";
 import { join } from "node:path";
 import { shell } from "electron";
 import { DashboardRpcError } from "@lxe/desktop-protocol";
@@ -38,30 +38,30 @@ import {
   type ResponseRoutePatch,
   type ResponseRouteRecord,
 } from "@lxe/gateway/desktop";
-import type { DesktopConfigStore } from "./config-store";
-import { ElectronInboundImageProcessor } from "./inbound-image";
-import type { DesktopPaths } from "./paths";
+import type { DesktopConfigStore } from "../config-store";
+import { ElectronInboundImageProcessor } from "../conversations/inbound-image";
+import type { DesktopPaths } from "../paths";
 import { NodeGatewayStore } from "./gateway-store";
 import {
   ALL_DASHBOARD_DATA_DOMAINS,
   dashboardInvalidationForAgentEvent,
 } from "./dashboard-invalidation";
 import { publicDashboardChannelHealth } from "./dashboard-channel-health";
-import { DesktopLxeSkillHealth } from "./lxeskill-health";
-import { listLxeSkillCommands } from "./lxeskill-commands";
+import { DesktopLxeSkillHealth } from "../lxeskill/lxeskill-health";
+import { listLxeSkillCommands } from "../lxeskill/lxeskill-commands";
 import { runSessionDeletion } from "./session-deletion";
-import { desktopLxeSkillClient } from "./lxeskill-client";
+import { desktopLxeSkillClient } from "../lxeskill/lxeskill-client";
 import type { LxeSkillQueryOptions } from "@lxe/core";
 import {
   previewConversationAttachment,
   previewConversationImageView,
-} from "./conversation-artifacts";
-import { attachmentThumbnail } from "./attachment-thumbnail";
-import type { DesktopConversationAttachmentService } from "./conversation-attachments";
+} from "../conversations/conversation-artifacts";
+import { attachmentThumbnail } from "../conversations/attachment-thumbnail";
+import type { DesktopConversationAttachmentService } from "../conversations/conversation-attachments";
 import {
   resolveDataServerRuntimeEnvironment,
   withoutDataServerEnvironment,
-} from "./data-server-policy";
+} from "../cloud/data-server-policy";
 import { withoutRetiredAgentTraceEnvironment } from "./runtime-environment-policy";
 
 class SplitGatewayStorage implements DirectGatewayStorage {

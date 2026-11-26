@@ -7,7 +7,7 @@ import {
   type InboundImageProcessorPort,
 } from "@lxe/gateway/desktop";
 import type { JsonObject } from "@lxe/protocol";
-import { MAX_SCREENSHOT_BYTES, MAX_SCREENSHOT_PIXELS } from "../conversation-paste";
+import { MAX_SCREENSHOT_BYTES, MAX_SCREENSHOT_PIXELS } from "../../conversation-paste";
 
 /** Keep the clipboard original as PNG; model preparation remains a separate step. */
 export function prepareClipboardScreenshot(bytes: Uint8Array): { png: Uint8Array; preview: string } {

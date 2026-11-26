@@ -1,22 +1,22 @@
-import { DesktopVietnamSettingsService } from "./main/vietnam-settings";
-import { DesktopAmazonV2SettingsService } from "./main/amazon-v2-settings";
-import { sendEditingShortcut, titlebarMenuTemplate } from "./main/titlebar-menu";
-import { conversationLinkMenuTemplate, type ConversationMenuCommand } from "./main/conversation-link-menu";
-import { WINDOWS_TITLEBAR_COLOURS } from "./main/window-options";
+import { DesktopVietnamSettingsService } from "./main/lxeskill/vietnam-settings";
+import { DesktopAmazonV2SettingsService } from "./main/lxeskill/amazon-v2-settings";
+import { sendEditingShortcut, titlebarMenuTemplate } from "./main/app-shell/titlebar-menu";
+import { conversationLinkMenuTemplate, type ConversationMenuCommand } from "./main/conversations/conversation-link-menu";
+import { WINDOWS_TITLEBAR_COLOURS } from "./main/app-shell/window-options";
 import type { DesktopTitlebarAction } from "@lxe/desktop-protocol";
-import { registerTeamSkillsGuest } from "./main/team-skills-view";
+import { registerTeamSkillsGuest } from "./main/app-shell/team-skills-view";
 import { ManualToolsService } from "./main/manual-tools/service";
 import { dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { DeepSeekBalanceService } from "./main/deepseek-balance";
-import { UpdateJournal } from "./main/update-journal";
+import { UpdateJournal } from "./main/updates/update-journal";
 import { readFileSync } from "node:fs";
-import { prepareUpdate } from "./main/update-preparation";
-import { DesktopUpdateService } from "./main/update-service";
-import { ElectronUpdateInstaller } from "./main/update-electron";
-import { cleanUpdateCache } from "./main/update-cache";
+import { prepareUpdate } from "./main/updates/update-preparation";
+import { DesktopUpdateService } from "./main/updates/update-service";
+import { ElectronUpdateInstaller } from "./main/updates/update-electron";
+import { cleanUpdateCache } from "./main/updates/update-cache";
 import { getAppCacheDir } from "electron-updater/out/AppAdapter";
-import { DesktopUpdateApi, UpdateConnectionMonitor, updateConnectionReady } from "./main/update-api";
+import { DesktopUpdateApi, UpdateConnectionMonitor, updateConnectionReady } from "./main/updates/update-api";
 import { join } from "node:path";
 import {
   app,
@@ -58,30 +58,30 @@ import {
   loadEnvironmentFiles,
 } from "@lxe/gateway/desktop";
 import { IPC_CHANNELS } from "./ipc-channels";
-import { registerDashboardProtocol } from "./main/app-protocol";
+import { registerDashboardProtocol } from "./main/app-shell/app-protocol";
 import { DASHBOARD_CSP, HTML_PREVIEW_SCHEME, registerHtmlPreviewProtocol } from "./main/file-preview/html-protocol";
 import { trackFilePreviewLifecycle } from "./main/file-preview/lifecycle";
-import { createTrayIcon } from "./main/brand";
-import { resolveDesktopBrandAssets } from "./main/brand-assets";
-import { DesktopConversationAttachmentService } from "./main/conversation-attachments";
-import { prepareClipboardScreenshot } from "./main/inbound-image";
-import { DesktopCloudEnrollmentManager } from "./main/cloud-enrollment";
-import { resolveCloudDestinationUrl } from "./main/cloud-destinations";
+import { createTrayIcon } from "./main/app-shell/brand";
+import { resolveDesktopBrandAssets } from "./main/app-shell/brand-assets";
+import { DesktopConversationAttachmentService } from "./main/conversations/conversation-attachments";
+import { prepareClipboardScreenshot } from "./main/conversations/inbound-image";
+import { DesktopCloudEnrollmentManager } from "./main/cloud/cloud-enrollment";
+import { resolveCloudDestinationUrl } from "./main/cloud/cloud-destinations";
 import { DesktopConfigStore } from "./main/config-store";
-import { attachmentThumbnail } from "./main/attachment-thumbnail";
-import { DesktopCloudContextClient } from "./main/cloud-context";
-import { DesktopCloudService } from "./main/desktop-cloud";
+import { attachmentThumbnail } from "./main/conversations/attachment-thumbnail";
+import { DesktopCloudContextClient } from "./main/cloud/cloud-context";
+import { DesktopCloudService } from "./main/cloud/desktop-cloud";
 import {
   ALL_DASHBOARD_DATA_DOMAINS,
   DashboardInvalidationBatcher,
   dashboardDomainsForMutation,
-} from "./main/dashboard-invalidation";
-import { DesktopGateway } from "./main/desktop-gateway";
-import { AuthBrowserHost } from "./main/auth-browser-host";
-import { ElectronAuthBrowserSession } from "./main/auth-browser-session";
-import { editContextMenuTemplate } from "./main/edit-context-menu";
+} from "./main/gateway/dashboard-invalidation";
+import { DesktopGateway } from "./main/gateway/desktop-gateway";
+import { AuthBrowserHost } from "./main/auth-browser/auth-browser-host";
+import { ElectronAuthBrowserSession } from "./main/auth-browser/auth-browser-session";
+import { editContextMenuTemplate } from "./main/app-shell/edit-context-menu";
 import { DesktopLoggingManager } from "./main/logging";
-import { MacOSWireGuardProvisioner } from "./main/macos-wireguard-provisioner";
+import { MacOSWireGuardProvisioner } from "./main/cloud/macos-wireguard-provisioner";
 import { registerDesktopIpc, type DesktopIpcApplication } from "./main/ipc";
 import {
   isAllowedDesktopNavigation,
@@ -89,24 +89,24 @@ import {
   resolveDesktopLaunchMode,
   usesPackagedRuntime,
   usesProductionRenderer,
-} from "./main/launch-mode";
-import { migrateLegacyArtifacts } from "./main/migration";
+} from "./main/app-shell/launch-mode";
+import { migrateLegacyArtifacts } from "./main/data/migration";
 import { resolveDesktopPaths } from "./main/paths";
-import { configureElectronRuntimeState, prepareDesktopRuntimeState } from "./main/runtime-state";
-import { reportDesktopStartupFailure } from "./main/startup-failure";
-import { DesktopInputAssetsService } from "./main/input-assets";
-import { DesktopSyntheticPerformerService } from "./main/synthetic-performer";
-import { desktopLxeSkillClient } from "./main/lxeskill-client";
+import { configureElectronRuntimeState, prepareDesktopRuntimeState } from "./main/data/runtime-state";
+import { reportDesktopStartupFailure } from "./main/app-shell/startup-failure";
+import { DesktopInputAssetsService } from "./main/lxeskill/input-assets";
+import { DesktopSyntheticPerformerService } from "./main/lxeskill/synthetic-performer";
+import { desktopLxeSkillClient } from "./main/lxeskill/lxeskill-client";
 import {
   DESKTOP_TITLEBAR_COLOURS,
   DESKTOP_TITLEBAR_HEIGHT,
   desktopWindowAppearance,
-} from "./main/window-options";
-import { WindowsWireGuardProvisioner } from "./main/wireguard-provisioner";
-import { acquireDataRootLock, dataRootInitialized } from "./main/data-migration";
-import { bootstrapUserData } from "./main/data-bootstrap";
+} from "./main/app-shell/window-options";
+import { WindowsWireGuardProvisioner } from "./main/cloud/wireguard-provisioner";
+import { acquireDataRootLock, dataRootInitialized } from "./main/data/data-migration";
+import { bootstrapUserData } from "./main/data/data-bootstrap";
 import { normalizeDesktopPlatform } from "./platform";
-import { MIGRATION_CREDENTIAL_ARGUMENT, runMigrationCredentialProbe, validateCredentialCopy } from "./main/data-credentials";
+import { MIGRATION_CREDENTIAL_ARGUMENT, runMigrationCredentialProbe, validateCredentialCopy } from "./main/data/data-credentials";
 
 const credentialProbe = process.argv.find(value => value.startsWith(MIGRATION_CREDENTIAL_ARGUMENT));
 if (credentialProbe !== undefined) {

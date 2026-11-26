@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { prepareConversationAttachments } from "../src/main/conversation-submission";
+import { prepareConversationAttachments } from "../src/main/conversations/conversation-submission";
 
 test("model submission reads screenshots only and strips draft previews", () => {
   const root = mkdtempSync(join(tmpdir(), "lxe-submission-"));

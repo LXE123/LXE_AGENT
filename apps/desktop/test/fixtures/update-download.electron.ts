@@ -4,8 +4,8 @@ import {createReadStream,copyFileSync,existsSync,mkdirSync,readFileSync,rmSync,s
 import {createHash} from "node:crypto";
 import {join,basename} from "node:path";
 import {strict as assert} from "node:assert";
-import {ElectronUpdateInstaller} from "../../src/main/update-electron";
-import {DesktopUpdateService,updateDiagnostic,type UpdateTicket} from "../../src/main/update-service";
+import {ElectronUpdateInstaller} from "../../src/main/updates/update-electron";
+import {DesktopUpdateService,updateDiagnostic,type UpdateTicket} from "../../src/main/updates/update-service";
 const record=JSON.parse(readFileSync(process.argv[2]!,"utf8"));
 if(!record.appId.startsWith("com.lxe.agent.updatequalification.")||!record.cache.startsWith("lxe-update-qualification-"))throw new Error("Qualification identity required");
 app.disableHardwareAcceleration();app.setPath("userData",join(record.output,"download-profile"));

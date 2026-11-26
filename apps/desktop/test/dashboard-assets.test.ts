@@ -2,7 +2,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { dashboardAssetContentType, resolveDashboardAsset } from "../src/main/dashboard-assets";
+import { dashboardAssetContentType, resolveDashboardAsset } from "../src/main/app-shell/dashboard-assets";
 
 const roots: string[] = [];
 afterEach(() => {

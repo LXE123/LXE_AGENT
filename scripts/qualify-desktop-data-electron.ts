@@ -3,11 +3,11 @@ import { app, safeStorage, session } from "electron";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import assert from "node:assert/strict";
-import { bootstrapUserData } from "../apps/desktop/src/main/data-bootstrap";
-import { acquireDataRootLock, dataRootInitialized } from "../apps/desktop/src/main/data-migration";
+import { bootstrapUserData } from "../apps/desktop/src/main/data/data-bootstrap";
+import { acquireDataRootLock, dataRootInitialized } from "../apps/desktop/src/main/data/data-migration";
 import { resolveDesktopPaths } from "../apps/desktop/src/main/paths";
 import { cloneSecrets } from "../apps/desktop/src/main/config-store/model";
-import { validateCredentialCopy } from "../apps/desktop/src/main/data-credentials";
+import { validateCredentialCopy } from "../apps/desktop/src/main/data/data-credentials";
 
 const input = process.argv.find(value => value.startsWith("--qualification="))!.slice("--qualification=".length);
 const q = JSON.parse(readFileSync(input,"utf8"));

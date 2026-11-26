@@ -6,12 +6,12 @@ import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { IPC_CHANNELS } from "../../src/ipc-channels";
-import { DesktopConversationAttachmentService } from "../../src/main/conversation-attachments";
+import { DesktopConversationAttachmentService } from "../../src/main/conversations/conversation-attachments";
 import { validateDraftImagePreviewVariant } from "../../src/main/ipc-validation";
-import { attachmentThumbnail } from "../../src/main/attachment-thumbnail";
-import { ElectronInboundImageProcessor, prepareClipboardScreenshot } from "../../src/main/inbound-image";
-import { prepareConversationAttachments } from "../../src/main/conversation-submission";
-import { readClipboardFilePaths } from "../../src/main/clipboard-files";
+import { attachmentThumbnail } from "../../src/main/conversations/attachment-thumbnail";
+import { ElectronInboundImageProcessor, prepareClipboardScreenshot } from "../../src/main/conversations/inbound-image";
+import { prepareConversationAttachments } from "../../src/main/conversations/conversation-submission";
+import { readClipboardFilePaths } from "../../src/main/conversations/clipboard-files";
 import type { DesktopDraftAttachmentPayload } from "@lxe/desktop-protocol";
 
 const pasteboardScript = `ObjC.import('AppKit'); ObjC.import('Foundation');

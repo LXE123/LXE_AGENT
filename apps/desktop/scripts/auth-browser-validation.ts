@@ -2,8 +2,8 @@
 // Credentials are loaded by the child on the test machine, never logged here.
 import { app } from "electron";
 import { spawn } from "node:child_process";
-import { AuthBrowserHost } from "../src/main/auth-browser-host";
-import { ElectronAuthBrowserSession } from "../src/main/auth-browser-session";
+import { AuthBrowserHost } from "../src/main/auth-browser/auth-browser-host";
+import { ElectronAuthBrowserSession } from "../src/main/auth-browser/auth-browser-session";
 
 const userData = process.env.LXE_AUTH_VALIDATION_USER_DATA;
 if (!userData) throw new Error("LXE_AUTH_VALIDATION_USER_DATA is required for an isolated validation run");

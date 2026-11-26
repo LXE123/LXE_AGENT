@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { runSessionDeletion, type SessionDeletionSteps } from "../src/main/session-deletion";
+import { runSessionDeletion, type SessionDeletionSteps } from "../src/main/gateway/session-deletion";
 
 /** A deletion whose steps record what happened; `fail` names the step that throws. */
 function deletion(fail: Partial<Record<"bindings" | "agent" | "pause" | "forget", Error>> = {}) {

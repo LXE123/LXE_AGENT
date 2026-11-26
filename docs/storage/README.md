@@ -89,5 +89,5 @@ JSON、JSONL 和业务文件按各自格式及目录规则管理。文件放在 
 
 消息路由错误先看 `gateway.sqlite3` 和 `sessions.json`；模型历史错误看 transcript 与 `context_patch`；后台任务或 usage 错误看 `agent.sqlite3`；紫鸟会话状态错误再看 `lxeskill.sqlite3`。
 
-当前路径装配见 [Desktop Gateway](../../apps/desktop/src/main/desktop-gateway.ts)，Transcript 实现见 [Runtime storage](../../packages/agent/runtime/src/state/storage.ts)。
+当前路径装配见 [Desktop Gateway](../../apps/desktop/src/main/gateway/desktop-gateway.ts)，Transcript 实现见 [Runtime storage](../../packages/agent/runtime/src/state/storage.ts)。
 Machine identity 的唯一实现见 [Core machine identity](../../packages/foundation/core/src/machine-identity.ts)；移动代码不会迁移或重写现有 JSON 文件。

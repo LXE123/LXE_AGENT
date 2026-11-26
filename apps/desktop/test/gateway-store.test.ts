@@ -9,7 +9,7 @@ import { resolveWorkspaceContext } from "@lxe/core";
 // does not expose node:sqlite, but bun:sqlite implements the same synchronous
 // constructor and statement methods used by NodeGatewayStore.
 mock.module("node:sqlite", () => ({ DatabaseSync: Database }));
-const { NodeGatewayStore } = await import("../src/main/gateway-store");
+const { NodeGatewayStore } = await import("../src/main/gateway/gateway-store");
 
 const roots: string[] = [];
 const retiredWorkspaceColumn = ["workspace", "server", "scope"].join("_");

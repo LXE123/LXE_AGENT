@@ -2,7 +2,7 @@ import { afterEach, describe, expect, spyOn, test } from "bun:test";
 import { existsSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, symlinkSync, truncateSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { DesktopConversationAttachmentService } from "../src/main/conversation-attachments";
+import { DesktopConversationAttachmentService } from "../src/main/conversations/conversation-attachments";
 
 const roots: string[] = [];
 afterEach(() => {

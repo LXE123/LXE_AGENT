@@ -6,7 +6,7 @@ import {
   configureElectronRuntimeState,
   desktopRuntimeStatePaths,
   prepareDesktopRuntimeState,
-} from "../src/main/runtime-state";
+} from "../src/main/data/runtime-state";
 
 describe("desktop runtime state", () => {
   test("creates the canonical directories and removes the writable probe", () => {

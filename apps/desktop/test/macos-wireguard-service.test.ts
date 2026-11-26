@@ -4,7 +4,7 @@ import { mkdtempSync, readFileSync, writeFileSync, existsSync, rmSync, statSync,
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { wireGuardConfiguration } from "../src/main/wireguard-types";
+import { wireGuardConfiguration } from "../src/main/cloud/wireguard-types";
 
 const script = resolve(import.meta.dirname, "../resources/wireguard/macos-service.sh");
 const bash = "/opt/homebrew/bin/bash";

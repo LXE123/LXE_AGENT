@@ -5,7 +5,7 @@ import { DatabaseSync } from "node:sqlite";
 import { readFileSync, writeFileSync, rmSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { pathToFileURL } from "node:url";
-import { NodeAutomationStore } from "../../src/main/automation-store";
+import { NodeAutomationStore } from "../../src/main/gateway/automation-store";
 import { AutomationService } from "../../../gateway/src/orchestration/automations";
 import { AutomationClock } from "../../../gateway/src/orchestration/automation-clock";
 

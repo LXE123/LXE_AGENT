@@ -1,5 +1,5 @@
 import { identityFixtureCloud } from "./native-access-fixture";
-import { CloudContextError } from "../src/main/cloud-context";
+import { CloudContextError } from "../src/main/cloud/cloud-context";
 import { afterEach, describe, expect, test } from "bun:test";
 import { createCipheriv, randomBytes, scryptSync } from "node:crypto";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
@@ -7,10 +7,10 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Logger } from "@lxe/core";
 import { resolveMachineIdentity } from "@lxe/core/machine-identity";
-import { DesktopCloudEnrollmentManager, type CloudEnrollmentPayload } from "../src/main/cloud-enrollment";
+import { DesktopCloudEnrollmentManager, type CloudEnrollmentPayload } from "../src/main/cloud/cloud-enrollment";
 import { DesktopConfigStore } from "../src/main/config-store";
-import { DesktopCloudService, type DesktopCloudClock } from "../src/main/desktop-cloud";
-import { WireGuardProvisioningError } from "../src/main/wireguard-provisioner";
+import { DesktopCloudService, type DesktopCloudClock } from "../src/main/cloud/desktop-cloud";
+import { WireGuardProvisioningError } from "../src/main/cloud/wireguard-provisioner";
 
 const roots: string[] = [];
 type LogEvent = { level: string; message: string; fields: Record<string, unknown> };

@@ -2,7 +2,7 @@ import {test,expect} from "bun:test";
 import {existsSync,mkdirSync,mkdtempSync,readFileSync,rmSync,writeFileSync} from "node:fs";
 import {tmpdir} from "node:os";
 import {join} from "node:path";
-import {cleanUpdateCache,UPDATE_CACHE_DIR} from "../src/main/update-cache";
+import {cleanUpdateCache,UPDATE_CACHE_DIR} from "../src/main/updates/update-cache";
 
 function fixture(pendingInfo?:string){
  const root=mkdtempSync(join(tmpdir(),"lxe-update-cache-"));

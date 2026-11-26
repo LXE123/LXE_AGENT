@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { resolveCloudDestinationUrl } from "../src/main/cloud-destinations";
+import { resolveCloudDestinationUrl } from "../src/main/cloud/cloud-destinations";
 
 const connectedInput = {
   configured: true,

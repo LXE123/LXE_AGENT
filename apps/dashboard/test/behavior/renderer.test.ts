@@ -34,7 +34,7 @@ for (const suite of ["app-frame", "session-fork", "workspace-deletion", "session
     const env = { ...process.env };
     delete env.ELECTRON_RUN_AS_NODE;
     if (suite === "overview-pages") {
-      const guest = await Bun.build({ entrypoints: [resolve(import.meta.dirname, "../../../desktop/src/main/team-skills-view.ts")],
+      const guest = await Bun.build({ entrypoints: [resolve(import.meta.dirname, "../../../desktop/src/main/app-shell/team-skills-view.ts")],
         outdir: profile, naming: "team-skills-view.cjs", target: "node", format: "cjs", external: ["electron"] });
       expect(guest.success, guest.logs.join("\n")).toBe(true);
     }

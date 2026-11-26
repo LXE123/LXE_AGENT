@@ -13,7 +13,7 @@ import { mkdir, writeFile } from "node:fs/promises";
 import { basename, extname, join, resolve } from "node:path";
 import { createHash, randomUUID } from "node:crypto";
 import { DashboardRpcError, type DesktopDraftAttachmentPayload } from "@lxe/desktop-protocol";
-import { MAX_CONVERSATION_SCREENSHOTS, MAX_SCREENSHOT_BYTES } from "../conversation-paste";
+import { MAX_CONVERSATION_SCREENSHOTS, MAX_SCREENSHOT_BYTES } from "../../conversation-paste";
 import { pastedTextName, removePastedText } from "./pasted-text-retention";
 
 const MEDIA_TYPES: Readonly<Record<string, string>> = {

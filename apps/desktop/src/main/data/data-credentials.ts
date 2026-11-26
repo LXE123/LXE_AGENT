@@ -3,7 +3,7 @@ import { existsSync, mkdirSync, readFileSync } from "node:fs";
 import { isAbsolute, join } from "node:path";
 import { promisify } from "node:util";
 import type { App } from "electron";
-import type { SafeStoragePort } from "./config-store/repository";
+import type { SafeStoragePort } from "../config-store/repository";
 import { assertOrdinaryPath } from "./data-migration";
 
 export const MIGRATION_CREDENTIAL_ARGUMENT = "--lxe-validate-migration-copy=";

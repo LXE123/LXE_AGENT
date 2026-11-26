@@ -5,7 +5,7 @@ import {
   resolveDesktopLaunchMode,
   usesPackagedRuntime,
   usesProductionRenderer,
-} from "../src/main/launch-mode";
+} from "../src/main/app-shell/launch-mode";
 
 describe("desktop launch mode", () => {
   test("selects development, preview, and packaged without conflating their runtimes", () => {

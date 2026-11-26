@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { publicDashboardChannelHealth } from "../src/main/dashboard-channel-health";
+import { publicDashboardChannelHealth } from "../src/main/gateway/dashboard-channel-health";
 
 describe("Dashboard channel health", () => {
   test("does not expose the internal desktop response adapter as a Feishu channel", () => {

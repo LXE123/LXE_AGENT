@@ -55,4 +55,4 @@ Dashboard 也不直接连接 Runtime。Renderer 先通过白名单 IPC 发送类
 
 ## 事实来源
 
-实现入口是 [Desktop Gateway](../../../apps/desktop/src/main/desktop-gateway.ts)、[Gateway orchestration](../../../apps/gateway/src/orchestration)、[Process Runtime port](../../../apps/gateway/src/orchestration/process-runtime.ts) 和 [Agent Runtime host](../../../apps/agent-cli/src/runtime-host.ts)。测试是失败语义和生命周期的可执行合同；文档与测试不一致时，以当前代码和测试为准。
+实现入口是 [Desktop Gateway](../../../apps/desktop/src/main/gateway/desktop-gateway.ts)、[Gateway orchestration](../../../apps/gateway/src/orchestration)、[Process Runtime port](../../../apps/gateway/src/orchestration/process-runtime.ts) 和 [Agent Runtime host](../../../apps/agent-cli/src/runtime-host.ts)。测试是失败语义和生命周期的可执行合同；文档与测试不一致时，以当前代码和测试为准。

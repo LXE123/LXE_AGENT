@@ -2,9 +2,9 @@ import { app } from "electron";
 import assert from "node:assert/strict";
 import { DatabaseSync } from "node:sqlite";
 import { join } from "node:path";
-import { DesktopGateway } from "../../src/main/desktop-gateway";
-import { DesktopAutomations } from "../../src/main/automations";
-import { NodeAutomationStore } from "../../src/main/automation-store";
+import { DesktopGateway } from "../../src/main/gateway/desktop-gateway";
+import { DesktopAutomations } from "../../src/main/gateway/automations";
+import { NodeAutomationStore } from "../../src/main/gateway/automation-store";
 
 async function verifyStop(state: "running" | "queued") {
   const db = new DatabaseSync(":memory:");

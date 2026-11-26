@@ -3,12 +3,12 @@ import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, 
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Logger } from "@lxe/core";
-import type { CloudEnrollmentPayload } from "../src/main/cloud-enrollment";
+import type { CloudEnrollmentPayload } from "../src/main/cloud/cloud-enrollment";
 import {
   WindowsWireGuardProvisioner,
   WireGuardProvisioningError,
   windowsCommandLineQuote,
-} from "../src/main/wireguard-provisioner";
+} from "../src/main/cloud/wireguard-provisioner";
 
 const roots: string[] = [];
 type LogEvent = { level: string; message: string; fields: Record<string, unknown> };

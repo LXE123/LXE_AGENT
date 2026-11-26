@@ -67,7 +67,7 @@ Runtime 的 `PermissionApprovalService` 管理审批，当前由桌面提供用�
 
 ## 历史数据
 
-这里说明 [旧产物目录迁移](../../../apps/desktop/src/main/migration.ts)；Windows 安装目录中的整套用户数据搬迁另见 [程序与用户数据](../../desktop/data-location.md#旧版第一次启动)。
+这里说明 [旧产物目录迁移](../../../apps/desktop/src/main/data/migration.ts)；Windows 安装目录中的整套用户数据搬迁另见 [程序与用户数据](../../desktop/data-location.md#旧版第一次启动)。
 
 Desktop 升级启动时，把实际数据目录下的旧 `<data-root>/artifacts/` 一次性复制到默认工作区的 `<data-root>/workspace/.lxeagent/artifacts/`，保持业务目录结构。已有目标文件优先，只补齐缺失项；目录与文件冲突也保留目标项，不沿目标符号链接写入。此迁移只处理默认工作区，外部工作区不自动导入旧数据。独立 CLI 不触发这项 Desktop 升级迁移。
 

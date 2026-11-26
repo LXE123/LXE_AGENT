@@ -5,8 +5,8 @@ import { readFileSync, rmSync, writeFileSync } from "node:fs";
 import { resolve, dirname, join } from "node:path";
 import { IPC_CHANNELS } from "../../src/ipc-channels";
 import { parseDashboardRpcCall } from "@lxe/desktop-protocol";
-import { previewConversationImageView } from "../../src/main/conversation-artifacts";
-import { imageBytesThumbnail, attachmentThumbnail } from "../../src/main/attachment-thumbnail";
+import { previewConversationImageView } from "../../src/main/conversations/conversation-artifacts";
+import { imageBytesThumbnail, attachmentThumbnail } from "../../src/main/conversations/attachment-thumbnail";
 
 app.whenReady().then(async () => {
   const data = JSON.parse(readFileSync(process.argv[4]!, "utf8"));

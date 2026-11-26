@@ -3,7 +3,7 @@ import { createServer } from "vite";
 import { Database } from "bun:sqlite";
 import type { DatabaseSync } from "node:sqlite";
 import { resolve } from "node:path";
-import { NodeAutomationStore } from "../../../../desktop/src/main/automation-store";
+import { NodeAutomationStore } from "../../../../desktop/src/main/gateway/automation-store";
 import { AutomationService } from "../../../../gateway/src/orchestration/automations";
 import { parseDashboardRpcCall } from "@lxe/desktop-protocol";
 export async function startAutomationFixture(port = 5212) {

@@ -2,8 +2,8 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { LxeSkillClient, type LxeSkillClientOptions } from "../src/main/lxeskill-client";
-import { DesktopLxeSkillHealth } from "../src/main/lxeskill-health";
+import { LxeSkillClient, type LxeSkillClientOptions } from "../src/main/lxeskill/lxeskill-client";
+import { DesktopLxeSkillHealth } from "../src/main/lxeskill/lxeskill-health";
 import { fixtureClient, removeFixtures, sourceLxeSkillPath } from "./support/lxeskill-fixture";
 
 const roots: string[] = [];

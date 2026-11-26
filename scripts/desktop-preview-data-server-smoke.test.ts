@@ -3,7 +3,7 @@ import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { configureLogging } from "../packages/foundation/core/src/index";
-import { resolveDataServerRuntimeEnvironment } from "../apps/desktop/src/main/data-server-policy";
+import { resolveDataServerRuntimeEnvironment } from "../apps/desktop/src/main/cloud/data-server-policy";
 import { TurnUsageSyncService } from "../packages/agent/runtime/src/operations/turn-usage-sync";
 import { SqliteRuntimeStore } from "../packages/agent/runtime/src/state/storage";
 

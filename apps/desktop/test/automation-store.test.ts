@@ -3,7 +3,7 @@ import { Database } from "bun:sqlite";
 import { mkdtempSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { NodeAutomationStore } from "../src/main/automation-store";
+import { NodeAutomationStore } from "../src/main/gateway/automation-store";
 import { AutomationService } from "../../gateway/src/orchestration/automations";
 import type { DatabaseSync } from "node:sqlite";
 

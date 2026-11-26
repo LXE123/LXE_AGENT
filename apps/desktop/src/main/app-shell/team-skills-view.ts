@@ -2,9 +2,9 @@ import { randomUUID } from "node:crypto";
 import { app, session, shell, type DownloadItem, type NavigationEntry, type WebContents } from "electron";
 import { createLogger } from "@lxe/core";
 import { TEAM_SKILLS_URL, isTeamSkillsPage, validTeamSkillId, validTeamVersion, type TeamUninstallTarget, type TeamUseTarget, type TeamUseRequest, parseTeamInstallTicket, type TeamInstallTicket, type TeamInstallResult, type TeamSkillsBrowserState } from "@lxe/desktop-protocol/team-skills";
-import { IPC_CHANNELS } from "../ipc-channels";
-import { WindowTabBudget } from "./manual-tools/tab-budget";
-import type { ManualBrowsers } from "./manual-tools/browsers";
+import { IPC_CHANNELS } from "../../ipc-channels";
+import { WindowTabBudget } from "../manual-tools/tab-budget";
+import type { ManualBrowsers } from "../manual-tools/browsers";
 
 const logger = createLogger("desktop.team-skills");
 const partition = "persist:lxe-workbench-team-skills";

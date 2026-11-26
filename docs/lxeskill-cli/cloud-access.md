@@ -20,7 +20,7 @@ lxeskill cloud-status --server http://10.88.0.1:8000
 
 stdout 输出一个协议版本 `1` 的 JSON 结果。`cloud-context` 成功结果的 `data.device_context` 为 `lxe.device-context.v1`；`cloud-status` 的 `data.checks` 保存每一步的 HTTP 状态与耗时。失败保留实际诊断，做必要脱敏和明确截断。退出码为成功 `0`、参数错误 `2`、连接失败 `3`、HTTP／响应契约错误 `4`、取消 `130`。
 
-两条命令都不自动重试，响应上限均为 1 MiB；`cloud-context` 超时 10 秒，`cloud-status` 每次请求使用客户端默认的 15 秒超时。Electron 的 CLI 桥接另设进程总超时和输出上限，非零退出仍解析结构化错误；无效、矛盾或超限输出不能当作成功。数值与启动实现见 [cloud-context.ts](../../apps/desktop/src/main/cloud-context.ts)。
+两条命令都不自动重试，响应上限均为 1 MiB；`cloud-context` 超时 10 秒，`cloud-status` 每次请求使用客户端默认的 15 秒超时。Electron 的 CLI 桥接另设进程总超时和输出上限，非零退出仍解析结构化错误；无效、矛盾或超限输出不能当作成功。数值与启动实现见 [cloud-context.ts](../../apps/desktop/src/main/cloud/cloud-context.ts)。
 
 ## CLI 内部通信层
 

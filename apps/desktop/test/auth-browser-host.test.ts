@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { AuthBrowserHost, type AuthBrowserSession } from "../src/main/auth-browser-host";
+import { AuthBrowserHost, type AuthBrowserSession } from "../src/main/auth-browser/auth-browser-host";
 
 const hosts: AuthBrowserHost[] = [];
 afterEach(async () => { await Promise.all(hosts.splice(0).map(host => host.stop())); });

@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
-import { editContextMenuTemplate } from "../src/main/edit-context-menu";
+import { editContextMenuTemplate } from "../src/main/app-shell/edit-context-menu";
 
 const editFlags = {
   canUndo: false,

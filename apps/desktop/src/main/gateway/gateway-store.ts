@@ -1,5 +1,5 @@
 import { NodeAutomationStore } from "./automation-store";
-import { PastedTextRetention } from "./pasted-text-retention";
+import { PastedTextRetention } from "../conversations/pasted-text-retention";
 import { existsSync, mkdirSync } from "node:fs";
 import { dirname } from "node:path";
 import { DatabaseSync } from "node:sqlite";

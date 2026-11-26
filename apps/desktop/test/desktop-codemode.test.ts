@@ -9,8 +9,8 @@ import { ProcessAgentRuntime, type DirectGatewayComposition } from "@lxe/gateway
 import { RunHandle } from "../../gateway/src/orchestration/scheduler";
 import type { AgentJob } from "@lxe/protocol";
 import deepseek from "../../../config/llm/providers/deepseek.json";
-import { DesktopAutomations } from "../src/main/automations";
-import { NodeAutomationStore } from "../src/main/automation-store";
+import { DesktopAutomations } from "../src/main/gateway/automations";
+import { NodeAutomationStore } from "../src/main/gateway/automation-store";
 import { desktopCodemodeReport } from "./fixtures/desktop-codemode-script";
 import { runPiReference } from "./fixtures/pi-codemode-reference";
 import { prepareExecSandbox } from "../../../scripts/prepare-exec-sandbox";

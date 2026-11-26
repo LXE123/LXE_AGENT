@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { DesktopInputAssetsService } from "../src/main/input-assets";
+import { DesktopInputAssetsService } from "../src/main/lxeskill/input-assets";
 import { fixtureClient, removeFixtures, resultLine } from "./support/lxeskill-fixture";
 
 afterEach(removeFixtures);

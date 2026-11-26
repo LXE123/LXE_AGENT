@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import type { MenuItemConstructorOptions } from "electron";
-import { conversationLinkMenuTemplate, validateConversationLinkMenu, type ConversationMenuCommand } from "../src/main/conversation-link-menu";
+import { conversationLinkMenuTemplate, validateConversationLinkMenu, type ConversationMenuCommand } from "../src/main/conversations/conversation-link-menu";
 import type { FileApplicationLookup } from "../src/main/file-preview/service";
 
 const web = { kind: "web", language: "en", url: "https://example.com/path?q=1", x: 14, y: 28, copyMessage: true, fork: true } as const;
