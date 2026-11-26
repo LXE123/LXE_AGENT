@@ -36,6 +36,22 @@ lock_pool() {
 # so claiming leaves the worktree perfectly clean.
 slot_slug() { cat "$1.claim" 2>/dev/null || true; }
 
+# .worktrees sits inside the main checkout, so in a slot directory whose .git
+# file is gone (a half-finished delete, a process recreating its cache) git
+# walks up and every later command would act on the main worktree. Only a
+# directory git itself reports as a worktree root counts as a slot: the
+# command succeeds and the path from that root is empty. A broken .git file
+# also prints nothing, so the exit status must be checked too.
+slot_is_worktree() {
+  local prefix
+  prefix="$(git -C "$1" rev-parse --show-prefix 2>/dev/null)" || return 1
+  [ -z "$prefix" ]
+}
+
+not_worktree_message() {
+  echo "pool-$1 is not a git worktree (its .git file is missing or broken); wt-claim will not touch it, inspect it manually"
+}
+
 slot_dirty() { [ -n "$(git -C "$1" status --porcelain)" ]; }
 
 slot_branch() { git -C "$1" branch --show-current 2>/dev/null || true; }
@@ -75,6 +91,10 @@ cmd_status() {
       [ "$i" -le "$MAX_SLOTS" ] && echo "pool-$i  (not created)"
       continue
     fi
+    if ! slot_is_worktree "$dir"; then
+      echo "pool-$i  (not a git worktree: missing or broken .git, inspect manually)"
+      continue
+    fi
     slug="$(slot_slug "$dir")"
     branch="$(slot_branch "$dir")"
     state="idle"
@@ -98,6 +118,7 @@ cmd_claim() {
   for i in $(seq 1 "$(slot_scan_count)"); do
     dir="$POOL_DIR/pool-$i"
     if [ -d "$dir" ] && [ "$(slot_slug "$dir")" = "$slug" ]; then
+      slot_is_worktree "$dir" || die "$(not_worktree_message "$i")"
       sync_deps "$dir"
       bun "$SCRIPT_DIR/worktree-config.ts" "$MAIN_ROOT" "$dir" init
       echo "resumed pool-$i on $(slot_branch "$dir")"
@@ -116,6 +137,9 @@ cmd_claim() {
     if [ ! -d "$dir" ]; then
       git -C "$MAIN_ROOT" worktree add --detach "$dir" main >/dev/null
     elif [ -n "$(slot_slug "$dir")" ]; then
+      continue
+    elif ! slot_is_worktree "$dir"; then
+      echo "wt-claim: skipping $(not_worktree_message "$i")" >&2
       continue
     elif slot_dirty "$dir"; then
       echo "wt-claim: skipping pool-$i (dirty but unclaimed — inspect manually)" >&2
@@ -145,6 +169,7 @@ no_idle_slot_message() {
     [ -d "$dir" ] || continue
     owner="$(slot_slug "$dir")"
     [ -n "$owner" ] || continue
+    slot_is_worktree "$dir" || continue
     slot_dirty "$dir" && continue
     slot_pushed "$dir" || continue
     releasable="$releasable"$'\n'"  pool-$i  scripts/wt-claim release $owner"
@@ -163,6 +188,7 @@ cmd_release() {
   for i in $(seq 1 "$(slot_scan_count)"); do
     dir="$POOL_DIR/pool-$i"
     [ -d "$dir" ] && [ "$(slot_slug "$dir")" = "$slug" ] || continue
+    slot_is_worktree "$dir" || die "$(not_worktree_message "$i")"
     slot_dirty "$dir" && die "pool-$i has uncommitted changes; commit or discard them first"
     branch="$(slot_branch "$dir")"
     git -C "$dir" checkout --quiet --detach main
@@ -180,6 +206,7 @@ cmd_refresh_config() {
   for i in $(seq 1 "$(slot_scan_count)"); do
     dir="$POOL_DIR/pool-$i"
     [ -d "$dir" ] && [ "$(slot_slug "$dir")" = "$slug" ] || continue
+    slot_is_worktree "$dir" || die "$(not_worktree_message "$i")"
     bun "$SCRIPT_DIR/worktree-config.ts" "$MAIN_ROOT" "$dir" refresh
     return 0
   done

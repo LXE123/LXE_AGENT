@@ -34,6 +34,22 @@ function Get-LxeSlotBranch([string]$Directory) {
     return ([string]($result.Output -join "")).Trim()
 }
 
+# .worktrees sits inside the main checkout, so in a slot directory whose .git
+# file is gone (a half-finished delete, a process recreating its cache) git
+# walks up and every later command would act on the main worktree. Only a
+# directory git itself reports as a worktree root counts as a slot: the
+# command succeeds and the path from that root is empty. A broken .git file
+# also prints nothing, so the exit status must be checked too.
+function Test-LxeSlotWorktree([string]$Directory) {
+    $result = Invoke-LxeGit -WorkingDirectory $Directory -Arguments @("rev-parse", "--show-prefix") -AllowFailure
+    if ($result.ExitCode -ne 0) { return $false }
+    return [string]::IsNullOrWhiteSpace([string]($result.Output -join ""))
+}
+
+function Get-LxeNotWorktreeMessage([int]$Index) {
+    return "pool-$Index is not a git worktree (its .git file is missing or broken); wt-claim will not touch it, inspect it manually"
+}
+
 function Test-LxeSlotDirty([string]$Directory) {
     $result = Invoke-LxeGit -WorkingDirectory $Directory -Arguments @("status", "--porcelain")
     return -not [string]::IsNullOrWhiteSpace([string]($result.Output -join ""))
@@ -71,6 +87,7 @@ function Get-LxeNoIdleSlotMessage {
         if (-not (Test-Path -LiteralPath $directory -PathType Container)) { continue }
         $owner = Get-LxeSlotSlug $directory
         if (-not $owner) { continue }
+        if (-not (Test-LxeSlotWorktree $directory)) { continue }
         if (Test-LxeSlotDirty $directory) { continue }
         if (-not (Test-LxeSlotPushed $directory)) { continue }
         $releasable += "  pool-$index  scripts/wt-claim.ps1 release $owner"
@@ -124,6 +141,10 @@ try {
                 if ($index -le $maxSlots) { Write-Output "pool-$index  (not created)" }
                 continue
             }
+            if (-not (Test-LxeSlotWorktree $directory)) {
+                Write-Output "pool-$index  (not a git worktree: missing or broken .git, inspect manually)"
+                continue
+            }
             $slug = Get-LxeSlotSlug $directory
             $branch = Get-LxeSlotBranch $directory
             $state = if ($slug) { "claimed: $slug" } else { "idle" }
@@ -153,6 +174,7 @@ try {
         for ($index = 1; $index -le $scanCount; $index += 1) {
             $directory = Join-Path $poolRoot "pool-$index"
             if ((Test-Path -LiteralPath $directory -PathType Container) -and (Get-LxeSlotSlug $directory) -eq $TaskSlug) {
+                if (-not (Test-LxeSlotWorktree $directory)) { throw (Get-LxeNotWorktreeMessage $index) }
                 Sync-LxeWorktreeConfiguration $directory "refresh"
                 exit 0
             }
@@ -166,6 +188,7 @@ try {
             $directory = Join-Path $poolRoot "pool-$index"
             if (-not (Test-Path -LiteralPath $directory -PathType Container)) { continue }
             if ((Get-LxeSlotSlug $directory) -ne $TaskSlug) { continue }
+            if (-not (Test-LxeSlotWorktree $directory)) { throw (Get-LxeNotWorktreeMessage $index) }
             if (Test-LxeSlotDirty $directory) { throw "pool-$index has uncommitted changes; commit or discard them first" }
             $branch = Get-LxeSlotBranch $directory
             Invoke-LxeGit -WorkingDirectory $directory -Arguments @("checkout", "--quiet", "--detach", "main") | Out-Null
@@ -186,6 +209,7 @@ try {
     for ($index = 1; $index -le $scanCount; $index += 1) {
         $directory = Join-Path $poolRoot "pool-$index"
         if ((Test-Path -LiteralPath $directory -PathType Container) -and (Get-LxeSlotSlug $directory) -eq $slug) {
+            if (-not (Test-LxeSlotWorktree $directory)) { throw (Get-LxeNotWorktreeMessage $index) }
             Sync-LxeWorktreeDependencies $directory
             Sync-LxeWorktreeConfiguration $directory "init"
             Write-Output "resumed pool-$index on $(Get-LxeSlotBranch $directory)"
@@ -205,6 +229,10 @@ try {
             Invoke-LxeGit -WorkingDirectory $mainRoot -Arguments @("worktree", "add", "--quiet", "--detach", $directory, "main") | Out-Null
         }
         elseif (Get-LxeSlotSlug $directory) {
+            continue
+        }
+        elseif (-not (Test-LxeSlotWorktree $directory)) {
+            Write-Warning "skipping $(Get-LxeNotWorktreeMessage $index)"
             continue
         }
         elseif (Test-LxeSlotDirty $directory) {
