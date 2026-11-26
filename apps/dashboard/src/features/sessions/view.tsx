@@ -17,7 +17,7 @@ import { OpenFileButton } from "../file-preview/OpenFileButton";
 import { UserQuestionGate } from "./user-questions";
 import { questionAnswerSummary, UserQuestionSummary } from "./user-question-summary";
 import type { PendingUserQuestion, PendingApproval, PermissionMode } from "@lxe/desktop-protocol";
-import { PastedTextAttachment } from "./pasted-text-attachment";
+import { PastedTextPreview } from "./pasted-text-preview";
 import { conversationAttachments, type ComposerAttachment } from "./attachment-draft";
 import { ComposerQuotes } from "./ComposerQuotes";
 import { SelectionQuote } from "./SelectionQuote";
@@ -647,6 +647,8 @@ function InputAttachmentList({
 }) {
   const t = useUiText();
   const [error, setError] = useState("");
+  const [previewId, setPreviewId] = useState<string | null>(null);
+  const preview = draft && previewId ? attachments.find(item => item.attachment_id === previewId) : undefined;
   const open = async (attachmentId: string) => {
     if (!onOpen) return;
     setError("");
@@ -659,34 +661,41 @@ function InputAttachmentList({
   return (
     <div className={`turn-file-list input-attachment-list${draft ? " input-attachment-draft" : ""}`} role="group" aria-label={t.conversation.attachments}>
       {!draft ? <span className="turn-file-label">{t.conversation.attachments}</span> : null}
-      {attachments.map((attachment) => draft && attachment.pastedText ? (
-        <PastedTextAttachment key={attachment.attachment_id} attachment={attachment} excerpt={attachment.pastedText} onRemove={onRemove} />
-      ) : draft && attachment.media_type.startsWith("image/") ? (
-        <DraftImageAttachment key={attachment.attachment_id} attachment={attachment} onRemove={onRemove} />
-      ) : (
-        <span className={`input-attachment-chip${draft ? " input-attachment-file" : ""}`} key={attachment.attachment_id}>
-          <button
-            className="turn-file-chip"
-            disabled={!onOpen}
-            onClick={() => void open(attachment.attachment_id)}
-            title={onOpen ? t.conversation.openFile(attachment.name) : attachment.name}
-            type="button"
-          >
-            {draft ? <FileAttachmentIcon name={attachment.name} /> : <Paperclip size={14} />}
-            <FileAttachmentInfo name={attachment.name} />
-          </button>
-          {onRemove ? (
+      {attachments.map((attachment) => {
+        if (draft && attachment.media_type.startsWith("image/")) {
+          return <DraftImageAttachment key={attachment.attachment_id} attachment={attachment} onRemove={onRemove} />;
+        }
+        const hasTextPreview = draft && attachment.pastedText !== undefined;
+        const canOpen = hasTextPreview || Boolean(onOpen);
+        return (
+          <span className={`input-attachment-chip${draft ? " input-attachment-file" : ""}`} key={attachment.attachment_id}>
             <button
-              aria-label={t.conversation.removeAttachment(attachment.name)}
-              className="input-attachment-remove"
-              onClick={() => onRemove(attachment.attachment_id)}
+              aria-haspopup={hasTextPreview ? "dialog" : undefined}
+              className="turn-file-chip"
+              disabled={!canOpen}
+              onClick={() => hasTextPreview ? setPreviewId(attachment.attachment_id) : void open(attachment.attachment_id)}
+              title={canOpen ? t.conversation.openFile(attachment.name) : attachment.name}
               type="button"
             >
-              <X size={12} />
+              {draft ? <FileAttachmentIcon name={attachment.name} /> : <Paperclip size={14} />}
+              <FileAttachmentInfo name={attachment.name} />
             </button>
-          ) : null}
-        </span>
-      ))}
+            {onRemove ? (
+              <button
+                aria-label={t.conversation.removeAttachment(attachment.name)}
+                className="input-attachment-remove"
+                onClick={() => onRemove(attachment.attachment_id)}
+                type="button"
+              >
+                <X size={12} />
+              </button>
+            ) : null}
+          </span>
+        );
+      })}
+      {preview?.pastedText !== undefined && (
+        <PastedTextPreview name={preview.name} text={preview.pastedText} onClose={() => setPreviewId(null)} />
+      )}
       {error ? <div className="turn-file-error" role="alert">{t.conversation.openFileFailed(error)}</div> : null}
     </div>
   );
@@ -1302,9 +1311,9 @@ export function ConversationComposer({
         <ComposerQuotes session={conversationKey} quotes={quotes} quoteRef={quoteRef} editorRef={textareaRef} disabled={!runtimeReady} />
         <ReferenceComposer ref={textareaRef} session={conversationKey} value={text} onChange={setText}
           disabled={!runtimeReady} placeholder={runtimeReady ? (activity?.active?.state === "running" ? t.conversation.steerPlaceholder : t.conversation.placeholder) : runtimeUnavailableMessage}
-          onPasteText={(pasted, count) => {
+          onPasteText={pasted => {
             setError("");
-            void attachmentDraft.stageText(pasted, count, t.conversation.pastedTextName, async (value, name) => {
+            void attachmentDraft.stageText(pasted, t.conversation.pastedTextName, async (value, name) => {
               if (!window.lxe) throw new Error(t.conversation.unavailable);
               return window.lxe.desktop.stagePastedConversationText(value, name);
             });

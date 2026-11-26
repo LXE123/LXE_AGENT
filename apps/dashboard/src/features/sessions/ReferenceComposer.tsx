@@ -61,7 +61,7 @@ function currentHit(): Hit | undefined {
 
 export const ReferenceComposer = forwardRef<HTMLDivElement, {
   session: string; value: string; onChange(text: string): void; onSubmit(): void;
-  onFiles(files: File[]): void; onPasteText(text: string, characters: number): void;
+  onFiles(files: File[]): void; onPasteText(text: string): void;
   disabled: boolean; placeholder: string;
 }>(function ReferenceComposer(props, forwarded) {
   const t = useUiText();
@@ -138,11 +138,12 @@ export const ReferenceComposer = forwardRef<HTMLDivElement, {
         const text = clipboard.getData("text/plain");
         if (!files.length && text.length > PASTED_TEXT_ATTACHMENT_THRESHOLD) {
           let characters = 0;
-          for (const _ of text) characters++;
-          if (characters > PASTED_TEXT_ATTACHMENT_THRESHOLD) {
-            event.preventDefault();
-            propsNow.current.onPasteText(text, characters);
-            return true;
+          for (const _ of text) {
+            if (++characters > PASTED_TEXT_ATTACHMENT_THRESHOLD) {
+              event.preventDefault();
+              propsNow.current.onPasteText(text);
+              return true;
+            }
           }
         }
         // Normal text keeps Lexical's native paste and selection-replacement behavior.
