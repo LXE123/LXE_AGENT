@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState, type RefObject } from "react";
 import { createPortal } from "react-dom";
-import { CornerUpLeft, X } from "lucide-react";
+import { Check, CornerUpLeft, X } from "lucide-react";
 import { useUiText } from "../../shared/i18n";
 import type { ComposerQuoteAction } from "./composer-quotes";
 
@@ -74,6 +74,12 @@ export function SelectionQuote({ root, quoteRef }: {
   }, [editing, comment]);
 
   useLayoutEffect(() => {
+    if (!editing || !excerpt) return;
+    CSS.highlights.set("lxe-quote-source", new Highlight(excerpt.range));
+    return () => { CSS.highlights.delete("lxe-quote-source"); };
+  }, [editing, excerpt]);
+
+  useLayoutEffect(() => {
     const el = panel.current;
     const viewport = root.current?.querySelector(".conversation-scroll-area");
     if (!excerpt || !el || !viewport) return;
@@ -107,15 +113,15 @@ export function SelectionQuote({ root, quoteRef }: {
     if (event.key === "Escape") { event.preventDefault(); event.stopPropagation(); dismiss(); }
   }}>
     {editing ? <div className="selection-quote-card" role="dialog" aria-label={labels.quote}>
-      <header>
-        <blockquote>{excerpt.text}</blockquote>
-        <button className="quote-icon" type="button" title={t.workspaces.cancel} aria-label={t.workspaces.cancel} onClick={dismiss}><X size={14} /></button>
-      </header>
-      <textarea rows={2} autoFocus aria-label={labels.quoteComment} placeholder={labels.quoteComment} value={comment}
-        onChange={event => { setComment(event.target.value); setError(""); }}
-        onCompositionStart={() => { composing.current = true; }} onCompositionEnd={() => { composing.current = false; }} />
+      <blockquote>{excerpt.text}</blockquote>
+      <div className="quote-comment-controls">
+        <textarea rows={1} autoFocus aria-label={labels.quoteComment} placeholder={labels.quoteComment} value={comment}
+          onChange={event => { setComment(event.target.value); setError(""); }}
+          onCompositionStart={() => { composing.current = true; }} onCompositionEnd={() => { composing.current = false; }} />
+        {comment && <button className="quote-icon" type="button" title={t.workspaces.cancel} aria-label={t.workspaces.cancel} onClick={dismiss}><X size={14} /></button>}
+        <button className="quote-confirm" type="button" title={labels.stageQuote} aria-label={labels.stageQuote} onClick={confirm}><Check size={16} /></button>
+      </div>
       {error && <div role="alert">{error}</div>}
-      <footer><button className="quote-confirm" type="button" onClick={confirm}>{labels.stageQuote}</button></footer>
     </div> : <button className="quote-trigger" type="button" onMouseDown={e => e.preventDefault()} onClick={() => {
       setEditing(true);
       document.getSelection()?.removeAllRanges();
