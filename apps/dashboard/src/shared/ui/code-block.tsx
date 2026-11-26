@@ -75,7 +75,7 @@ function loadHighlighter(): Promise<HighlightApi> {
  * highlighting failure can never hide a tool's actual output. Markdown may
  * opt into detection for an unlabeled fence; tool output never guesses.
  */
-export function CodeBlock({
+export const CodeBlock = React.memo(function CodeBlock({
   code,
   language = "",
   className = "",
@@ -132,7 +132,7 @@ export function CodeBlock({
         : <code>{code}</code>}
     </pre>
   );
-}
+});
 
 /** Highlight.js emits spans only; reopen spans across lines so multiline tokens keep their colour. */
 export function numberCodeLines(html: string, firstLine = 1, highlightLine?: number, highlightEnd = highlightLine): string {

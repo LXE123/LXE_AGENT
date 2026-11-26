@@ -13,6 +13,7 @@ import { ConversationDisplayController, sendConversationMessage } from "./displa
 import { useConversationEntry } from "./use-conversation-entry";
 import { UNGROUPED_WORKSPACE, recentWorkspace, useWorkspaceExpanded } from "./workspace-state";
 import { acknowledgeConversationSend } from "./presentation";
+import { writeQuotes } from "./composer-quotes";
 import { appendComposerDraftPrompt, prepareDraftMove } from "./composer-draft";
 import { moveConversationAttachments, forgetConversationAttachments } from "./attachment-draft";
 import { forgetComposerEditor } from "./ReferenceComposer";
@@ -282,6 +283,7 @@ export function useSessionWorkspace({ activeSection, runtimeReady: dashboardRunt
     await sessionActions.delete(session.session_id);
     forgetPreviewSession(session.session_id); forgetComposerEditor(session.session_id);
     forgetConversationAttachments(session.session_id);
+    writeQuotes(session.session_id, []);
     queryClient.removeQueries({ queryKey: dashboardQueryKeys.sessions.detailSession(session.session_id) });
     queryClient.removeQueries({ queryKey: dashboardQueryKeys.sessions.activity(session.session_id) });
     queryClient.removeQueries({ queryKey: dashboardQueryKeys.models.session(session.session_id) });

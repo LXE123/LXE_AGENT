@@ -62,7 +62,7 @@ function ImageViewer({ bytes, extension, name, state, failed }: { bytes: Uint8Ar
     {url ? <img alt={name} src={url} onLoad={e => setNaturalWidth(e.currentTarget.naturalWidth)} onError={() => failed(new Error(`Image could not be decoded: ${name}`))} style={{ maxWidth: "none", width: naturalWidth ? naturalWidth * (zoom || fit) / 100 : "100%" }} /> : null}
   </div><ZoomBar zoom={zoom} fitPercent={fit} change={change} /></div>;
 }
-function PagedText({ preview, state, mode, wrap, failed, fromStart }: { preview: PreparedPreview; state: ReadingState; mode: ViewMode; wrap: boolean; failed(error: unknown): void; fromStart(): void }) {
+function PagedText({ preview, state, mode, wrap, isActive, failed, fromStart }: { preview: PreparedPreview; state: ReadingState; mode: ViewMode; wrap: boolean; isActive(): boolean; failed(error: unknown): void; fromStart(): void }) {
   const t = useUiText().filePreview, viewport = useRef<HTMLDivElement>(null), generation = useRef(0);
   const [text, setText] = useState(""), [eof, setEof] = useState(false), [busy, setBusy] = useState(true), [error, setError] = useState(""), [copied, setCopied] = useState(false);
   const [targetLine] = useState(state.lineRequest?.line);
@@ -71,23 +71,34 @@ function PagedText({ preview, state, mode, wrap, failed, fromStart }: { preview:
   const [firstLine] = useState(() => targetLine ? Math.max(1, targetLine - 100) : state.scroll[mode]?.firstLine ?? 1);
   const next = useRef(firstLine), pending = useRef(false), restoring = useRef(true);
   const saved = useRef<{ top: number; left: number } | null>(targetLine ? null : state.scroll[mode] ?? { top: 0, left: 0 });
-  const load = async (restoreTo = 0) => {
-    if (pending.current) return;
+  const load = async (restoreTo?: number) => {
+    if (pending.current || !isActive()) return;
     pending.current = true; setBusy(true); const current = generation.current;
     try {
+      // Publish the loaded range together so a version change can retain identical text.
+      let offset = restoreTo === undefined ? next.current : firstLine;
+      let content = "", atEnd: boolean;
       do {
-        const page = await filesApi().readText(preview.handle, { offset: next.current });
-        if (current !== generation.current) return;
+        const page = await filesApi().readText(preview.handle, { offset });
+        if (current !== generation.current || !isActive()) return;
         if (page.version !== preview.metadata.version) throw new Error("File changed; reload preview");
-        setText(value => value + page.text); setCopied(false); next.current = page.next; setEof(page.eof);
-        state.loadedLines = Math.max(0, page.next - firstLine);
-        if (page.eof || page.next > restoreTo) break;
-      } while (true);
-      if (current === generation.current) { setError(""); restoring.current = false; }
-    } catch (error) { if (current === generation.current) { setError(errorText(error)); restoring.current = false; failed(error); } }
+        content += page.text;
+        offset = page.next;
+        atEnd = page.eof;
+      } while (!atEnd && restoreTo !== undefined && offset <= restoreTo);
+      next.current = offset;
+      state.loadedLines = Math.max(0, offset - firstLine);
+      if (restoreTo === undefined) setText(previous => previous + content);
+      else setText(content);
+      setEof(atEnd); setCopied(false); setError(""); restoring.current = false;
+    } catch (error) { if (current === generation.current && isActive()) { setError(errorText(error)); restoring.current = false; failed(error); } }
     finally { if (current === generation.current) { pending.current = false; setBusy(false); } }
   };
-  useEffect(() => { ++generation.current; void load(targetLine ?? firstLine + state.loadedLines - 1); return () => { generation.current++; }; }, [preview.handle]);
+  useEffect(() => {
+    restoring.current = true;
+    void load(state.lineRequest?.line ?? firstLine + state.loadedLines - 1);
+    return () => { generation.current++; pending.current = false; };
+  }, [preview.handle]);
   useLayoutEffect(() => {
     if (busy || !targetLine || !state.lineRequest?.line) return;
     const el = viewport.current;
@@ -153,7 +164,9 @@ export function DocumentViewer({ file, name, state, resolved }: { file: SessionF
     };
     fatal.current = fail;
     const load = async (known?: FileMetadata) => {
-      const current = ++epoch; release(); setPreview(undefined); setBytes(undefined); setError(undefined); unavailable = false;
+      const current = ++epoch; release();
+      if (mode !== "code") setPreview(undefined);
+      setBytes(undefined); setError(undefined); unavailable = false;
       const forced = force.current; force.current = false;
       try {
         const info = known ?? await checkFile(file, forced);
@@ -196,11 +209,11 @@ export function DocumentViewer({ file, name, state, resolved }: { file: SessionF
     {fonts && preview?.missingFonts.length ? <div className="file-preview-note" role="status">{t.fonts}{preview.missingFonts.join(", ")}</div> : null}
     {preview?.metadata.source === "history" ? <div className="file-preview-note">{t.history} <FileAvailabilityBadge file={file} history /></div> : null}
     <div className="file-document-content">
-      {error ? <FileFailurePanel failure={error} name={name} retry={refresh} /> : !preview || preparedMode !== mode || !textMode && !bytes ? <p className="file-preview-loading" role="status">{t.loading}</p> : <PreviewBoundary key={preview.handle} failed={cause => fatal.current(cause)}><Suspense fallback={<p className="file-preview-loading" role="status">{t.loading}</p>}>
+      {error ? <FileFailurePanel failure={error} name={name} retry={refresh} /> : !preview || preparedMode !== mode || !textMode && !bytes ? <p className="file-preview-loading" role="status">{t.loading}</p> : <PreviewBoundary key={mode === "code" ? preview.metadata.key : preview.handle} failed={cause => fatal.current(cause)}><Suspense fallback={<p className="file-preview-loading" role="status">{t.loading}</p>}>
         {preview.metadata.kind === "unsupported" ? <div className="file-preview-empty">{t.unsupported}<OpenFileButton file={file} label /></div>
-          : textMode ? <PagedText key={`${preview.handle}:${mode}`} preview={preview} state={state} mode={mode} wrap={wrap} failed={cause => fatal.current(cause)} fromStart={() => {
+          : textMode ? <PagedText key={mode} preview={preview} state={state} mode={mode} wrap={wrap} isActive={() => liveHandle.current === preview.handle} failed={cause => fatal.current(cause)} fromStart={() => {
             delete state.scroll[mode]; if (state.lineRequest) delete state.lineRequest.line;
-            state.loadedLines = 0; refresh();
+            state.loadedLines = 0; setPreview(undefined); refresh();
           }} />
           : mode === "image" ? <ImageViewer bytes={bytes!} extension={preview.metadata.extension} name={name} state={state} failed={cause => fatal.current(cause)} />
           : mode === "pdf" ? <PdfViewer bytes={bytes!} state={state} failed={cause => fatal.current(cause)} />

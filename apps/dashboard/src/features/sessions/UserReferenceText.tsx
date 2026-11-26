@@ -1,8 +1,11 @@
 // Sent-message projection adapted from DeepSeek Harness ui-primitives/user-text (MIT).
 import type { ReactNode } from "react";
+import { parseQuotedMessage } from "./message-quotes";
+import { SentMessageQuote } from "./MessageQuoteRow";
 import { File, Folder } from "lucide-react";
 import { usePreviewSidebar } from "../file-preview/Sidebar";
-export function UserReferenceText({ text, skills = [] }: { text: string; skills?: string[] }) {
+export function UserReferenceText({ text: source, skills = [] }: { text: string; skills?: string[] }) {
+  const { quotes, text } = parseQuotedMessage(source);
   const panel = usePreviewSidebar(); const parts: ReactNode[] = []; let cursor = 0;
   for (const match of text.matchAll(/(^|\s)(\/[a-z0-9]+(?:-[a-z0-9]+)*(?=\s|$)|@"[^"\n]+"|@[^\s]+)/g)) {
     const start = match.index! + match[1]!.length, raw = match[2]!;
@@ -19,5 +22,10 @@ export function UserReferenceText({ text, skills = [] }: { text: string; skills?
     cursor = start + token.length;
   }
   parts.push(text.slice(cursor));
-  return <div className="message-markdown user-reference-text">{parts}</div>;
+  return <>
+    {quotes.length > 0 && <div className="sent-message-quotes">
+      {quotes.map((quote, index) => <SentMessageQuote key={index} quote={quote} />)}
+    </div>}
+    {(text || !quotes.length) && <div className="message-markdown user-reference-text">{parts}</div>}
+  </>;
 }

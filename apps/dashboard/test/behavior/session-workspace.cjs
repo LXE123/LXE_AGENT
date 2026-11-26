@@ -27,24 +27,22 @@ module.exports = async ({js, step, settle, load, state, waitFor}) => {
     assert.equal((await current()).selection.selectedSessionId, selected);
     assert.equal((await current()).selection.selectedSession.workspace.directory, '/fixture/second');
   });
-  await step('text and screenshot merge limits preserve both drafts, attachments and selection', async () => {
+  await step('long drafts merge and screenshot overflow preserves both drafts', async () => {
     await create('/fixture/limit-target');
     const target = (await current()).selection.selectedSessionId;
-    await js(`behavior.session.draft(${JSON.stringify(target)}, 'T'.repeat(8190), 3)`);
+    await js(`behavior.session.draft(${JSON.stringify(target)}, 'T'.repeat(12000), 0)`);
     await create('/fixture/limit-source');
     const source = (await current()).selection.selectedSessionId;
     await js(`behavior.session.draft(${JSON.stringify(source)}, 'source', 3); ${actions}.switchConversationWorkspace('/fixture/limit-target')`);
-    await waitFor('document.querySelector("#session-state").textContent.includes("Draft exceeds 8192")', 'text limit');
-    assert.equal((await current()).selection.selectedSessionId, source);
-    assert.equal(await js(`sessionStorage.getItem('lxe.composer-draft.' + ${JSON.stringify(source)})`), 'source');
-    assert.equal(await js(`sessionStorage.getItem('lxe.composer-draft.' + ${JSON.stringify(target)}).length`), 8190);
+    await waitFor(`behavior.session.current.selection.selectedSessionId === ${JSON.stringify(target)}`, 'merged long draft');
+    assert.equal(await js(`sessionStorage.getItem('lxe.composer-draft.' + ${JSON.stringify(target)})`), "T".repeat(12000) + "\n\nsource");
     await create('/fixture/image-target');
     const imageTarget = (await current()).selection.selectedSessionId;
-    await js(`behavior.session.draft(${JSON.stringify(imageTarget)}, 'target', 3); ${actions}.openSession(behavior.state().sessions.find(s=>s.session_id===${JSON.stringify(source)}))`); await settle();
+    await js(`behavior.session.draft(${JSON.stringify(imageTarget)}, 'target', 3); ${actions}.openSession(behavior.state().sessions.find(s=>s.session_id===${JSON.stringify(target)}))`); await settle();
     await js(`${actions}.switchConversationWorkspace('/fixture/image-target')`);
     await waitFor('document.querySelector("#session-state").textContent.includes("Fixture screenshot limit")', 'screenshot limit');
-    assert.equal((await current()).selection.selectedSessionId, source);
-    for (const id of [target, source, imageTarget]) assert.equal(await js(`behavior.session.attachments(${JSON.stringify(id)}).length`), 3);
+    assert.equal((await current()).selection.selectedSessionId, target);
+    for (const id of [target, imageTarget]) assert.equal(await js(`behavior.session.attachments(${JSON.stringify(id)}).length`), 3);
     assert.equal(await js(`sessionStorage.getItem('lxe.composer-draft.' + ${JSON.stringify(imageTarget)})`), 'target');
   });
   await step('unready runtime defers creation and adopts the draft once ready', async () => {

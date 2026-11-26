@@ -44,6 +44,22 @@ test("a conversation click opens one external file, scoped to its session and wi
   service.releaseAll();
   await expect(service.resolve(ref)).rejects.toThrow("from its conversation");
 });
+test("looking up a file menu or copying its paths leaves external preview access gated", async () => {
+  const { service, outside } = await fixture();
+  const ref = { kind: "linked", session_id: "s", path: "../outside/external.txt" } as const;
+  const menu = await service.fileLinkMenu(ref);
+  expect(menu.absolutePath).toBe(join(outside, "external.txt"));
+  expect(menu.relativePath).toBe(join("..", "outside", "external.txt"));
+  expect((await menu.applications).applications[0]?.id).toBe("installed");
+  await expect(service.resolve(ref)).rejects.toThrow("from its conversation");
+  menu.authorize();
+  expect(await service.resolve(ref)).toBe(await realpath(menu.absolutePath));
+  const missing = await service.fileLinkMenu({ ...ref, path: "../outside/gone.txt" });
+  expect(missing.filename).toBe("gone.txt");
+  const lookup = await missing.applications;
+  expect(lookup.error).toContain("ENOENT");
+  expect(lookup.applications).toEqual([]);
+});
 test("a relative link cannot silently follow a repointed directory symlink", async () => {
   const { service, workspace, outside, root } = await fixture();
   const alias = join(root, "alias");

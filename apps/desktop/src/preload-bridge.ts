@@ -30,6 +30,7 @@ export function createDesktopBridge(
   ipc: IpcRendererPort,
   platform: DesktopPlatform,
   files?: DesktopFilePathPort,
+  consumeLinkedMenuGesture: (session: string, path: string) => boolean = () => false,
 ): LxeDesktopBridge {
   return {
     tools: {
@@ -51,6 +52,11 @@ export function createDesktopBridge(
     desktop: {
       platform,
       showTitlebarMenu: request => ipc.invoke(IPC_CHANNELS.showTitlebarMenu, request),
+      showConversationLinkMenu: async request => {
+        if (request.kind === "file" && request.ref.kind === "linked"
+          && !consumeLinkedMenuGesture(request.ref.session_id, request.ref.path)) return null;
+        return ipc.invoke(IPC_CHANNELS.conversationLinkMenu, request);
+      },
       getUpdateState: () => ipc.invoke(IPC_CHANNELS.getUpdateState),
       checkForUpdate: () => ipc.invoke(IPC_CHANNELS.checkForUpdate),
       downloadUpdate: target => ipc.invoke(IPC_CHANNELS.downloadUpdate, target),
@@ -95,6 +101,7 @@ export function createDesktopBridge(
         ipc.invoke(IPC_CHANNELS.previewDraftConversationFile, attachmentId, ...(variant === undefined ? [] : [variant])),
       discardConversationFiles: (attachmentIds) =>
         ipc.invoke(IPC_CHANNELS.discardConversationFiles, attachmentIds),
+      stagePastedConversationText: (text, name) => ipc.invoke(IPC_CHANNELS.stagePastedConversationText, text, name),
       stagePastedConversationFiles: async (pastedFiles) => {
         if (!files) throw new Error("Local file paths are unavailable");
         const nativeFiles = await ipc.invoke<DesktopDraftAttachmentPayload[]>(IPC_CHANNELS.readClipboardConversationFiles);

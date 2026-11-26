@@ -16,6 +16,7 @@ function toolCardGroup(row: ConversationRow | undefined) {
 }
 
 function rowBottomPadding(row: ConversationRow, next: ConversationRow | undefined) {
+  if (row.kind === "compaction" || next?.kind === "compaction") return 12;
   // The label and the first answer line have different insets inside their rows.
   if (row.kind === "process" && toolCardGroup(next) === row.id) return 14;
   if (next?.presentation === "final" && toolCardGroup(row) === processId(next)) return 12;

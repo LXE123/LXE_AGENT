@@ -534,6 +534,8 @@ export class SqliteRuntimeStore implements RuntimeStore {
           ON transcript_artifacts (session_id, turn_id);
         CREATE INDEX IF NOT EXISTS idx_transcript_attachments_turn
           ON transcript_attachments (session_id, turn_id);
+        CREATE INDEX IF NOT EXISTS idx_transcript_attachments_path
+          ON transcript_attachments (path COLLATE NOCASE);
       `);
       if (!this.allPrepared<{ name: string }>("PRAGMA table_info(transcript_file_state)").some(column => column.name === "latest_turn_id")) {
         database.exec("ALTER TABLE transcript_file_state ADD COLUMN latest_turn_id TEXT NOT NULL DEFAULT ''; DELETE FROM transcript_file_state");
@@ -1136,6 +1138,17 @@ export class SqliteRuntimeStore implements RuntimeStore {
     return this.allPrepared<{ path: string }>(`
       SELECT DISTINCT path FROM transcript_attachments WHERE session_id = ? ORDER BY path
     `, safeSessionId).map((row) => text(row.path)).filter(Boolean);
+  }
+
+  /** A desktop admission may precede its transcript entry. Forks retain only their indexed prefix. */
+  unusedAttachmentPaths(candidates: { path: string; session_ids: string[] }[]): string[] {
+    return this.allPrepared<{ path: string }>(`
+      SELECT json_extract(candidate.value, '$.path') AS path FROM json_each(?) AS candidate
+      WHERE NOT EXISTS (SELECT 1 FROM transcript_attachments a
+        WHERE a.path = json_extract(candidate.value, '$.path') COLLATE NOCASE)
+      AND NOT EXISTS (SELECT 1 FROM json_each(candidate.value, '$.session_ids') AS owner
+        JOIN agent_sessions s ON s.session_id = owner.value)
+    `, JSON.stringify(candidates)).map(row => row.path);
   }
 
   async replaceMessages(

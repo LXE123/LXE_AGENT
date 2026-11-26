@@ -107,6 +107,8 @@ const fakeHostFactory = (fake: FakeHostOptions = {}): CreateHost =>
       resolveArtifact: async () => undefined,
       resolveImageView: async () => undefined, resolveImagePreview: async () => undefined,
       resolveAttachment: async () => undefined,
+      sessionAttachmentPaths: async () => [],
+      unusedAttachmentPaths: () => [],
       dashboardCall: async () => ({}) as never,
       health: () => ({ ready: true }),
       updateSkillPermissions: () => undefined,

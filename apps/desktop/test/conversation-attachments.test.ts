@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, spyOn, test } from "bun:test";
-import { existsSync, mkdtempSync, readdirSync, realpathSync, rmSync, symlinkSync, truncateSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, symlinkSync, truncateSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DesktopConversationAttachmentService } from "../src/main/conversation-attachments";
@@ -10,6 +10,27 @@ afterEach(() => {
 });
 
 describe("DesktopConversationAttachmentService", () => {
+  test("stores pasted text as a durable UTF-8 reference and only discards unsubmitted files", async () => {
+    const directory = mkdtempSync(join(tmpdir(), "lxe-pasted-text-")); roots.push(directory);
+    const service = new DesktopConversationAttachmentService(undefined, directory);
+    const text = "编码😀\r\n".repeat(1300);
+    const paste = () => service.registerTextPaste(text, "粘贴的文本.txt");
+    const first = await paste(), second = await paste();
+    const pending = service.beginSend([first.attachment_id])[0]!;
+    const accepted = service.beginSend([second.attachment_id])[0]!;
+    expect(pending.path).not.toBe(accepted.path);
+    expect(readFileSync(pending.path, "utf8")).toBe(text);
+    expect(first).toMatchObject({ name: "粘贴的文本.txt", size_bytes: Buffer.byteLength(text), media_type: "text/plain" });
+    service.discard([first.attachment_id]); service.finishSend([first.attachment_id]);
+    expect(existsSync(pending.path)).toBe(false);
+    service.consume([second.attachment_id]); service.clear();
+    expect(readFileSync(accepted.path, "utf8")).toBe(text);
+    await expect(service.registerTextPaste(text, "../evil.txt")).rejects.toThrow();
+    const staging = paste();
+    service.clear();
+    await expect(staging).rejects.toThrow("cancelled");
+    expect(readdirSync(directory)).toEqual([second.attachment_id]);
+  });
   test("registers and submits many local references, counting only owned screenshots toward the limit", () => {
     const root = mkdtempSync(join(tmpdir(), "lxe-many-attachments-")); roots.push(root);
     const paths = Array.from({ length: 25 }, (_, index) => {

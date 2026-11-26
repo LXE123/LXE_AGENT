@@ -56,6 +56,7 @@ const server = new AgentProtocolServer({
       runTurn: (job, handle) => runtime.runTurn(job, handle),
       ensureSession: request => store.ensureSession(request),
       resolveArtifact: async () => undefined, resolveAttachment: async () => undefined, resolveImageView: async () => undefined, resolveImagePreview: async () => undefined,
+      sessionAttachmentPaths: async () => [], unusedAttachmentPaths: () => [],
       dashboardCall: call => dashboard.call(call), updateSkillPermissions: () => {}, health: () => ({ ready: true }),
     };
   },

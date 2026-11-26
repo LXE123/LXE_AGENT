@@ -458,6 +458,34 @@ app.whenReady().then(async () => {
       assert.equal(await js("!!document.querySelector('[role=dialog]') || !!document.querySelector('.file-sidebar')"), false, "late metadata cannot take over another session");
       await js("previewFixture.slow(false);previewFixture.images(false)");
     });
+    await step("Code preview reuses highlighted nodes across checks and same-content reloads", async () => {
+      const path = require("node:path").join(output, "fixtures", "source.js");
+      const write = value => require("node:fs").writeFileSync(path, "const first = 1;\n" + "// line\n".repeat(4999) + value);
+      const reads = "previewFixture.calls.filter(c => c.startsWith('readText:source.js:')).length";
+      write("const last = 2;");
+      await click("#open-6");
+      await wait("!!document.querySelector('.numbered-code .hljs-keyword')", "code highlighted");
+      await click(".file-load-more");
+      await wait("document.querySelector('[data-line=\"5001\"]')?.textContent === 'const last = 2;'", "second page displayed");
+      const keyword = "document.querySelector('.numbered-code .hljs-keyword')";
+      await js(`window.originalKeyword = ${keyword}; void 0`);
+      const before = await js(reads);
+      const stats = await js("previewFixture.calls.filter(c => c === 'stat').length");
+      await click(".file-document-toolbar button[aria-pressed]");
+      await wait(`previewFixture.calls.filter(c => c === 'stat').length > ${stats}`, "active file checked again");
+      assert.equal(await js(reads), before, "unchanged checks skip file reads");
+      assert.ok(await js(`${keyword} === window.originalKeyword`), "wrapping and polling preserve mounted nodes");
+      await js("previewFixture.change(); window.dispatchEvent(new Event('focus'))");
+      await wait(`${reads} >= ${before + 2} && !document.querySelector('.file-preview-loading')`, "version change reread both pages");
+      assert.ok(await js(`${keyword} === window.originalKeyword`), "same text keeps the original highlighted node");
+      write("const last = 3;");
+      await js("previewFixture.change(); window.dispatchEvent(new Event('focus'))");
+      await wait("document.querySelector('[data-line=\"5001\"]')?.textContent === 'const last = 3;'", "edited second page refreshed");
+      await js("previewFixture.fault('source.js', 'permission_denied'); window.dispatchEvent(new Event('focus'))");
+      await wait("document.querySelector('.file-failure-panel')?.textContent.includes('没有权限') && !document.querySelector('.numbered-code')", "inaccessible code is removed");
+      await js("previewFixture.fault('source.js'); window.dispatchEvent(new Event('focus'))");
+      await wait("document.querySelector('[data-line=\"5001\"]')?.textContent === 'const last = 3;'", "code returns after access is restored");
+    });
     console.log("LXE_PREVIEW_RESULT="+JSON.stringify({passed})); win.destroy(); app.exit(0);
   } catch(error) { console.error(error.stack||error); console.error(JSON.stringify({passed,errors})); console.error(await js("(()=>{const text=document.body.innerText;return text.length>2500?text.slice(0,800)+'\\n[truncated]\\n'+text.slice(-1400):text})()").catch(String)); console.error(await js("[...document.querySelectorAll('.file-error-details pre')].map(e=>e.textContent)").catch(String)); try {require('node:fs').writeFileSync(require('node:path').join(profile,'failure.png'),(await win.webContents.capturePage()).toPNG());}catch{} win.destroy(); app.exit(1); }
 }).catch(e=>{console.error(e);app.exit(1)});

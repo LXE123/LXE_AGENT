@@ -1,4 +1,5 @@
 import { ForkMenu } from "./ForkMenu";
+import { useConversationLinkMenu } from "./use-conversation-link-menu";
 import { AppCaption } from "../../shared/app-frame";
 import { useAutomationEditing } from "./use-automation-editing";
 import { projectSessionTitle } from "../../api/session-titles";
@@ -16,8 +17,12 @@ import { OpenFileButton } from "../file-preview/OpenFileButton";
 import { UserQuestionGate } from "./user-questions";
 import { questionAnswerSummary, UserQuestionSummary } from "./user-question-summary";
 import type { PendingUserQuestion, PendingApproval, PermissionMode } from "@lxe/desktop-protocol";
-import type { DesktopDraftAttachmentPayload } from "@lxe/desktop-protocol";
-import { conversationAttachments } from "./attachment-draft";
+import { PastedTextPreview } from "./pasted-text-preview";
+import { conversationAttachments, type ComposerAttachment } from "./attachment-draft";
+import { ComposerQuotes } from "./ComposerQuotes";
+import { SelectionQuote } from "./SelectionQuote";
+import { composeQuotedMessage } from "./message-quotes";
+import { removeQuotes, useComposerQuotes, type ComposerQuoteAction } from "./composer-quotes";
 import { useComposerDraft } from "./composer-draft";
 import { SentAttachmentList } from "./sent-attachments";
 import { FILE_TYPE_ICONS, FileAttachmentIcon, FileAttachmentInfo } from "./file-attachment-display";
@@ -635,13 +640,15 @@ function InputAttachmentList({
   onOpen,
   onRemove,
 }: {
-  attachments: DesktopDraftAttachmentPayload[];
+  attachments: ComposerAttachment[];
   draft?: boolean;
   onOpen?: (attachmentId: string) => Promise<void>;
   onRemove?: (attachmentId: string) => void;
 }) {
   const t = useUiText();
   const [error, setError] = useState("");
+  const [previewId, setPreviewId] = useState<string | null>(null);
+  const preview = draft && previewId ? attachments.find(item => item.attachment_id === previewId) : undefined;
   const open = async (attachmentId: string) => {
     if (!onOpen) return;
     setError("");
@@ -654,32 +661,41 @@ function InputAttachmentList({
   return (
     <div className={`turn-file-list input-attachment-list${draft ? " input-attachment-draft" : ""}`} role="group" aria-label={t.conversation.attachments}>
       {!draft ? <span className="turn-file-label">{t.conversation.attachments}</span> : null}
-      {attachments.map((attachment) => draft && attachment.media_type.startsWith("image/") ? (
-        <DraftImageAttachment key={attachment.attachment_id} attachment={attachment} onRemove={onRemove} />
-      ) : (
-        <span className={`input-attachment-chip${draft ? " input-attachment-file" : ""}`} key={attachment.attachment_id}>
-          <button
-            className="turn-file-chip"
-            disabled={!onOpen}
-            onClick={() => void open(attachment.attachment_id)}
-            title={onOpen ? t.conversation.openFile(attachment.name) : attachment.name}
-            type="button"
-          >
-            {draft ? <FileAttachmentIcon name={attachment.name} /> : <Paperclip size={14} />}
-            <FileAttachmentInfo name={attachment.name} />
-          </button>
-          {onRemove ? (
+      {attachments.map((attachment) => {
+        if (draft && attachment.media_type.startsWith("image/")) {
+          return <DraftImageAttachment key={attachment.attachment_id} attachment={attachment} onRemove={onRemove} />;
+        }
+        const hasTextPreview = draft && attachment.pastedText !== undefined;
+        const canOpen = hasTextPreview || Boolean(onOpen);
+        return (
+          <span className={`input-attachment-chip${draft ? " input-attachment-file" : ""}`} key={attachment.attachment_id}>
             <button
-              aria-label={t.conversation.removeAttachment(attachment.name)}
-              className="input-attachment-remove"
-              onClick={() => onRemove(attachment.attachment_id)}
+              aria-haspopup={hasTextPreview ? "dialog" : undefined}
+              className="turn-file-chip"
+              disabled={!canOpen}
+              onClick={() => hasTextPreview ? setPreviewId(attachment.attachment_id) : void open(attachment.attachment_id)}
+              title={canOpen ? t.conversation.openFile(attachment.name) : attachment.name}
               type="button"
             >
-              <X size={12} />
+              {draft ? <FileAttachmentIcon name={attachment.name} /> : <Paperclip size={14} />}
+              <FileAttachmentInfo name={attachment.name} />
             </button>
-          ) : null}
-        </span>
-      ))}
+            {onRemove ? (
+              <button
+                aria-label={t.conversation.removeAttachment(attachment.name)}
+                className="input-attachment-remove"
+                onClick={() => onRemove(attachment.attachment_id)}
+                type="button"
+              >
+                <X size={12} />
+              </button>
+            ) : null}
+          </span>
+        );
+      })}
+      {preview?.pastedText !== undefined && (
+        <PastedTextPreview name={preview.name} text={preview.pastedText} onClose={() => setPreviewId(null)} />
+      )}
       {error ? <div className="turn-file-error" role="alert">{t.conversation.openFileFailed(error)}</div> : null}
     </div>
   );
@@ -1127,6 +1143,7 @@ function ConversationContextMeter({
 }
 
 export function ConversationComposer({
+  quoteRef,
   permissionMode = "workspace-write", permissionSessionId,
   question, onQuestionAnswered, approvals = [], onApprovalChanged,
   contextDetail,
@@ -1150,6 +1167,7 @@ export function ConversationComposer({
   onQuestionAnswered?: () => void;
   permissionMode?: PermissionMode;
   permissionSessionId?: string;
+  quoteRef?: React.RefObject<ComposerQuoteAction>;
   contextDetail: SessionDetailPayload | null;
   activity: DesktopConversationActivityPayload | null;
   conversationKey: string;
@@ -1180,7 +1198,10 @@ export function ConversationComposer({
     tooMany: () => callbacksRef.current.t.conversation.tooManyScreenshots,
   });
   const attachments = attachmentDraft.items;
-  const hasDraft = Boolean(text.trim() || attachments.length);
+  const quotes = useComposerQuotes(conversationKey);
+  const composedText = composeQuotedMessage(quotes, text);
+  const message = composedText.trim();
+  const hasDraft = Boolean(message || attachments.length);
   useAutomationEditing(permissionSessionId, runtimeReady && hasDraft);
   const [dragActive, setDragActive] = useState(false);
   const textareaRef = useRef<HTMLDivElement>(null);
@@ -1193,7 +1214,6 @@ export function ConversationComposer({
   const actionLabel = showStop
     ? stopPending ? t.conversation.stopping : t.conversation.stop
     : sending ? t.conversation.sending : t.conversation.send;
-  const showCharacterCount = text.length >= Math.floor(8192 * 0.75);
   const selectFiles = () => {
     setError("");
     return attachmentDraft.stage(async () => {
@@ -1247,7 +1267,6 @@ export function ConversationComposer({
     };
   }, [runtimeReady, question, stageDroppedFiles]);
   const submit = async () => {
-    const message = text.trim();
     if (!runtimeReady || question || modelSaving || thinkingSaving || sending || attachmentDraft.pending > 0 || (!message && attachments.length === 0)) return;
     setSending(true);
     setError("");
@@ -1257,6 +1276,7 @@ export function ConversationComposer({
       await onSend(message, submitted);
       attachmentDraft.sent(submitted.map((item) => item.attachment_id));
       clearSentDraft(target, text);
+      removeQuotes(target, quotes.map(q => q.id));
       if (currentConversationKey.current !== target) return;
       if (textareaRef.current) textareaRef.current.style.height = "auto";
     } catch (cause) {
@@ -1288,8 +1308,16 @@ export function ConversationComposer({
           <InputAttachmentList draft attachments={attachments} onRemove={sending ? undefined : removeAttachment} />
         ) : null}
         {attachmentDraft.pending > 0 ? <span className="conversation-input-hint" role="status">{t.conversation.preparingAttachments}</span> : null}
+        <ComposerQuotes session={conversationKey} quotes={quotes} quoteRef={quoteRef} editorRef={textareaRef} disabled={!runtimeReady} />
         <ReferenceComposer ref={textareaRef} session={conversationKey} value={text} onChange={setText}
           disabled={!runtimeReady} placeholder={runtimeReady ? (activity?.active?.state === "running" ? t.conversation.steerPlaceholder : t.conversation.placeholder) : runtimeUnavailableMessage}
+          onPasteText={pasted => {
+            setError("");
+            void attachmentDraft.stageText(pasted, t.conversation.pastedTextName, async (value, name) => {
+              if (!window.lxe) throw new Error(t.conversation.unavailable);
+              return window.lxe.desktop.stagePastedConversationText(value, name);
+            });
+          }}
           onSubmit={() => void submit()} onFiles={files => {
             if (!runtimeReady || sending) return;
             setError("");
@@ -1330,11 +1358,6 @@ export function ConversationComposer({
               onChange={onThinkingLevelChange}
               saving={thinkingSaving}
             />
-            {showCharacterCount ? (
-              <span className="conversation-character-count">
-                {t.conversation.characterCount(formatNumber(text.length), formatNumber(8192))}
-              </span>
-            ) : null}
             <button
               aria-label={actionLabel}
               className="conversation-send-button"
@@ -1403,7 +1426,7 @@ export const UnifiedConversationRow = React.memo(function UnifiedConversationRow
   if (row.kind === "status") return <ConversationStatus row={row} />;
   if (row.kind === "compaction") {
     const count = row.message?.context_marker?.compacted_count;
-    return <div className="conversation-compaction-marker">
+    return <div className="conversation-compaction-marker conversation-chrome-theme">
       <span>{t.conversation.contextCompacted(typeof count === "number" && Number.isSafeInteger(count) && count >= 0 ? count : undefined)}</span>
     </div>;
   }
@@ -1573,6 +1596,14 @@ export function SessionDetailView({
   }, [messageSessionId, openPreview, directory]);
   const rows = display?.rows ?? conversationRows(messages,
     [activity?.latest, activity?.active, ...(activity?.queued ?? [])].filter((turn): turn is DesktopConversationTurnPayload => Boolean(turn)), pendingMessages);
+  const bodyRef = useRef<HTMLDivElement>(null);
+  const quoteRef = useRef<ComposerQuoteAction>(null);
+  const linkMenu = useConversationLinkMenu({
+    quote: quoteRef,
+    rows, sessionId: messageSessionId, directory, openFile: openMarkdownFile?.open,
+    openBrowser: panel?.session === messageSessionId ? panel?.openBrowser : undefined,
+    fork: runtimeReady && !forking ? onFork : undefined, activeTurn: activity?.active?.turn_id,
+  });
   const process = useProcessRows(groupImageViewRows(rows), sessionKey);
   const [expandedRows, setExpandedRows] = useState<Map<string, boolean>>(() => new Map());
   useEffect(() => { setExpandedRows(new Map()); }, [sessionKey]);
@@ -1594,7 +1625,8 @@ export function SessionDetailView({
           <PreviewHeaderActions />
         </div>
       </header></AppCaption>
-      <div className="conversation-body">
+      <div className="conversation-body" ref={bodyRef} onContextMenu={linkMenu.show}>
+        {linkMenu.error && <div className="conversation-compose-error" role="alert">{linkMenu.error}</div>}
         <OpenMarkdownFileContext.Provider value={openMarkdownFile}>
           <ConversationWindow key={sessionKey} rows={process.rows} hasOlder={hasOlder} hasNewer={hasNewer}
             connection={display?.connection} jumpVersion={display?.jump} onFollowingChange={onFollowingChange}
@@ -1608,8 +1640,11 @@ export function SessionDetailView({
               onFork={onFork} forkDisabled={!!forking || !runtimeReady || row.turnId === activity?.active?.turn_id}
               onOpenFile={onOpenFile} onRevealFile={onRevealFile} onOpenAttachment={onOpenAttachment} attachmentSessionId={messageSessionId} />} />
         </OpenMarkdownFileContext.Provider>
+        {messageSessionId && runtimeReady && !question && !approvals.length &&
+          <SelectionQuote key={sessionKey} root={bodyRef} quoteRef={quoteRef} />}
         <div className="conversation-composer-dock">
           <ConversationComposer
+            quoteRef={quoteRef}
             permissionSessionId={session?.session_id ?? ""}
             permissionMode={session?.permission_mode ?? "workspace-write"}
             approvals={approvals} onApprovalChanged={onApprovalChanged}

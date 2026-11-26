@@ -9,10 +9,12 @@ import {
   unlinkSync,
   writeFileSync,
 } from "node:fs";
+import { mkdir, writeFile } from "node:fs/promises";
 import { basename, extname, join, resolve } from "node:path";
 import { createHash, randomUUID } from "node:crypto";
 import { DashboardRpcError, type DesktopDraftAttachmentPayload } from "@lxe/desktop-protocol";
 import { MAX_CONVERSATION_SCREENSHOTS, MAX_SCREENSHOT_BYTES } from "../conversation-paste";
+import { pastedTextName, removePastedText } from "./pasted-text-retention";
 
 const MEDIA_TYPES: Readonly<Record<string, string>> = {
   ".pdf": "application/pdf",
@@ -41,7 +43,7 @@ const MEDIA_TYPES: Readonly<Record<string, string>> = {
 
 export type StagedConversationAttachment = DesktopDraftAttachmentPayload & {
   path: string;
-  origin: "reference" | "screenshot";
+  origin: "reference" | "screenshot" | "pasted-text";
 };
 
 export interface ScreenshotStorage {
@@ -55,10 +57,14 @@ const invalidAttachment = (message: string): never => {
 
 /** Draft attachments live until sent, explicitly discarded, or cleared on shutdown. */
 export class DesktopConversationAttachmentService {
+  onDraftReleased?: () => void;
+  private readonly unsentPastes = new Set<string>();
+  private readonly writingPastes = new Set<string>();
+  private generation = 0;
   private readonly staged = new Map<string, StagedConversationAttachment>();
   private readonly sending = new Map<string, { discardRequested: boolean }>();
 
-  constructor(private readonly screenshots?: ScreenshotStorage) {}
+  constructor(private readonly screenshots?: ScreenshotStorage, private readonly pastedTextDirectory?: string) {}
 
   register(paths: readonly string[]): DesktopDraftAttachmentPayload[] {
     // Validate the complete batch before publishing any draft IDs.
@@ -81,6 +87,38 @@ export class DesktopConversationAttachmentService {
       selected.push(staged);
     }
     return selected.map((item) => this.public(item));
+  }
+
+  async registerTextPaste(text: unknown, name: unknown): Promise<DesktopDraftAttachmentPayload> {
+    if (typeof text !== "string" || !text || typeof name !== "string"
+      || !pastedTextName.test(name) || name !== name.trim()) {
+      return invalidAttachment("Invalid pasted text attachment");
+    }
+    if (!this.pastedTextDirectory) return invalidAttachment("Text attachment storage is unavailable");
+    const id = randomUUID();
+    const generation = this.generation;
+    await mkdir(this.pastedTextDirectory, { recursive: true });
+    if (!lstatSync(this.pastedTextDirectory).isDirectory()) return invalidAttachment("Invalid pasted text directory");
+    const directory = join(realpathSync(this.pastedTextDirectory), id);
+    const path = join(directory, name);
+    // The startup orphan sweep must not remove a paste that is not staged yet.
+    this.writingPastes.add(path);
+    try {
+      await mkdir(directory, { mode: 0o700 });
+      try {
+        await writeFile(path, text, { encoding: "utf8", flag: "wx", mode: 0o600 });
+        if (generation !== this.generation) throw new Error("Text attachment staging was cancelled");
+      } catch (cause) {
+        removePastedText(this.pastedTextDirectory, path);
+        throw cause;
+      }
+      const item: StagedConversationAttachment = {
+        attachment_id: id, name, path, size_bytes: Buffer.byteLength(text), media_type: "text/plain", origin: "pasted-text",
+      };
+      this.unsentPastes.add(path);
+      this.staged.set(id, item);
+      return this.public(item);
+    } finally { this.writingPastes.delete(path); }
   }
 
   registerPaste(input: unknown): DesktopDraftAttachmentPayload[] {
@@ -120,7 +158,7 @@ export class DesktopConversationAttachmentService {
         });
       }
     } catch (cause) {
-      for (const path of written) this.removeScreenshot(path);
+      for (const path of written) this.removeFile(path);
       throw cause;
     }
     for (const item of selected) this.staged.set(item.attachment_id, item);
@@ -151,12 +189,15 @@ export class DesktopConversationAttachmentService {
 
   consume(attachmentIds: readonly string[]): void {
     for (const attachmentId of attachmentIds) {
+      const item = this.staged.get(attachmentId);
+      if (item) this.unsentPastes.delete(item.path);
       this.sending.delete(attachmentId);
       this.staged.delete(attachmentId);
     }
+    this.releaseDiscardedText();
   }
 
-  /** Keep screenshots alive while the gateway asynchronously admits a message. */
+  /** Keep staged files alive while the gateway asynchronously admits a message. */
   beginSend(attachmentIds: readonly string[]): StagedConversationAttachment[] {
     if (attachmentIds.some((id) => this.sending.has(id))) invalidAttachment("Attachment is already being submitted");
     const items = this.resolve(attachmentIds);
@@ -181,12 +222,30 @@ export class DesktopConversationAttachmentService {
         continue;
       }
       const item = this.staged.get(attachmentId);
-      if (item?.origin === "screenshot") this.removeScreenshot(item.path);
+      if (item?.origin === "screenshot") this.removeFile(item.path);
       this.staged.delete(attachmentId);
     }
+    this.releaseDiscardedText();
+  }
+
+  isStaged(path: string): boolean {
+    if (this.writingPastes.has(path)) return true;
+    for (const item of this.staged.values()) if (item.path === path) return true;
+    return false;
+  }
+
+  private releaseDiscardedText(): void {
+    const stagedPaths = new Set([...this.staged.values()].map(item => item.path));
+    for (const path of this.unsentPastes) {
+      if (stagedPaths.has(path)) continue;
+      if (this.pastedTextDirectory) removePastedText(this.pastedTextDirectory, path);
+      this.unsentPastes.delete(path);
+    }
+    this.onDraftReleased?.();
   }
 
   clear(): void {
+    this.generation++;
     this.discard([...this.staged.keys()]);
   }
 
@@ -202,7 +261,7 @@ export class DesktopConversationAttachmentService {
     return { path: realpathSync(path), size: stat.size, mediaType };
   }
 
-  private removeScreenshot(path: string): void {
+  private removeFile(path: string): void {
     try { unlinkSync(path); } catch (cause) {
       if ((cause as NodeJS.ErrnoException).code !== "ENOENT") throw cause;
     }

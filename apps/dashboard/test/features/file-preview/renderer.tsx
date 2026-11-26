@@ -56,10 +56,11 @@ setFileBridgeForTests({
   },
   readText: async (handle, range) => {
     const name = pending.get(handle); if (!name) throw new Error("released handle");
-    const response = await fetch('/fixtures/' + encodeURIComponent(name));
+    const response = await fetch('/fixtures/' + encodeURIComponent(name), { cache: "no-store" });
     if (!response.ok) throw new Error('fixture missing ' + name);
     const text = await response.text(), lines = text.match(/[^\n]*\n|[^\n]+$/g) ?? [], offset = range?.offset ?? 1, limit = range?.limit ?? 5000;
     const page = lines.slice(offset - 1, offset - 1 + limit);
+    calls.push(`readText:${name}:${offset}`);
     return { page: Math.floor((offset - 1) / limit) + 1, text: page.join(""), offset, lines: page.length, next: offset + page.length, eof: offset - 1 + page.length >= lines.length, version };
   },
   read: async (handle, relative) => {
@@ -72,7 +73,7 @@ setFileBridgeForTests({
 } as DesktopFilesApi);
 function Controls({ session }: { session: string }) {
   const panel = usePreviewSidebar()!;
-  return <div><PreviewHeaderActions />{["文档.md", "book.xlsx", "table.csv", "doc.pdf", "图.png", "archive.zip"].map((name, i) => <button id={`open-${i}`} key={name} onClick={() => void panel.open({ session_id: session, kind: "workspace", path: name }, undefined, "sidebar")}>{name}</button>)}<button id="open-history" onClick={() => void panel.open({ session_id: session, kind: "attachment", id: "图.png" }, "历史图片.png", "sidebar")}>历史图片</button><textarea id="draft" defaultValue="keep this draft" /></div>;
+  return <div><PreviewHeaderActions />{["文档.md", "book.xlsx", "table.csv", "doc.pdf", "图.png", "archive.zip", "source.js"].map((name, i) => <button id={`open-${i}`} key={name} onClick={() => void panel.open({ session_id: session, kind: "workspace", path: name }, undefined, "sidebar")}>{name}</button>)}<button id="open-history" onClick={() => void panel.open({ session_id: session, kind: "attachment", id: "图.png" }, "历史图片.png", "sidebar")}>历史图片</button><textarea id="draft" defaultValue="keep this draft" /></div>;
 }
 function Fixture() {
   const [session, setSession] = useState("first"), [cards, setCards] = useState(false), [images, setImages] = useState(false);

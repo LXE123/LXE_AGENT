@@ -1,5 +1,6 @@
 export const IPC_CHANNELS = {
   showTitlebarMenu: "lxe:desktop:titlebar-menu",
+  conversationLinkMenu: "lxe:desktop:conversation-link-menu",
   teamSkillsBrowser: "lxe:workbench:team-skills-browser",
   teamSkillVersions: "lxe:catalog:versions",
   teamSkillUninstall: "lxe:catalog:uninstall",
@@ -46,6 +47,7 @@ export const IPC_CHANNELS = {
   selectSyntheticPerformerOutput: "lxe:desktop:synthetic-performer:select-output",
   selectConversationFiles: "lxe:desktop:conversation-files:select",
   stageDroppedConversationFiles: "lxe:desktop:conversation-files:stage-dropped",
+  stagePastedConversationText: "lxe:desktop:conversation-files:stage-text",
   stagePastedConversationFiles: "lxe:desktop:conversation-files:stage-pasted",
   readClipboardConversationFiles: "lxe:desktop:conversation-files:read-clipboard",
   previewDraftConversationFile: "lxe:desktop:conversation-files:preview-draft",

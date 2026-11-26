@@ -31,6 +31,30 @@ test("a late missing stat cannot overwrite a newer recovery", async () => {
   await checkFile(ref, true); reject(new FilePreviewError(missing));
   expect(await old).toEqual(info); expect(fileSnapshot(ref).sourceError).toBeUndefined();
 });
+test("fresh checks preserve the snapshot until metadata or availability actually changes", async () => {
+  let version = "1", diagnostic = missing.diagnostic, stats = 0;
+  bridge(async call => {
+    stats++;
+    if (call.input.original && diagnostic) throw new FilePreviewError({ ...missing, diagnostic });
+    return { ...info, version, source: "history" };
+  });
+  await checkFile(ref);
+  const original = fileSnapshot(ref);
+  await checkFile(ref, "fresh");
+  expect(stats).toBe(4);
+  expect(fileSnapshot(ref)).toBe(original);
+  version = "2";
+  await checkFile(ref, "fresh");
+  const updated = fileSnapshot(ref);
+  expect(updated.metadata?.version).toBe("2");
+  expect(updated.sourceError).toBe(original.sourceError);
+  diagnostic = "ENOENT: original directory removed";
+  await checkFile(ref, "fresh");
+  expect(fileSnapshot(ref).sourceError?.diagnostic).toBe(diagnostic);
+  diagnostic = "";
+  await checkFile(ref, "fresh");
+  expect(fileSnapshot(ref).sourceError).toBeUndefined();
+});
 test("history preview and original availability are independent; app failures stay separate", async () => {
   bridge(async call => {
     if (call.operation === "applications") throw new Error("ENOENT: spawn missing-association-helper");

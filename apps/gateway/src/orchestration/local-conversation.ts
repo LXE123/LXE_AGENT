@@ -67,6 +67,7 @@ interface LocalSendInput {
   text: string;
   /** Evaluate staged desktop attachments only for the submission that owns the receipt. */
   attachments?: LocalConversationAttachment[] | (() => LocalConversationAttachment[]);
+  beforeAttachmentAdmission?: (sessionId: string, attachments: LocalConversationAttachment[]) => void;
   client_message_id?: string;
   steer_turn_id?: string;
 }
@@ -214,6 +215,7 @@ export class LocalConversationController {
 
     const createdAtMs = this.now();
     const createdAt = Math.trunc(createdAtMs / 1_000);
+    if (attachments.length) input.beforeAttachmentAdmission?.(sessionId, attachments);
     const userContentBlocks: JsonObject[] = [];
     for (const attachment of attachments) {
       userContentBlocks.push({

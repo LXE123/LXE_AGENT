@@ -1,8 +1,11 @@
 import type { DesktopDraftAttachmentPayload, DesktopInputAttachmentPayload } from "@lxe/desktop-protocol";
 
+export type ComposerAttachment = DesktopDraftAttachmentPayload & { pastedText?: string };
+
 /** Own asynchronous intake order and discard results that outlive their conversation. */
 export class ConversationAttachmentDraft {
-  items: DesktopDraftAttachmentPayload[] = [];
+  items: ComposerAttachment[] = [];
+  private readonly pendingNames = new Set<string>();
   pending = 0;
   private generation = 0;
   private tail: Promise<void> = Promise.resolve();
@@ -21,7 +24,21 @@ export class ConversationAttachmentDraft {
     });
   }
 
-  stage(load: () => Promise<DesktopDraftAttachmentPayload[]>): Promise<void> {
+  async stageText(text: string, filename: (n: number) => string,
+    save: (text: string, name: string) => Promise<DesktopDraftAttachmentPayload>): Promise<void> {
+    const names = new Set([...this.pendingNames, ...this.items.map(item => item.name)]);
+    let ordinal = 1;
+    while (names.has(filename(ordinal))) ordinal++;
+    const name = filename(ordinal);
+    this.pendingNames.add(name);
+    try {
+      await this.stage(async () => [{ ...await save(text, name), pastedText: text }]);
+    } finally {
+      this.pendingNames.delete(name);
+    }
+  }
+
+  stage(load: () => Promise<ComposerAttachment[]>): Promise<void> {
     const generation = this.generation;
     this.pending += 1;
     this.callbacks.changed();

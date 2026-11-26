@@ -1,4 +1,5 @@
 import { useSyncExternalStore } from "react";
+import { replaceEqualDeep } from "@tanstack/react-query";
 import type { FileApplication, FileFailure, FileMetadata, SessionFileRef } from "@lxe/desktop-protocol";
 import { failureOf, filesApi } from "./api";
 export const fileRefKey = (file: SessionFileRef) => JSON.stringify([file.session_id, file.kind, "path" in file ? file.path : file.id]);
@@ -15,7 +16,13 @@ function entry(file: SessionFileRef) {
   }
   return shared;
 }
-function publish(shared: Entry, patch: Partial<Snapshot>) { shared.value = { ...shared.value, ...patch }; shared.listeners.forEach(callback => callback()); }
+function publish(shared: Entry, patch: Partial<Snapshot>) {
+  // IPC returns fresh objects even when the file and its availability are unchanged.
+  const next = replaceEqualDeep(shared.value, { ...shared.value, ...patch });
+  if (next === shared.value) return;
+  shared.value = next;
+  shared.listeners.forEach(callback => callback());
+}
 function invalidateApps(shared: Entry) { shared.appsGeneration++; shared.appsPending = undefined; shared.expires = 0; shared.refreshApps = true; publish(shared, { apps: [], loaded: false, error: undefined }); }
 const availabilityError = (failure: FileFailure) => failure.kind !== "unknown";
 export function reportFileFailure(file: SessionFileRef, failure: FileFailure, sourceOnly = false) {

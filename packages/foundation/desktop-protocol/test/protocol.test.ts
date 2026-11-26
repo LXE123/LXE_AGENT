@@ -523,8 +523,10 @@ describe("desktop agent protocol", () => {
       operation: "sessions.send",
       input: { text: "", attachment_ids: manyAttachmentIds },
     });
-    expect(() => parseDashboardRpcCall({ operation: "sessions.send", input: { text: "x".repeat(8_193) } }))
-      .toThrow("too long");
+    const largeMessage = { operation: "sessions.send" as const, input: { text: "字".repeat(460_000) } };
+    expect(parseDashboardRpcCall(largeMessage)).toEqual(largeMessage);
+    expect(() => parseDashboardRpcCall({ ...largeMessage, input: { text: "ok", directory: "x".repeat(1_000_001) } }))
+      .toThrow("too large");
     expect(() => parseDashboardRpcCall({ operation: "sessions.stop", input: { session_id: "s", all: true } }))
       .toThrow("unsupported fields");
     expect(() => parseDashboardRpcCall({ operation: "sessions.pin", input: { session_id: "s", pinned: "yes" } }))

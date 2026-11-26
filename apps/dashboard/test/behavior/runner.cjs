@@ -53,7 +53,12 @@ app.whenReady().then(async () => {
   };
   const focus = async selector => {
     win.webContents.focus();
-    await js(`document.querySelector(${JSON.stringify(selector)}).focus()`);
+    await waitFor(`(() => {
+      const element = document.querySelector(${JSON.stringify(selector)});
+      if (!element) return false;
+      element.focus();
+      return true;
+    })()`, `focus target: ${selector}`);
   };
   const click = async selector => {
     await focus(selector);
@@ -571,7 +576,6 @@ app.whenReady().then(async () => {
       });
       await step("IME confirmation does not send; Shift+Enter inserts a line; Enter sends once", async () => {
         await js("behavior.mountComposer()"); await type("中文");
-        assert.equal(await js("Number(document.querySelector('.reference-editor').dataset.maxlength)"), 8192);
         // Synthetic composition metadata covers React's nativeEvent.isComposing;
         // normal Enter/Tab/Shift+Enter use Chromium native input below.
         await js("behavior.composeEnter()"); await settle();
@@ -634,6 +638,7 @@ app.whenReady().then(async () => {
         assert.deepEqual((await state()).calls.filter(call => !call.operation.includes(".")), [{ operation: "dropFiles", input: ["fixture.txt"] }], "drop listener is exercised after recovery");
       });
     } else if (suite === "references") {
+      const mod = process.platform === "darwin" ? "meta" : "control";
       const draft = () => js("sessionStorage.getItem('lxe.composer-draft.' + document.querySelector('.reference-editor').dataset.session) || ''");
       const mount = async () => { await js("behavior.mountReferences()"); await settle(); };
       const options = () => waitFor("document.querySelectorAll('.composer-candidate').length > 0 && document.querySelector('.composer-candidate-viewport').getAttribute('aria-busy') === 'false'", "candidates ready");
@@ -750,7 +755,6 @@ app.whenReady().then(async () => {
       });
       await step("atomic file references support undo, redo and plain-text copy", async () => {
         await mount(); await type("@销售"); await options(); await key("Enter");
-        const mod = process.platform === "darwin" ? "meta" : "control";
         await key("z", [mod]); assert.equal(await draft(), "@销售");
         await key("z", [mod, "shift"]); assert.equal(await draft(), "@销售.md ");
         // copy() completes asynchronously in the renderer; slow hosts need more than two frames.
@@ -768,9 +772,61 @@ app.whenReady().then(async () => {
         assert.equal(await js("document.querySelectorAll('[data-file-reference]').length"), 1);
         await click('.message-reference'); await waitFor("Boolean(document.querySelector('.file-sidebar'))", "history file preview");
       });
-      await step("serialized length never exceeds 8192 and emails/paths do not trigger menus", async () => {
+      await step("single large pastes become removable file references without editing the selection", async () => {
+        await mount();
+        const paste = async expression => {
+          await js(`(() => {
+            const data = new DataTransfer(); data.setData("text/plain", ${expression});
+            document.querySelector(".reference-editor").dispatchEvent(new ClipboardEvent("paste", { clipboardData: data, cancelable: true, bubbles: true }));
+          })()`);
+          await settle();
+        };
+        await type("keep draft");
+        await key("a", [mod]);
+        await paste("'😀'.repeat(5001)");
+        const chips = ".input-attachment-draft .input-attachment-file";
+        const cardCount = () => js(`document.querySelectorAll('${chips}').length`);
+        await waitFor(`Boolean(document.querySelector('${chips}'))`, "pasted text file card");
+        const card = await js(`(() => {
+          const button = document.querySelector('${chips} .turn-file-chip');
+          return { lines: button.innerText.trim().split(/\\s*\\n\\s*/), name: button.querySelector('.file-card-title').textContent };
+        })()`);
+        assert.deepEqual(card.lines, [card.name, "TXT"]);
+        assert.equal(await draft(), "keep draft");
+        assert.equal(await js("getSelection().toString()"), "keep draft");
+        await paste("'j'.repeat(480581)");
+        assert.equal(await cardCount(), 2);
+        await click(chips + " .turn-file-chip");
+        assert.equal(await js("document.querySelector('[role=dialog] pre').textContent"), '😀'.repeat(5001));
+        await key("Escape");
+        await click(chips + " .input-attachment-remove");
+        assert.equal(await cardCount(), 1);
+        await click(".conversation-send-button");
+        const sent = (await state()).sends.at(-1);
+        assert.equal(sent.text, "keep draft");
+        assert.equal(sent.attachments.length, 1);
+        assert.equal(sent.attachments[0].media_type, "text/plain");
+        assert.match(sent.attachments[0].name, / 2\.txt$/);
+        assert.equal(sent.attachments[0].size_bytes, 480581);
+        await mount(); await focus(".reference-editor");
+        await paste("'😀'.repeat(5000)");
+        for (let i = 0; i < 2; i++) await paste("'a'.repeat(2000)");
+        assert.equal(Array.from(await draft()).length, 9000);
+        assert.equal(await cardCount(), 0);
+        await paste("'b'.repeat(2000)");
+        assert.equal(Array.from(await draft()).length, 11000);
+        assert.equal(await cardCount(), 0);
+        await key("a", [mod]); await paste("'replacement'");
+        assert.equal(await draft(), "replacement");
+      });
+      await step("long plain drafts stay editable and emails/paths do not trigger menus", async () => {
         await mount(); await type("a@b.test /usr/bin 5/8"); assert.equal(await js("Boolean(document.querySelector('.composer-candidates'))"), false);
-        await mount(); await type("x".repeat(8192)); await win.webContents.insertText("y"); await settle(); assert.equal((await draft()).length, 8192);
+        await mount(); await type("文".repeat(460000)); await win.webContents.insertText("y"); await settle();
+        assert.equal((await draft()).length, 460001);
+        await key("Enter");
+        const sent = (await state()).sends.at(-1);
+        assert.equal(sent.text, "文".repeat(460000) + "y");
+        assert.equal(sent.attachments.length, 0);
       });
       await step("narrow/dark layouts retain candidate actions and file chip ellipsis", async () => {
         await mount(); win.setSize(420, 650); await js("document.documentElement.dataset.theme='dark'"); await type("@报"); await options();

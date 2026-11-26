@@ -74,6 +74,25 @@ module.exports = async ({suite,win,url,js,step,load,waitFor,click,key,focus,sett
       assert.ok(await js(`document.querySelector('[data-conversation-row="next:4"] .redacted')?.textContent`));
       assert.equal(await js(`document.querySelector('${card("write")} .tool-op-summary').getAttribute('aria-expanded')`), 'true');
     });
+    await step('compaction between tool cards has balanced spacing and uses secondary status text', async () => {
+      await win.loadURL(new URL('../features/sessions/process-fixture.html?toolAnswer=compaction', url).href);
+      await waitFor("document.querySelector('.conversation-compaction-marker') && document.querySelectorAll('.tool-op-list').length === 2", 'compaction between calls');
+      for (const theme of ['light', 'dark']) {
+        await js(`document.documentElement.dataset.theme = '${theme}'; document.fonts.ready`);
+        await settle();
+        const { before, after, color, statusColor } = await js(`(() => {
+          const marker = document.querySelector('.conversation-compaction-marker');
+          const range = document.createRange();
+          range.selectNodeContents(marker.querySelector('span'));
+          const text = range.getBoundingClientRect();
+          const card = id => document.querySelector('[data-conversation-row="tool:t:' + id + '"] .tool-op-list').getBoundingClientRect();
+          return { before: text.top - card('c').bottom, after: card('next-read').top - text.bottom,
+            color: getComputedStyle(marker).color, statusColor: getComputedStyle(document.querySelector('.conversation-process-toggle')).color };
+        })()`);
+        assert.ok(Math.abs(before - 12) <= 2 && Math.abs(before - after) <= 2, `${theme}: visible gaps ${before}px / ${after}px`);
+        assert.equal(color, statusColor, `${theme}: marker matches the process status`);
+      }
+    });
     await step('expanded tool card has matching gaps to the completed label and final answer', async () => {
       for (const mode of ['blank', 'direct']) {
         await win.loadURL(new URL('../features/sessions/process-fixture.html?toolAnswer=' + mode, url).href);
@@ -113,21 +132,34 @@ module.exports = async ({suite,win,url,js,step,load,waitFor,click,key,focus,sett
           const previous=rows[rows.indexOf(anchor)-1];
           if(!previous)throw new Error('Missing a mounted row above the reading anchor');
           const initial=anchor.getBoundingClientRect().top-top,scroll=root.scrollTop,samples=[];
-          const read=()=>samples.push({offset:anchor.getBoundingClientRect().top-top,scroll:root.scrollTop,connected:anchor.isConnected});
+          const initialHeight=previous.getBoundingClientRect().height;
+          let onSample;
           // The production observer queues its measurement into rAF. Sample after
           // it in that same frame: checking only the settled position misses a flash.
-          const observer=new ResizeObserver(()=>requestAnimationFrame(read));
+          const observer=new ResizeObserver(([entry])=>requestAnimationFrame(()=>{
+            const height=entry.borderBoxSize[0].blockSize;
+            samples.push({height,offset:anchor.getBoundingClientRect().top-top,scroll:root.scrollTop,connected:anchor.isConnected});
+            onSample?.(height);
+          }));
+          const waitForHeight=expected=>new Promise((resolve,reject)=>{
+            const timeout=setTimeout(()=>reject(new Error(document.documentElement.dataset.theme+
+              ': missing resize sample for height '+expected+'; observed '+JSON.stringify(samples))),4000);
+            onSample=height=>{
+              if(Math.abs(height-expected)>0.01)return;
+              clearTimeout(timeout);onSample=undefined;resolve();
+            };
+          });
           observer.observe(previous,{box:'border-box'});
           const delay=ms=>new Promise(resolve=>setTimeout(resolve,ms));
           const original=previous.style.paddingBottom,padding=parseFloat(getComputedStyle(previous).paddingBottom);
-          // Resizes 155 ms apart land just after the virtualizer's 150 ms scroll-end
-          // fallback, where a stale offset once marked a compensation as an upward
-          // scroll and the next resize went uncompensated.
+          // Cross the virtualizer's 150 ms scroll-end fallback between writes.
+          // A slow renderer must also get to sample each size before we reverse it.
           try{
-            await delay(200);
+            await Promise.all([delay(200),waitForHeight(initialHeight)]);
             for(let i=0;i<8;i++){
-              previous.style.paddingBottom=(padding+(i%2?0:4))+'px';
-              await delay(155);
+              const delta=i%2?0:4;
+              previous.style.paddingBottom=(padding+delta)+'px';
+              await Promise.all([delay(155),waitForHeight(initialHeight+delta)]);
             }
             return {initial,scroll,samples};
           }finally{observer.disconnect();previous.style.paddingBottom=original;}
@@ -497,9 +529,218 @@ module.exports = async ({suite,win,url,js,step,load,waitFor,click,key,focus,sett
       {level:'high',session_id:'Default chat',selection_version:0},
     ]);
   });
+  await step('message context menus stage, preview and remove quotes without editing the draft', async () => {
+    await load('?app=1&workspaces=1&section=sessions&forkFixture=1');
+    const session = '[data-session-id="Default chat"] .session-index-open';
+    await waitFor(`!!document.querySelector(${JSON.stringify(session)})`, 'conversation available');
+    await click(session);
+    const body = '.response-final-answer .message-markdown p';
+    await waitFor(`document.querySelector(${JSON.stringify(body)})?.textContent === 'assistant one'`, 'first answer');
+    const editor = '.reference-editor';
+    await focus(editor);
+    await win.webContents.insertText('existing draft');
+    await settle();
+    await js(`Object.defineProperty(navigator, 'clipboard', { configurable:true, value:{ writeText:async text=>{window.copied=text} } });
+      window.lxe.desktop.showConversationLinkMenu = async request => {
+        window.menuRequest = request;
+        getSelection().removeAllRanges();
+        return window.menuAction;
+      }; void 0;`);
+    const menu = async (selector, action, selected = false) => {
+      assert.equal(await js(`(() => {
+        const element = document.querySelector(${JSON.stringify(selector)});
+        const range = document.createRange();
+        if (${selected}) {
+          range.setStart(element.firstChild, 0);
+          range.setEnd(element.firstChild, 9);
+          getSelection().removeAllRanges(); getSelection().addRange(range);
+        }
+        const rect = (${selected} ? range : element).getBoundingClientRect();
+        window.menuAction = ${JSON.stringify(action)};
+        return !element.dispatchEvent(new MouseEvent('contextmenu', {bubbles:true, cancelable:true, button:2,
+          clientX:rect.left + 3, clientY:rect.top + rect.height/2}));
+      })()`), true);
+      await settle();
+    };
+    await menu('.user-reference-text', 'copy-message');
+    assert.equal(await js("window.copied"), "user one");
+    await menu(body, 'copy-message');
+    assert.equal(await js("window.copied"), "assistant one");
+    assert.equal(await js("menuRequest.kind"), "message");
+    await menu(body, 'copy-selection', true);
+    assert.equal(await js("window.copied"), "assistant");
+    assert.equal(await js("menuRequest.selection"), "copy-and-quote");
+    await menu(body, 'quote-selection', true);
+    const draft = "sessionStorage.getItem('lxe.composer-draft.' + document.querySelector('.reference-editor').dataset.session)";
+    assert.equal(await js(draft), 'existing draft');
+    assert.equal(await js("document.activeElement.matches('.reference-editor')"), true);
+    await click('.composer-quotes .message-quote-open');
+    await waitFor("document.querySelector('.quote-preview blockquote')?.textContent === 'assistant'", 'quote preview');
+    await key('Escape');
+    assert.equal(await js("!!document.querySelector('.composer-quotes')"), true);
+    await click('.composer-quotes .quote-icon');
+    assert.equal(await js("!!document.querySelector('.composer-quotes')"), false);
+    assert.equal(await js(draft), 'existing draft');
+    await win.webContents.insertText('x'.repeat(10000 - (await js(draft)).length));
+    await settle();
+    const fullDraft = await js(draft);
+    assert.equal(fullDraft.length, 10000);
+    assert.ok(fullDraft.includes('existing draft'));
+    await menu(body, 'quote-selection', true);
+    await waitFor("Boolean(document.querySelector('.composer-quotes'))", 'quote added to a long draft');
+    assert.equal(await js(draft), fullDraft);
+    await click('.composer-quotes .quote-icon');
+    await menu(body, 'fork');
+    await waitFor("document.querySelector('.conversation-header h2')?.textContent === 'Default chat(1)'", 'fork from reply body');
+    assert.deepEqual((await state()).calls.filter(c=>c.operation==='sessions.fork').at(-1).input, { session_id:'Default chat', turn_id:'one' });
+    assert.equal(await js("document.querySelector('.reference-editor').textContent"), "");
+  });
+  await step('selection quotes keep comments separate from the draft until confirmed and sent', async () => {
+    await load('?app=1&workspaces=1&section=sessions&forkFixture=1&quoteHistory=1');
+    const shopToggle = '[data-workspace-directory="/fixture/shop"] .workspace-group-toggle';
+    await waitFor(`!!document.querySelector('${shopToggle}')`, 'shop workspace loaded');
+    const wasExpanded = await js(`document.querySelector('${shopToggle}').getAttribute('aria-expanded') === 'true'`);
+    if (!wasExpanded) await click(shopToggle);
+    await click('[data-session-id="Shop chat 2"] .session-index-open');
+    await waitFor("document.querySelector('.response-final-answer .message-markdown p')?.textContent === 'assistant one'", 'shop conversation ready');
+    const body = '.response-final-answer .message-markdown p';
+    const card = '.selection-quote-card';
+    const field = card + ' textarea';
+    const select = async () => {
+      await js(`(() => {
+        const element = document.querySelector('${body}');
+        element.scrollIntoView({block:'center'});
+        const r = document.createRange(); r.selectNodeContents(element);
+        getSelection().removeAllRanges(); getSelection().addRange(r);
+      })()`);
+      await waitFor("!!document.querySelector('.quote-trigger')", 'selection quote action');
+      const point = await js(`(() => { const r = document.querySelector('.quote-trigger').getBoundingClientRect(); return {x: Math.round(r.left+r.width/2), y: Math.round(r.top+r.height/2)}; })()`);
+      win.webContents.sendInputEvent({ type: 'mouseDown', button: 'left', clickCount: 1, ...point });
+      win.webContents.sendInputEvent({ type: 'mouseUp', button: 'left', clickCount: 1, ...point });
+      await waitFor(`document.activeElement.matches('${field}')`, 'comment editor focused');
+    };
+    const outside = () => js("document.querySelector('.conversation-body').dispatchEvent(new PointerEvent('pointerdown', {bubbles:true,button:0}))");
+    await focus('.reference-editor');
+    await win.webContents.insertText('my draft');
+    await settle();
+    await select();
+    await outside(); await settle();
+    assert.equal(await js(`!!document.querySelector('${card}')`), false);
+    await select();
+    const fieldHeight = () => js(`document.querySelector('${field}').clientHeight`);
+    const initialHeight = await fieldHeight();
+    assert.equal(await js(`document.querySelector('${card} blockquote').textContent`), 'assistant one');
+    assert.equal(await js("CSS.highlights.get('lxe-quote-source').values().next().value.toString()"), 'assistant one');
+    assert.ok(await js(`document.querySelector('${card}').getBoundingClientRect().height <= 70`), 'short excerpt and empty editor stay compact');
+    await win.webContents.insertText('line\n'.repeat(3));
+    await settle();
+    assert.ok(await fieldHeight() > initialHeight, 'multiline comments expand the editor');
+    await win.webContents.insertText('line\n'.repeat(20));
+    await waitFor(`document.querySelector('${field}').scrollHeight > document.querySelector('${field}').clientHeight`, 'long comment scrolls inside the editor');
+    await click(card + ' .quote-icon');
+    assert.equal(await js(`!!document.querySelector('${card}')`), false);
+    assert.equal(await js("CSS.highlights.has('lxe-quote-source')"), false);
+    await select();
+    await win.webContents.insertText('unconfirmed');
+    await js(`document.activeElement.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',isComposing:true,bubbles:true,cancelable:true}))`);
+    await js(`(() => {
+      const field = document.activeElement;
+      const enter = () => field.dispatchEvent(new KeyboardEvent('keydown', {key:'Enter', bubbles:true, cancelable:true}));
+      field.dispatchEvent(new CompositionEvent('compositionstart', {bubbles:true}));
+      enter();
+      field.dispatchEvent(new CompositionEvent('compositionend', {bubbles:true}));
+      enter();
+    })()`);
+    assert.equal(await js(`document.querySelector('${field}').value`), 'unconfirmed');
+    await key('Escape');
+    assert.equal(await js(`!!document.querySelector('${card}')`), false);
+    assert.equal(await js("document.querySelector('.reference-editor').textContent"), 'my draft');
+    await select();
+    assert.equal(await js(`document.querySelector('${field}').value`), '');
+    await win.webContents.insertText('why?');
+    await outside(); await settle();
+    assert.equal(await js(`document.querySelector('${field}').value`), 'why?');
+    await key('Enter', ['shift']);
+    await win.webContents.insertText('details');
+    const multilineComment = 'why?\ndetails';
+    assert.equal(await js(`document.querySelector('${field}').value`), multilineComment);
+    await key('Enter');
+    assert.equal(await js(`!!document.querySelector('${card}')`), false);
+    assert.equal(await js("document.querySelector('.reference-editor').textContent"), 'my draft');
+    assert.equal((await state()).calls.filter(c => c.operation === 'sessions.send').length, 0);
+    await click('[data-session-id="Default chat"] .session-index-open');
+    await waitFor("!document.querySelector('.composer-quotes')", 'quotes are scoped to their conversation');
+    await load('?app=1&workspaces=1&section=sessions&forkFixture=1&quoteHistory=1');
+    await waitFor(`!!document.querySelector('[data-session-id="Shop chat 2"] .session-index-open')`, 'shop chat restored');
+    await click('[data-session-id="Shop chat 2"] .session-index-open');
+    await waitFor("document.querySelector('.reference-editor')?.textContent === 'my draft' && !!document.querySelector('.composer-quotes .message-quote-open')", 'draft and quote restored after reload');
+    await click('.composer-quotes .message-quote-open');
+    assert.equal(await js("document.querySelector('.quote-preview blockquote').textContent"), 'assistant one');
+    assert.equal(await js("document.querySelector('.quote-preview p').textContent"), multilineComment);
+    await key('Escape');
+    await select();
+    await click('.quote-confirm'); // No comment stages an ordinary excerpt.
+    const bubble = '.message-card.role-user:has(.sent-message-quotes)';
+    const checkBubble = async () => {
+      await waitFor(`document.querySelector('${bubble} .user-reference-text')?.textContent === 'my draft'`, 'reader-facing message body');
+      assert.equal(await js(`document.querySelector('${bubble}').textContent.includes('<!--')`), false);
+      assert.equal(await js(`document.querySelectorAll('${bubble} .quote-icon').length`), 0);
+      for (const [index, comment] of [[1, multilineComment], [2, '']]) {
+        const group = `${bubble} .sent-message-quote:nth-child(${index})`;
+        assert.equal(await js(`document.querySelector('${group} blockquote').innerText`), 'assistant one');
+        assert.equal(await js(`document.querySelector('${group} blockquote + p')?.innerText ?? ''`), comment);
+        await click(`${group} .sent-quote-open`);
+        assert.equal(await js("document.querySelector('.quote-preview blockquote').textContent"), 'assistant one');
+        assert.equal(await js("document.querySelector('.quote-preview p')?.textContent ?? ''"), comment);
+        await key('Escape');
+      }
+    };
+    await js("behavior.failWorkspaceSend(true)");
+    await click('.conversation-send-button');
+    await waitFor("document.querySelector('.conversation-compose-error')?.textContent.includes('EACCES')", 'send error');
+    assert.equal(await js("document.querySelector('.reference-editor').textContent"), 'my draft');
+    assert.equal(await js("!!document.querySelector('.composer-quotes')"), true);
+    await js("behavior.failWorkspaceSend(false);behavior.holdWorkspaceSend(true)");
+    await click('.conversation-send-button');
+    await checkBubble();
+    await js("behavior.releaseWorkspaceSend()");
+    await waitFor("!document.querySelector('.composer-quotes') && !document.querySelector('.reference-editor').textContent", 'sent quotes clear');
+    assert.equal((await state()).calls.findLast(c=>c.operation==='sessions.send').input.text, '<!-- reply 1 -->\n> assistant one\n\nwhy?\ndetails\n\n\n<!-- attach -->\n> assistant one\n\nmy draft');
+    await load('?app=1&workspaces=1&section=sessions&forkFixture=1&quoteHistory=1');
+    await click('[data-session-id="Shop chat 2"] .session-index-open');
+    await checkBubble();
+    const longLine = 'unbroken'.repeat(18);
+    const history = '<!-- reply 1 -->\n> first line\n> ' + longLine + '\n\nmy comment\n\n\nfinal text';
+    await js(`sessionStorage.setItem('sent-quote-fixture.Shop chat 2', ${JSON.stringify(history)})`);
+    await load('?app=1&workspaces=1&section=sessions&forkFixture=1&quoteHistory=1');
+    await click('[data-session-id="Shop chat 2"] .session-index-open');
+    await waitFor(`document.querySelector('${bubble} .user-reference-text')?.textContent === 'final text'`, 'multiline quote from history');
+    for (const theme of ['dark', 'light']) {
+      const layout = await js(`(() => {
+        document.documentElement.dataset.theme = '${theme}';
+        const card = document.querySelector('${bubble}');
+        const excerpt = card.querySelector('.sent-quote-open');
+        const comment = card.querySelector('blockquote + p');
+        return {
+          excerpt: excerpt.innerText, wraps: excerpt.clientHeight > 2 * parseFloat(getComputedStyle(excerpt).lineHeight),
+          fits: excerpt.scrollWidth <= excerpt.clientWidth && excerpt.getBoundingClientRect().right <= card.getBoundingClientRect().right,
+          rail: parseFloat(getComputedStyle(excerpt.parentElement).borderInlineStartWidth),
+          quoteColor: getComputedStyle(excerpt).color, commentColor: getComputedStyle(comment).color,
+          bodyColor: getComputedStyle(card.querySelector('.user-reference-text')).color,
+        };
+      })()`);
+      assert.equal(layout.excerpt, 'first line\n' + longLine);
+      assert.ok(layout.wraps && layout.fits && layout.rail > 0, theme + ' inline excerpt wraps within the bubble beside its rule');
+      assert.notEqual(layout.quoteColor, layout.commentColor);
+      assert.equal(layout.commentColor, layout.bodyColor);
+    }
+    await click('[data-session-id="Default chat"] .session-index-open');
+    if (!wasExpanded) await click(shopToggle);
+  });
   await step('assistant Markdown links open in the originating session file sidebar', async () => {
     await load('?app=1&workspaces=1&section=sessions&fileLinks=1');
     const report = '.conversation-feed .markdown-file-link[title="reports/测试 report.md"]';
+    const website = '.conversation-feed .message-markdown a[href="https://example.com/docs"]';
     const shopToggle = '[data-workspace-directory="/fixture/shop"] .workspace-group-toggle';
     await waitFor(`Boolean(document.querySelector(${JSON.stringify(shopToggle)}))`, 'shop workspace');
     await click(shopToggle);
@@ -509,28 +750,31 @@ module.exports = async ({suite,win,url,js,step,load,waitFor,click,key,focus,sett
       await click(row);
       await waitFor(`document.querySelector('.conversation-header h2')?.textContent === ${JSON.stringify(session)} && Boolean(document.querySelector(${JSON.stringify(report)}))`, 'report link in selected chat');
       if (session === 'Default chat') {
-        const element = `document.querySelector(${JSON.stringify(report)})`;
-        const colors = () => js(`((s) => [s.color, s.textDecorationColor])(getComputedStyle(${element}))`);
-        for (const theme of ['light', 'dark']) {
-          // Following the latest output keeps programmatic scrolls at the bottom.
-          // A user wheel releases it, so a short window can bring the link into view.
-          await js(`document.documentElement.dataset.theme = ${JSON.stringify(theme)};
-            document.querySelector('.conversation-transcript').dispatchEvent(new WheelEvent('wheel', { bubbles: true, deltaY: -50 }));
-            ${element}.scrollIntoView({ block: 'center' })`);
+        async function checkHover(selector, theme) {
+          const element = `document.querySelector(${JSON.stringify(selector)})`;
+          const colors = () => js(`((s) => [s.color, s.textDecorationColor])(getComputedStyle(${element}))`);
+          await js(`${element}.scrollIntoView({ block: 'center' })`);
           win.webContents.sendInputEvent({ type: 'mouseMove', x: 1, y: 1 });
           await settle();
           const [text, underline] = await colors();
           assert.notEqual(underline, text);
           // The link can wrap; aim at its first line box.
           const point = await js(`((r) => ({x: Math.round(r.left + r.width / 2), y: Math.round(r.top + r.height / 2)}))(${element}.getClientRects()[0])`);
-          assert.ok(await js(`${element}.contains(document.elementFromPoint(${point.x}, ${point.y}))`),
-            `${theme} file link is visible at ${JSON.stringify(point)}: ` + await js(`document.elementFromPoint(${point.x}, ${point.y})?.outerHTML.slice(0, 200)`));
+          assert.ok(await js(`${element}.contains(document.elementFromPoint(${point.x}, ${point.y}))`), `${theme} ${selector} is visible`);
           win.webContents.sendInputEvent({ type: 'mouseMove', ...point });
-          await waitFor(`${element}.matches(':hover')`, theme + ' file link hover');
-          assert.deepEqual(await colors(), [text, text]);
+          await waitFor(`${element}.matches(':hover')`, `${theme} ${selector} hover`);
+          assert.deepEqual(await colors(), [text, text], `${theme} ${selector} hover colors`);
           win.webContents.sendInputEvent({ type: 'mouseMove', x: 1, y: 1 });
           await settle();
           assert.deepEqual(await colors(), [text, underline]);
+          return [text, underline];
+        }
+        for (const theme of ['dark', 'light']) {
+          // Release follow mode so both links can scroll into view.
+          await js(`document.documentElement.dataset.theme = ${JSON.stringify(theme)};
+            document.querySelector('.conversation-transcript').dispatchEvent(new WheelEvent('wheel', { bubbles: true, deltaY: -50 }))`);
+          const fileColors = await checkHover(report, theme);
+          assert.deepEqual(await checkHover(website, theme), fileColors);
         }
       }
       await focus(report);
@@ -557,11 +801,35 @@ module.exports = async ({suite,win,url,js,step,load,waitFor,click,key,focus,sett
     await waitFor("!!document.querySelector('.file-sidebar .code-line[data-line=\"1\"]')", 'return to beginning of distant source link');
     await click(link(9999));
     await waitFor("!!document.querySelector('.file-sidebar .file-line-missing')", 'line past end of file');
-    await click('.conversation-feed .markdown-file-link[data-linked-path="/fixture/shared/reference.ts"]');
+    const menu = async (selector, action) => js(`(() => {
+      window.lxe.desktop.showConversationLinkMenu = async request => { window.lastLinkMenu = request; return ${JSON.stringify(action)}; };
+      const link = document.querySelector(${JSON.stringify(selector)});
+      return !link.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, button: 2 }));
+    })()`);
+    assert.equal(await menu('.conversation-feed .markdown-file-link[data-linked-path="/fixture/shared/reference.ts"]', 'preview'), true);
+    assert.deepEqual(await js("lastLinkMenu.ref"), { kind: 'linked', session_id: 'Shop chat 1', path: '/fixture/shared/reference.ts' });
     await waitFor("document.querySelectorAll('.file-sidebar .file-target-line').length === 9", 'external file source range');
     assert.deepEqual(await js("Array.from(document.querySelectorAll('.file-sidebar .file-target-line'), row => Number(row.dataset.line))"),
       [42, 43, 44, 45, 46, 47, 48, 49, 50]);
     assert.ok((await state()).calls.some(call => call.operation === 'prepare' && call.input.ref.kind === 'linked'
       && call.input.ref.path === '/fixture/shared/reference.ts' && call.input.ref.session_id === 'Shop chat 1'));
+
+    await js(`Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: async text => { window.copied = text; } } });
+      let live;
+      window.lxe.tools = { subscribe: () => () => {}, call: async ({operation, input}) => {
+        if (operation === 'browser.create') return live ??= { ...input, mountSrc: 'about:blank#menu-test', title: 'Docs' };
+        if (operation === 'browser.get') return live;
+        if (operation === 'browser.visible') return true;
+      } }; void 0;`);
+    assert.equal(await menu(website, 'copy-message'), true);
+    await waitFor("window.copied?.includes('[查看完整分析]')", 'copy the whole reply from the website menu');
+    assert.equal(await js("lastLinkMenu.fork"), true);
+    assert.equal(await menu(website, 'sidebar'), true);
+    await waitFor("!!document.querySelector('.sidebar-browser-frame:not([hidden])')", 'open website in an active browser tab');
+    assert.equal(await js("document.querySelector('.tool-browser-restore') === null"), true);
+    assert.equal(await js("JSON.parse(localStorage.getItem('lxe.file-preview.v1.Shop chat 1')).tabs.find(t => t.kind === 'browser').url"), 'https://example.com/docs');
+    assert.equal(await menu(website, 'fork'), true);
+    await waitFor("document.querySelector('.conversation-header h2')?.textContent === 'Default chat(1)'", 'fork from the linked reply');
+    assert.deepEqual((await state()).calls.filter(call => call.operation === 'sessions.fork').at(-1).input, { session_id: 'Shop chat 1', turn_id: 'one' });
   });
 };

@@ -27,6 +27,8 @@ const methods = {
   resolve_image_view: { session_id: "session", view_id: "view" },
   resolve_image_preview: { session_id: "session", kind: "attachment", id: "image" },
   resolve_attachment: { session_id: "session", attachment_id: "file" },
+  session_attachment_paths: { session_id: "session" },
+  unused_attachment_paths: { candidates: [{ path: "/example.txt", session_ids: ["session"] }] },
   dashboard_call: { operation: "models.list", input: {} },
   session_status: {action:"list",session_ids:["session"]},
   shutdown: {},
@@ -35,7 +37,7 @@ const methods = {
 describe("JSON-RPC boundary", () => {
   test("all command names remain reachable with their business payloads", () => {
     const names: Array<keyof AgentCommandPayloads> = Object.keys(methods) as Array<keyof AgentCommandPayloads>;
-    expect(names).toHaveLength(16);
+    expect(names).toHaveLength(18);
     for (const method of names) {
       const request = { jsonrpc: "2.0", id: method, method, params: methods[method] };
       expect(parseAgentCall(request)).toEqual(expect.objectContaining(request));

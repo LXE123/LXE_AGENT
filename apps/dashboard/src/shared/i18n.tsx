@@ -401,6 +401,8 @@ export const ZH_TEXT = {
     newHint: "输入消息或添加文件，开始与 Agent 对话。",
     placeholder: "输入 / 查看命令",
     steerPlaceholder: "补充当前任务，按 Enter 插话…",
+    quoteUi: { quote: "引用", excerpt: "引用原文", quoteComment: "写下评论（可选）", stageQuote: "加入草稿", withQuoteComment: "已附评论", removeQuote: "移除引用" },
+    pastedTextName: (n: number) => `粘贴的文本${n > 1 ? " " + n : ""}.txt`,
     steering: "等待 Agent 处理",
     send: "发送",
     stop: "停止",
@@ -412,7 +414,6 @@ export const ZH_TEXT = {
     error: "执行失败",
     unavailable: "Gateway 或 Agent 尚未就绪",
     modelUnavailable: "模型未配置，对话暂不可用",
-    characterCount: (count: string, maximum: string) => `${count} / ${maximum}`,
     contextMeter: {
       noData: "暂无数据",
       latestTurnUsage: "最近一轮累计用量",
@@ -1380,6 +1381,8 @@ export const UI_TEXT: Record<Language, UiText> = {
       newHint: "Send a message or add files to start a conversation with the Agent.",
       placeholder: "Type / for commands",
       steerPlaceholder: "Press Enter to steer the current task…",
+      quoteUi: { quote: "Quote", excerpt: "Excerpt", quoteComment: "Add a comment (optional)", stageQuote: "Add to draft", withQuoteComment: "With comment", removeQuote: "Remove quote" },
+      pastedTextName: (n: number) => `Pasted text${n > 1 ? " " + n : ""}.txt`,
       steering: "Waiting for the Agent",
       send: "Send",
       stop: "Stop",
@@ -1391,7 +1394,6 @@ export const UI_TEXT: Record<Language, UiText> = {
       error: "Run failed",
       unavailable: "Gateway or Agent is not ready",
       modelUnavailable: "No model configured. Chat is unavailable.",
-      characterCount: (count: string, maximum: string) => `${count} / ${maximum}`,
       contextMeter: {
       noData: "No data",
       latestTurnUsage: "Latest turn usage",

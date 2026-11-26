@@ -1,10 +1,11 @@
-import { sourceAccess, invalidFileReference } from "./errors";
+import { fileFailure, sourceAccess, invalidFileReference } from "./errors";
 import { createHash, randomUUID } from "node:crypto";
 import { watch, type FSWatcher, type Stats } from "node:fs";
 import { readdir, realpath, stat } from "node:fs/promises";
 import { homedir } from "node:os";
-import { basename, dirname, extname, join, resolve } from "node:path";
+import { basename, dirname, extname, isAbsolute, join, relative, resolve } from "node:path";
 import type { DesktopFileCall, DesktopFileOperations, FileMetadata, FilePreviewKind, SessionFileRef, ConversationImagePreviewSource, PreviewTextPage, TextPageRequest } from "@lxe/desktop-protocol";
+import type { ConversationFileLinkRef, FileApplication } from "@lxe/desktop-protocol";
 import { readTextPage } from "./text-pages";
 import { validateRef, regularFile, workspacePath, readLimited } from "./paths";
 import { OfficePreviewCache } from "./office-cache";
@@ -33,6 +34,17 @@ export interface FileServiceRuntime {
 interface Request { controller: AbortController; handle?: string; cacheRelease?: () => void }
 interface Handle { ref: SessionFileRef; metadata: FileMetadata; bytes: Uint8Array; path: string; touched: number; watcher?: FSWatcher; mode: "text" | "bytes"; signal: AbortSignal; html?: HtmlPreviewDocument; htmlGeneration?: number }
 interface DirectoryWatch { session: string; relative: string; path: string; watcher: FSWatcher; revision: number; error?: Error; touched: number }
+function validLinkedPath(path: string) {
+  if (!path || path.length > 32768 || /[\u0000-\u001f\u007f]/.test(path) || /^[/\\]{2}/.test(path)) return false;
+  return process.platform !== "win32" || (!path.replace(/^[a-z]:[/\\]/i, "").includes(":")
+    && !path.split(/[/\\]/).some(part => /^(?:con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\.|$)/i.test(part)));
+}
+function linkedPath(directory: string, path: string) {
+  const requested = path.startsWith("~/") ? resolve(homedir(), path.slice(2)) : resolve(directory, path);
+  if (process.platform === "win32" && /^[/\\]{2}/.test(requested)) throw invalidFileReference("A local file is required");
+  return requested;
+}
+export interface FileApplicationLookup { applications: readonly FileApplication[]; error?: string }
 export class FilePreviewService {
   private requests = new Map<string, Request>();
   private handles = new Map<string, Handle>();
@@ -51,9 +63,7 @@ export class FilePreviewService {
     this.timer.unref();
   }
   clickedFileLink(session: string, path: string): void {
-    if (!session || !path || path.length > 32768 || /[\u0000-\u001f\u007f]/.test(path) || /^[/\\]{2}/.test(path)) return;
-    if (process.platform === "win32" && (path.replace(/^[a-z]:[/\\]/i, "").includes(":") ||
-      path.split(/[/\\]/).some(part => /^(?:con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\.|$)/i.test(part)))) return;
+    if (!session || !validLinkedPath(path)) return;
     this.clickedFiles.set(JSON.stringify([session, path]), {});
   }
   async resolve(ref: SessionFileRef): Promise<string> {
@@ -63,8 +73,7 @@ export class FilePreviewService {
       const click = this.clickedFiles.get(key);
       if (!click) throw invalidFileReference("Open this file link from its conversation");
       const directory = await runtime.resolveWorkspaceDirectory(ref.session_id);
-      const requested = ref.path.startsWith("~/") ? resolve(homedir(), ref.path.slice(2)) : resolve(directory, ref.path);
-      if (process.platform === "win32" && /^[/\\]{2}/.test(requested)) throw invalidFileReference("A local file is required");
+      const requested = linkedPath(directory, ref.path);
       const canonical = await sourceAccess(() => realpath(requested));
       if (this.clickedFiles.get(key) !== click || click.canonical && click.canonical !== canonical)
         throw invalidFileReference("The file link target changed; reopen it from the conversation");
@@ -75,6 +84,37 @@ export class FilePreviewService {
     const path = await (ref.kind === "skill" ? runtime.resolveSkill?.(ref.session_id, ref.id) : ref.kind === "artifact" ? runtime.resolveArtifact(ref.session_id, ref.id) : runtime.resolveAttachment(ref.session_id, ref.id));
     if (!path) throw invalidFileReference("File is not part of this conversation");
     return path;
+  }
+  // Called only by the native link menu. Looking up handlers does not grant renderer access.
+  async fileLinkMenu(ref: ConversationFileLinkRef) {
+    if (!validLinkedPath(ref.path)) throw invalidFileReference("Invalid local file path");
+    const directory = await this.runtime().resolveWorkspaceDirectory(ref.session_id);
+    const absolutePath = ref.kind === "linked" ? linkedPath(directory, ref.path) : resolve(directory, ref.path);
+    const relativePath = relative(directory, absolutePath);
+    const failed = (error: unknown): FileApplicationLookup => ({ applications: [], error: fileFailure(error, "applications").diagnostic });
+    let canonical: string | undefined;
+    let applications: Promise<FileApplicationLookup>;
+    try {
+      canonical = await regularFile(ref.kind === "linked" ? absolutePath : await workspacePath(directory, ref.path));
+      // The menu decides how long to wait; a slow handler lookup must not delay the path items.
+      applications = this.listApplications(canonical).then(value => ({ applications: value }), failed);
+    } catch (error) { applications = Promise.resolve(failed(error)); }
+    return {
+      absolutePath, relativePath: isAbsolute(relativePath) ? undefined : relativePath, filename: basename(absolutePath),
+      applications,
+      authorize: () => {
+        if (ref.kind === "linked") this.clickedFiles.set(JSON.stringify([ref.session_id, ref.path]), canonical ? { canonical } : {});
+      },
+    };
+  }
+  private listApplications(path: string, refresh = false) {
+    const cached = this.applications.get(path);
+    if (!refresh && cached && cached.expires > Date.now()) return cached.value;
+    const value = this.associations.list(path, AbortSignal.timeout(20000));
+    this.applications.set(path, { expires: Date.now() + 30000, value });
+    if (this.applications.size > 128) this.applications.delete(this.applications.keys().next().value!);
+    void value.catch(() => { if (this.applications.get(path)?.value === value) this.applications.delete(path); });
+    return value;
   }
   private fileVersion(path: string, info: Stats): string {
     const signature = `${info.dev}:${info.ino}:${info.size}:${info.mtimeMs}:${info.ctimeMs}`;
@@ -175,20 +215,11 @@ export class FilePreviewService {
     if (call.operation === "stat") return (await this.describe(ref, call.input.original === true)).metadata;
     if (call.operation === "applications" || call.operation === "open") {
       const path = await regularFile(await this.resolve(ref));
-      const signal = AbortSignal.timeout(20000);
-      if (call.operation === "applications") {
-        const cached = this.applications.get(path);
-        if (!call.input.refresh && cached && cached.expires > Date.now()) return cached.value;
-        const value = this.associations.list(path, signal);
-        this.applications.set(path, { expires: Date.now() + 30000, value });
-        if (this.applications.size > 128) this.applications.delete(this.applications.keys().next().value!);
-        void value.catch(() => { if (this.applications.get(path)?.value === value) this.applications.delete(path); });
-        return value;
-      }
+      if (call.operation === "applications") return this.listApplications(path, call.input.refresh);
       if (call.input.reveal === true) { this.native.revealPath(path); return; }
       if (call.input.application !== undefined) {
         if (typeof call.input.application !== "string" || !call.input.application) throw new Error("Invalid application");
-        await this.associations.open(path, call.input.application, signal);
+        await this.associations.open(path, call.input.application, AbortSignal.timeout(20000));
       } else { const error = await this.native.openPath(path); if (error) throw new Error(error); }
       return;
     }

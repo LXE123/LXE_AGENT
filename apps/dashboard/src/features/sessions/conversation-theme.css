@@ -46,25 +46,29 @@
   outline-color: var(--cds-accent);
 }
 
-/* Process disclosures use color feedback with the ordinary arrow cursor.
-   Keep error text semantic, including while the disclosure is hovered. */
+.conversation-compaction-marker.conversation-chrome-theme {
+  color: var(--cds-secondary);
+  font-size: .75rem;
+}
+
+/* Transcript disclosures share color feedback; process errors keep their status color. */
 .live-progress-status.conversation-chrome-theme,
-.conversation-process-toggle.conversation-chrome-theme {
+:is(.conversation-process-toggle, .image-view-summary).conversation-chrome-theme {
   color: var(--cds-secondary);
 }
-.conversation-process-toggle.conversation-chrome-theme {
+:is(.conversation-process-toggle, .image-view-summary).conversation-chrome-theme {
   cursor: default;
 }
 .conversation-process-toggle.conversation-chrome-theme > .live-progress-status:not(.state-error) {
   color: inherit;
 }
-.conversation-process-toggle.conversation-chrome-theme:is(:hover, :focus-visible) {
+:is(.conversation-process-toggle, .image-view-summary).conversation-chrome-theme:is(:hover, :focus-visible) {
   color: var(--cds-ink);
 }
 .conversation-process-toggle.conversation-chrome-theme:is(:hover, :focus-visible) .live-progress-elapsed {
   color: inherit;
 }
-.conversation-process-toggle.conversation-chrome-theme:focus-visible {
+:is(.conversation-process-toggle, .image-view-summary).conversation-chrome-theme:focus-visible {
   outline: 2px solid var(--cds-accent);
   outline-offset: 2px;
 }
