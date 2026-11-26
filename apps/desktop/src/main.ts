@@ -93,6 +93,7 @@ import { configureElectronRuntimeState, prepareDesktopRuntimeState } from "./mai
 import { reportDesktopStartupFailure } from "./main/startup-failure";
 import { DesktopInputAssetsService } from "./main/input-assets";
 import { DesktopSyntheticPerformerService } from "./main/synthetic-performer";
+import { desktopLxeSkillClient } from "./main/lxeskill-client";
 import {
   DESKTOP_TITLEBAR_COLOURS,
   DESKTOP_TITLEBAR_HEIGHT,
@@ -420,32 +421,20 @@ async function bootstrap(): Promise<void> {
     onStateChanged: broadcastCloudState,
   });
   activeCloud = cloud;
+  const lxeskill = desktopLxeSkillClient(paths);
   const syntheticPerformer = new DesktopSyntheticPerformerService({
     platform: process.platform,
-    executablePath: paths.lxeskillExecutablePath,
+    lxeskill,
     exifToolPath: paths.exifToolPath,
-    dataRoot: paths.dataRoot,
-    managedPath: paths.managedPath,
     onTaskChanged: broadcastSyntheticPerformerTask,
     onStderr: (line) => {
       if (line.trim()) process.stderr.write(`[lxeskill-media] ${line}\n`);
     },
   });
   activeSyntheticPerformer = syntheticPerformer;
-  const inputAssets = new DesktopInputAssetsService({
-    platform: process.platform,
-    executablePath: paths.lxeskillExecutablePath,
-    dataRoot: paths.dataRoot,
-    managedPath: paths.managedPath,
-  });
-  const vietnamSettings = new DesktopVietnamSettingsService({
-    platform: process.platform, executablePath: paths.lxeskillExecutablePath,
-    dataRoot: paths.dataRoot, managedPath: paths.managedPath,
-  });
-  const amazonV2Settings = new DesktopAmazonV2SettingsService({
-    platform: process.platform, executablePath: paths.lxeskillExecutablePath,
-    dataRoot: paths.dataRoot, managedPath: paths.managedPath,
-  });
+  const inputAssets = new DesktopInputAssetsService(lxeskill);
+  const vietnamSettings = new DesktopVietnamSettingsService(lxeskill);
+  const amazonV2Settings = new DesktopAmazonV2SettingsService(lxeskill);
   const checkCloudAfterResume = (): void => { void cloud.check(); activeUpdates?.wake(); };
   powerMonitor.on("resume", checkCloudAfterResume);
   removeCloudResumeListener = () => powerMonitor.removeListener("resume", checkCloudAfterResume);

@@ -72,6 +72,15 @@ POSIX 创建配置目录时使用 `0700`，`auth.json` 和锁文件使用 `0600`
 
 Electron 通过 lxeskillCLI 暴露的命令调用业务能力。应用只向自己创建的子进程提供私有工具路径，不修改系统 `PATH`。私有 Agent CLI、Python wheel、Node 和外部工具的构建与分发由 [打包手册](packaging-pipeline.md)维护。
 
+Main 进程里的设置页、输入素材、媒体任务和 CLI 状态检查，都通过同一个 [lxeskill client](../../apps/desktop/src/main/lxeskill-client.ts) 启动命令，各功能不再自己拼环境变量、解析输出。client 负责几件事：
+
+- **环境变量**：继承 Main 进程的变量，去掉业务凭据和只给 Agent 用的变量（`LXE_AGENT_*` 等），再补上数据目录、Skill 目录、私有工具路径和临时目录。数据库位置由 lxeskill 自己根据数据目录决定。
+- **输出解析**：按 CLI 协议严格解析。每行都必须是协议记录，前面是若干 `progress`，最后恰好一条 `result`。
+- **错误**：报告时优先给出 CLI 返回的结构化错误，再附上 stderr，脱敏并截断后交给界面。
+- **超时与取消**：超时或取消时结束整个进程树。
+
+Agent 不走这个 client，模型仍通过 `exec` 调用 lxeskill。
+
 Desktop 启动时在后台运行 `lxeskill list`，独立展示 CLI 入口状态。失败显示实际诊断，不阻塞 Agent 启动或模型的命令调用；桌面重启或“重启 Agent”会重新检查，关闭时取消未完成的检查。这项检查不证明业务认证或全部业务命令可用。
 
 马帮桌面和独立终端的认证入口见 [浏览器认证手册](../../python/lxeskill_cli/browser_auth_service/README.md)；紫鸟页面操作遵循 [官方配对 Selenium 约束](../harness/skill/reference/ziniao-webdriver-doc-1.0.0/reference/automation-framework-policy.md)。Office 能力分工见 [Office 文件能力](../office-runtime.md)。

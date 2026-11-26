@@ -1,69 +1,16 @@
-import { managedPythonEnvironment } from "@lxe/core";
-import { execFile, type ExecFileOptions } from "node:child_process";
-import { existsSync, mkdirSync } from "node:fs";
-import { join } from "node:path";
+import { mkdirSync } from "node:fs";
 import type {
   DesktopInputAssetSlot,
   DesktopInputAssetVersion,
 } from "@lxe/desktop-protocol";
+import { redactAndBound, type LxeSkillClient } from "./lxeskill-client";
 
-const MAX_OUTPUT_BYTES = 1024 * 1024;
-const MAX_ERROR_BYTES = 4_096;
 const LIST_TIMEOUT_MS = 30_000;
 const REVISION = /^[0-9a-f]{32}$/u;
-
-export interface AssetCommandExecution {
-  stdout: string;
-  stderr: string;
-  error: Error | null;
-}
-
-type AssetCommandExecutor = (args: string[], options: ExecFileOptions) => Promise<AssetCommandExecution>;
-
-export interface DesktopInputAssetsOptions {
-  dataRoot: string;
-  executablePath: string;
-  managedPath: string;
-  platform: NodeJS.Platform;
-  execute?: AssetCommandExecutor;
-}
-
-const secretNames = /(?:PASSWORD|SECRET|TOKEN|COOKIE|SESSION|API_KEY|MOBILE)$/iu;
-
-export const redactAndBound = (message: string): string => {
-  let detail = message.trim();
-  for (const [name, secret] of Object.entries(process.env)) {
-    if (secret && secretNames.test(name)) detail = detail.replaceAll(secret, "[redacted]");
-  }
-  const encoded = Buffer.from(detail, "utf8");
-  return encoded.length <= MAX_ERROR_BYTES
-    ? detail
-    : `[truncated] ${encoded.subarray(-MAX_ERROR_BYTES).toString("utf8")}`;
-};
 
 const objectValue = (value: unknown): Record<string, unknown> | null =>
   value !== null && typeof value === "object" && !Array.isArray(value)
     ? value as Record<string, unknown> : null;
-
-const parseLastResult = (stdout: string): Record<string, unknown> | null => {
-  const terminal = stdout.split(/\r?\n/u).filter(line => line.trim()).at(-1);
-  if (!terminal) return null;
-  try {
-    const parsed = objectValue(JSON.parse(terminal));
-    return parsed?.type === "result" ? parsed : null;
-  } catch {
-    return null;
-  }
-};
-
-const errorMessage = (record: Record<string, unknown> | null): string => {
-  if (!record) return "";
-  const data = objectValue(record.data);
-  const error = objectValue(record.error);
-  const dataError = objectValue(data?.error);
-  return [error?.message, dataError?.message, data?.exception]
-    .find(value => typeof value === "string" && value.trim()) as string | undefined ?? "";
-};
 
 const versionValue = (value: unknown): DesktopInputAssetVersion | null => {
   const item = objectValue(value);
@@ -117,58 +64,12 @@ const slotValue = (value: unknown): DesktopInputAssetSlot | null => {
   };
 };
 
-const executeFile = (executablePath: string, args: string[], options: ExecFileOptions): Promise<AssetCommandExecution> =>
-  new Promise(resolve => {
-    execFile(executablePath, args, options, (error, stdout, stderr) => {
-      resolve({ error, stdout: String(stdout), stderr: String(stderr) });
-    });
-  });
-
 /** The Python asset registry and managed slot store remain the only source of truth. */
 export class DesktopInputAssetsService {
-  constructor(private readonly options: DesktopInputAssetsOptions) {}
-
-  private async runAssetCommand(command: string[], flags: string[], timeout: number): Promise<Record<string, unknown>> {
-    if (!existsSync(this.options.executablePath)) {
-      throw new Error(`LXE Skill CLI is unavailable: ${this.options.executablePath}`);
-    }
-    const temporaryRoot = join(this.options.dataRoot, "tmp");
-    mkdirSync(temporaryRoot, { recursive: true });
-    const separator = this.options.platform === "win32" ? ";" : ":";
-    const args = [...command, ...flags];
-    const options: ExecFileOptions = {
-      cwd: this.options.dataRoot,
-      timeout,
-      maxBuffer: MAX_OUTPUT_BYTES,
-      windowsHide: true,
-      env: managedPythonEnvironment({
-        ...process.env,
-        LXE_DATA_ROOT: this.options.dataRoot,
-        LXE_WORKSPACE_ROOT: join(this.options.dataRoot, "workspace"),
-        LXE_MANAGED_PATH: this.options.managedPath,
-        PATH: [this.options.managedPath, process.env.PATH].filter(Boolean).join(separator),
-        TMP: temporaryRoot,
-        TEMP: temporaryRoot,
-        TMPDIR: temporaryRoot,
-      }),
-    };
-    const execution = this.options.execute
-      ? await this.options.execute(args, options)
-      : await executeFile(this.options.executablePath, args, options);
-    const record = parseLastResult(execution.stdout);
-    const data = objectValue(record?.data);
-    if (execution.error || record?.ok !== true || data?.success === false) {
-      const terminal = execution.stdout.split(/\r?\n/u).filter(line => line.trim()).at(-1) ?? "";
-      const observed = errorMessage(record) || execution.stderr.trim() || execution.error?.message
-        || (terminal ? `Invalid lxeskill result: ${terminal}` : "lxeskill produced no result");
-      throw new Error(redactAndBound(observed));
-    }
-    if (!data) throw new Error(`lxeskill ${command.join(" ")} returned no data`);
-    return data;
-  }
+  constructor(private readonly lxeskill: LxeSkillClient) {}
 
   async list(): Promise<DesktopInputAssetSlot[]> {
-    const data = await this.runAssetCommand(["assets", "list"], [], LIST_TIMEOUT_MS);
+    const { data } = await this.lxeskill.run(["assets", "list"], { timeoutMs: LIST_TIMEOUT_MS });
     if (!Array.isArray(data.slots)) throw new Error("lxeskill assets list returned no slots");
     return data.slots.map(slotValue).filter((slot): slot is DesktopInputAssetSlot => slot !== null);
   }
