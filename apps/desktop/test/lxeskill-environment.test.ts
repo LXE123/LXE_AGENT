@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { queryLxeSkill } from "@lxe/core";
 import { DesktopLxeSkillHealth } from "../src/main/lxeskill-health";
 import { DesktopInputAssetsService } from "../src/main/input-assets";
+import { LxeSkillClient } from "../src/main/lxeskill-client";
 import { DesktopVietnamSettingsService } from "../src/main/vietnam-settings";
 
 for (const variable of ["PYTHONHOME", "PYTHONPATH"] as const) {
@@ -16,21 +17,17 @@ for (const variable of ["PYTHONHOME", "PYTHONPATH"] as const) {
     const value = variable === "PYTHONPATH" ? foreign : join(root, "missing-python-home");
     const executablePath = join(process.cwd(), ".venv", process.platform === "win32" ? "Scripts/lxeskill.exe" : "bin/lxeskill");
     const environment = { ...process.env, [variable]: value, LXE_DATA_ROOT: root };
-    const health = new DesktopLxeSkillHealth({ executablePath, dataRoot: root, environment, recovery: "fixture" });
-    const previous = process.env[variable];
+    const client = new LxeSkillClient({ executablePath, dataRoot: root, managedPath: "", environment: () => environment });
+    const health = new DesktopLxeSkillHealth({ client, recovery: "fixture" });
     try {
       await health.check();
       expect(health.snapshot()).toEqual({ state: "ready", message: "" });
       const result = await queryLxeSkill("list", { executablePath, cwd: root, environment });
       expect((result.commands as unknown[]).length).toBeGreaterThan(0);
-      // These desktop services inherit the app environment themselves.
-      process.env[variable] = value;
-      const options = { executablePath, dataRoot: root, managedPath: "", platform: process.platform };
-      expect(Array.isArray(await new DesktopInputAssetsService(options).list())).toBe(true);
-      const settings = await new DesktopVietnamSettingsService(options).read();
+      expect(Array.isArray(await new DesktopInputAssetsService(client).list())).toBe(true);
+      const settings = await new DesktopVietnamSettingsService(client).read();
       expect(settings.parameters?.sales_weight_7d).toBe("0.6");
     } finally {
-      if (previous === undefined) delete process.env[variable]; else process.env[variable] = previous;
       await health.stop();
       rmSync(root, { recursive: true, force: true });
     }

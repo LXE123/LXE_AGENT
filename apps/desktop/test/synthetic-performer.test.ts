@@ -7,6 +7,7 @@ import {
   DesktopSyntheticPerformerService,
   syntheticPerformerTaskDirectoryName,
 } from "../src/main/synthetic-performer";
+import { LxeSkillClient } from "../src/main/lxeskill-client";
 
 const roots: string[] = [];
 
@@ -44,6 +45,10 @@ const fixture = (scriptBody: string) => {
   };
 };
 
+const clientFor = (files: ReturnType<typeof fixture>) => new LxeSkillClient({
+  executablePath: files.python, commandPrefix: files.commandArguments, dataRoot: files.dataRoot, managedPath: files.root,
+});
+
 const waitForTerminal = (
   service: DesktopSyntheticPerformerService,
 ): Promise<DesktopSyntheticPerformerTask> => new Promise((resolve, reject) => {
@@ -68,8 +73,7 @@ console.log(JSON.stringify({protocol_version:"1",type:"result",command:"media sy
 `);
     const source = join(files.sources, "sample.jpg"); writeFileSync(source, "fixture");
     const service = new DesktopSyntheticPerformerService({
-      platform: "win32", executablePath: files.python, commandArguments: files.commandArguments,
-      exifToolPath: files.exiftool, dataRoot: files.dataRoot, managedPath: files.root, onTaskChanged: () => {},
+      platform: "win32", lxeskill: clientFor(files), exifToolPath: files.exiftool, onTaskChanged: () => {},
     });
     const previous = { PYTHONHOME: process.env.PYTHONHOME, PYTHONPATH: process.env.PYTHONPATH };
     try {
@@ -100,11 +104,8 @@ console.log('{"protocol_version":"1","type":"result","command":"media synthetic-
     const updates: DesktopSyntheticPerformerTask[] = [];
     const service = new DesktopSyntheticPerformerService({
       platform: "win32",
-      executablePath: files.python,
-      commandArguments: files.commandArguments,
+      lxeskill: clientFor(files),
       exifToolPath: files.exiftool,
-      dataRoot: files.dataRoot,
-      managedPath: files.root,
       onTaskChanged: (task) => updates.push(task),
     });
     const selection = service.registerSources("files", [sourceFile]);
@@ -135,11 +136,8 @@ process.exitCode = 4;
     writeFileSync(sourceFile, "video", "utf8");
     const service = new DesktopSyntheticPerformerService({
       platform: "win32",
-      executablePath: files.python,
-      commandArguments: files.commandArguments,
+      lxeskill: clientFor(files),
       exifToolPath: files.exiftool,
-      dataRoot: files.dataRoot,
-      managedPath: files.root,
     });
     const selection = service.registerSources("files", [sourceFile]);
     const output = service.registerOutput(files.output);
@@ -164,11 +162,8 @@ process.exitCode = 4;
     writeFileSync(sourceFile, "image", "utf8");
     const service = new DesktopSyntheticPerformerService({
       platform: "linux",
-      executablePath: files.python,
-      commandArguments: files.commandArguments,
+      lxeskill: clientFor(files),
       exifToolPath: files.exiftool,
-      dataRoot: files.dataRoot,
-      managedPath: files.root,
     });
     const selection = service.registerSources("files", [sourceFile]);
     expect(() => service.start({ action: "scan", selection_id: selection.selection_id, recursive: false }))
@@ -182,11 +177,8 @@ process.exitCode = 4;
     writeFileSync(sourceFile, "video", "utf8");
     const service = new DesktopSyntheticPerformerService({
       platform: "win32",
-      executablePath: files.python,
-      commandArguments: files.commandArguments,
+      lxeskill: clientFor(files),
       exifToolPath: files.exiftool,
-      dataRoot: files.dataRoot,
-      managedPath: files.root,
     });
     const selection = service.registerSources("files", [sourceFile]);
     const started = service.start({
@@ -221,11 +213,8 @@ setInterval(() => undefined, 30_000);
     writeFileSync(sourceFile, "video", "utf8");
     const service = new DesktopSyntheticPerformerService({
       platform: "darwin",
-      executablePath: files.python,
-      commandArguments: files.commandArguments,
+      lxeskill: clientFor(files),
       exifToolPath: files.exiftool,
-      dataRoot: files.dataRoot,
-      managedPath: files.root,
     });
     const selection = service.registerSources("files", [sourceFile]);
     const started = service.start({ action: "scan", selection_id: selection.selection_id, recursive: false });
@@ -262,11 +251,8 @@ console.log('{"protocol_version":"1","type":"result","command":"media synthetic-
     writeFileSync(sourceFile, "image", "utf8");
     const service = new DesktopSyntheticPerformerService({
       platform: "win32",
-      executablePath: files.python,
-      commandArguments: files.commandArguments,
+      lxeskill: clientFor(files),
       exifToolPath: files.exiftool,
-      dataRoot: files.dataRoot,
-      managedPath: files.root,
     });
     const selection = service.registerSources("files", [sourceFile]);
 

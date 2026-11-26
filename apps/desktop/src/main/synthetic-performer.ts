@@ -1,9 +1,6 @@
-import { managedPythonEnvironment } from "@lxe/core";
-import { spawn } from "node:child_process";
 import { existsSync, mkdirSync, statSync } from "node:fs";
 import { basename, dirname, join, posix, win32 } from "node:path";
 import { randomUUID } from "node:crypto";
-import { createInterface } from "node:readline";
 import type {
   DesktopSyntheticPerformerItem,
   DesktopSyntheticPerformerOutputSelection,
@@ -12,6 +9,7 @@ import type {
   DesktopSyntheticPerformerTask,
   DesktopSyntheticPerformerTaskInput,
 } from "@lxe/desktop-protocol";
+import { LxeSkillError, type LxeSkillClient } from "./lxeskill-client";
 
 const MAX_OUTPUT_BYTES = 10 * 1024 * 1024;
 const MAX_ERROR_BYTES = 4_096;
@@ -25,25 +23,10 @@ interface OutputRecord extends DesktopSyntheticPerformerOutputSelection {
   path: string;
 }
 
-interface CliRecord {
-  protocol_version?: unknown;
-  type?: unknown;
-  ok?: unknown;
-  data?: unknown;
-  error?: unknown;
-  stage?: unknown;
-  processed?: unknown;
-  total?: unknown;
-  current_file?: unknown;
-}
-
 export interface DesktopSyntheticPerformerServiceOptions {
   platform: NodeJS.Platform;
-  executablePath: string;
-  commandArguments?: readonly string[];
+  lxeskill: LxeSkillClient;
   exifToolPath: string;
-  dataRoot: string;
-  managedPath: string;
   onTaskChanged?: (task: DesktopSyntheticPerformerTask) => void;
   onStderr?: (line: string) => void;
 }
@@ -94,7 +77,7 @@ export class DesktopSyntheticPerformerService {
   private readonly sources = new Map<string, SourceRecord>();
   private readonly outputs = new Map<string, OutputRecord>();
   private task: DesktopSyntheticPerformerTask | null = null;
-  private child: ReturnType<typeof spawn> | null = null;
+  private controller: AbortController | null = null;
   private currentRun: Promise<void> | null = null;
   private cancelRequested = false;
   private taskOutputPath = "";
@@ -199,8 +182,9 @@ export class DesktopSyntheticPerformerService {
       recursive: input.recursive,
       ...(outputDirectory ? { output_directory: outputDirectory } : {}),
     };
-    this.currentRun = this.runCli(arguments_).finally(() => {
-      this.child = null;
+    this.controller = new AbortController();
+    this.currentRun = this.runCli(arguments_, this.controller.signal).finally(() => {
+      this.controller = null;
       this.currentRun = null;
     });
     return cloneTask(this.task);
@@ -214,7 +198,7 @@ export class DesktopSyntheticPerformerService {
     if (!this.task || this.task.task_id !== taskId) throw new Error("Synthetic performer task was not found");
     if (this.task.state !== "queued" && this.task.state !== "running") return cloneTask(this.task);
     this.cancelRequested = true;
-    await this.terminateChild();
+    this.controller?.abort();
     await this.currentRun?.catch(() => undefined);
     return this.task ? cloneTask(this.task) : null;
   }
@@ -230,11 +214,11 @@ export class DesktopSyntheticPerformerService {
   async stop(): Promise<void> {
     if (!this.task || (this.task.state !== "queued" && this.task.state !== "running")) return;
     this.cancelRequested = true;
-    await this.terminateChild();
+    this.controller?.abort();
     let timer: ReturnType<typeof setTimeout> | undefined;
     try {
       await Promise.race([this.currentRun?.catch(() => undefined), new Promise<never>((_resolve,reject) => {
-        timer=setTimeout(() => reject(new Error(`Synthetic performer PID ${this.child?.pid} exit unconfirmed after termination`)), 4000);
+        timer=setTimeout(() => reject(new Error("Synthetic performer process exit unconfirmed after termination")), 8000);
       })]);
     } finally { if (timer) clearTimeout(timer); }
   }
@@ -243,7 +227,9 @@ export class DesktopSyntheticPerformerService {
     if (this.options.platform !== "win32" && this.options.platform !== "darwin") {
       throw new Error("Amazon AI person media tagging currently supports Windows and macOS only");
     }
-    if (!existsSync(this.options.executablePath)) throw new Error(`LXE Skill CLI is unavailable: ${this.options.executablePath}`);
+    if (!existsSync(this.options.lxeskill.executablePath)) {
+      throw new Error(`LXE Skill CLI is unavailable: ${this.options.lxeskill.executablePath}`);
+    }
     if (!existsSync(this.options.exifToolPath)) throw new Error(`ExifTool is unavailable: ${this.options.exifToolPath}`);
   }
 
@@ -263,112 +249,31 @@ export class DesktopSyntheticPerformerService {
     throw new Error("Could not create a unique synthetic performer output folder");
   }
 
-  private async runCli(input: Record<string, unknown>): Promise<void> {
+  private async runCli(input: Record<string, unknown>, signal: AbortSignal): Promise<void> {
     const task = this.task;
     if (!task) return;
     task.state = "running";
     this.publish();
-    const temporaryRoot = join(this.options.dataRoot, "tmp");
-    mkdirSync(temporaryRoot, { recursive: true });
-    const child = spawn(
-      this.options.executablePath,
-      this.options.commandArguments
-        ?? syntheticPerformerCommandArguments,
-      {
-        cwd: this.options.dataRoot,
-        env: managedPythonEnvironment({
-          ...process.env,
-          LXE_DATA_ROOT: this.options.dataRoot,
-          LXE_WORKSPACE_ROOT: join(this.options.dataRoot, "workspace"),
-          LXE_EXIFTOOL_PATH: this.options.exifToolPath,
-          LXE_MANAGED_PATH: this.options.managedPath,
-          PATH: [this.options.managedPath, process.env.PATH].filter(Boolean).join(process.platform === "win32" ? ";" : ":"),
-          TMP: temporaryRoot,
-          TEMP: temporaryRoot,
-          TMPDIR: temporaryRoot,
-        }),
-        stdio: ["pipe", "pipe", "pipe"],
-        detached: this.options.platform === "darwin",
-        windowsHide: true,
-      },
-    );
-    this.child = child;
-    let outputBytes = 0;
-    let stderr = "";
-    let terminal: CliRecord | null = null;
-    let protocolError = "";
-    const stdoutLines = createInterface({ input: child.stdout });
-    stdoutLines.on("line", (line) => {
-      outputBytes += Buffer.byteLength(line, "utf8") + 1;
-      if (outputBytes > MAX_OUTPUT_BYTES) {
-        protocolError = `lxeskill output exceeds ${MAX_OUTPUT_BYTES} bytes`;
-        void this.terminateChild();
-        return;
-      }
-      let record: CliRecord;
-      try {
-        record = JSON.parse(line) as CliRecord;
-      } catch (error) {
-        protocolError = `Invalid lxeskill JSONL output: ${error instanceof Error ? error.message : String(error)}`;
-        void this.terminateChild();
-        return;
-      }
-      if (record.protocol_version !== "1" || (record.type !== "progress" && record.type !== "result")) {
-        protocolError = "Invalid lxeskill JSONL record";
-        void this.terminateChild();
-        return;
-      }
-      if (record.type === "progress") {
-        task.stage = record.stage === "scan" || record.stage === "apply" || record.stage === "verify"
-          ? record.stage
-          : task.stage;
-        task.processed = numericValue(record.processed);
-        task.total = numericValue(record.total);
-        task.current_file = typeof record.current_file === "string"
-          ? record.current_file.replaceAll("\\", "/").split("/").filter(Boolean).at(-1) ?? ""
-          : "";
-        this.publish();
-      } else if (terminal) {
-        protocolError = "lxeskill returned more than one terminal result";
-      } else {
-        terminal = record;
-      }
-    });
-    child.stderr.on("data", (chunk: Buffer) => {
-      const text = chunk.toString("utf8");
-      stderr = boundedError(`${stderr}${text}`);
-      for (const line of text.split(/\r?\n/u).filter(Boolean)) this.options.onStderr?.(line);
-    });
-    const timeout = setTimeout(() => {
-      protocolError = `lxeskill timed out after ${TASK_TIMEOUT_MS}ms`;
-      void this.terminateChild();
-    }, TASK_TIMEOUT_MS);
-    child.stdin.end(JSON.stringify(input));
     try {
-      const exitCode = await new Promise<number>((resolve, reject) => {
-        child.once("error", reject);
-        child.once("close", (code) => resolve(code ?? -1));
+      const { data } = await this.options.lxeskill.run(syntheticPerformerCommandArguments, {
+        timeoutMs: TASK_TIMEOUT_MS,
+        stdin: JSON.stringify(input),
+        signal,
+        maxOutputBytes: MAX_OUTPUT_BYTES,
+        environment: { LXE_EXIFTOOL_PATH: this.options.exifToolPath },
+        onStderr: line => this.options.onStderr?.(line),
+        onProgress: record => {
+          task.stage = record.stage === "scan" || record.stage === "apply" || record.stage === "verify"
+            ? record.stage
+            : task.stage;
+          task.processed = numericValue(record.processed);
+          task.total = numericValue(record.total);
+          task.current_file = typeof record.current_file === "string"
+            ? record.current_file.replaceAll("\\", "/").split("/").filter(Boolean).at(-1) ?? ""
+            : "";
+          this.publish();
+        },
       });
-      if (this.cancelRequested) {
-        task.state = "cancelled";
-        task.stage = "done";
-        task.current_file = "";
-        this.publish();
-        return;
-      }
-      if (protocolError) throw new Error(protocolError);
-      const terminalRecord = terminal as CliRecord | null;
-      if (!terminalRecord) throw new Error(`lxeskill produced no terminal result${stderr ? `: ${stderr}` : ""}`);
-      const errorObject = terminalRecord.error && typeof terminalRecord.error === "object"
-        ? terminalRecord.error as Record<string, unknown>
-        : {};
-      if (exitCode !== 0 || terminalRecord.ok !== true) {
-        const message = String(errorObject.message || stderr || `lxeskill exited with ${exitCode}`);
-        throw new Error(boundedError(message));
-      }
-      const data = terminalRecord.data && typeof terminalRecord.data === "object"
-        ? terminalRecord.data as Record<string, unknown>
-        : {};
       task.items = this.safeItems(data.items, task.action);
       task.counts = Object.fromEntries(
         [...new Set(task.items.map((item) => item.status))]
@@ -381,14 +286,12 @@ export class DesktopSyntheticPerformerService {
       task.state = "completed";
       this.publish();
     } catch (error) {
-      task.state = this.cancelRequested ? "cancelled" : "failed";
+      const cancelled = this.cancelRequested || (error instanceof LxeSkillError && error.cancelled);
+      task.state = cancelled ? "cancelled" : "failed";
       task.stage = "done";
       task.current_file = "";
-      task.error = this.safeError(error instanceof Error ? error.message : String(error));
+      if (!cancelled) task.error = this.safeError(error instanceof Error ? error.message : String(error));
       this.publish();
-    } finally {
-      clearTimeout(timeout);
-      stdoutLines.close();
     }
   }
 
@@ -443,55 +346,6 @@ export class DesktopSyntheticPerformerService {
       result = redactPath(result, path, label);
     }
     return result;
-  }
-
-  private async terminateChild(): Promise<void> {
-    const child = this.child;
-    if (!child || child.exitCode !== null) return;
-    if (this.options.platform === "win32" && child.pid) {
-      await new Promise<void>((resolve) => {
-        const killer = spawn("taskkill", ["/PID", String(child.pid), "/T", "/F"], {
-          stdio: "ignore",
-          windowsHide: true,
-          timeout: 4000,
-        });
-        killer.once("error", () => resolve());
-        killer.once("close", () => resolve());
-      });
-    } else if (this.options.platform === "darwin" && child.pid) {
-      const processGroup = -child.pid;
-      try {
-        process.kill(processGroup, "SIGTERM");
-      } catch {
-        try {
-          child.kill("SIGTERM");
-        } catch {
-          // The process already exited.
-        }
-      }
-      await new Promise<void>((resolve) => {
-        if (child.exitCode !== null) {
-          resolve();
-          return;
-        }
-        const timeout = setTimeout(resolve, 1_500);
-        child.once("close", () => {
-          clearTimeout(timeout);
-          resolve();
-        });
-      });
-      try {
-        process.kill(processGroup, 0);
-        process.kill(processGroup, "SIGKILL");
-      } catch {
-        // The complete process group already exited.
-      }
-    }
-    try {
-      child.kill();
-    } catch {
-      // The process already exited.
-    }
   }
 }
 

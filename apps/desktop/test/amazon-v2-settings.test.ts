@@ -3,11 +3,12 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { DesktopAmazonV2SettingsService } from "../src/main/amazon-v2-settings";
+import { LxeSkillClient } from "../src/main/lxeskill-client";
 
 test("Desktop settings use the real CLI and retain disk state after rejected edits", async () => {
   const dataRoot = mkdtempSync(join(tmpdir(), "amazon-settings-"));
-  const options = { platform: process.platform, dataRoot, managedPath: resolve(".venv"),
-    executablePath: resolve(process.platform === "win32" ? ".venv/Scripts/lxeskill.exe" : ".venv/bin/lxeskill") };
+  const options = new LxeSkillClient({ dataRoot, managedPath: resolve(".venv"),
+    executablePath: resolve(process.platform === "win32" ? ".venv/Scripts/lxeskill.exe" : ".venv/bin/lxeskill") });
   try {
     const service = new DesktopAmazonV2SettingsService(options);
     await service.save({ peak_boost_enabled: true, peak_boost_days: 0 });

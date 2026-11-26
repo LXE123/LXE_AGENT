@@ -1,32 +1,18 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { DesktopInputAssetsService, type AssetCommandExecution } from "../src/main/input-assets";
+import { DesktopInputAssetsService } from "../src/main/input-assets";
+import { fixtureClient, removeFixtures, resultLine } from "./support/lxeskill-fixture";
 
-const roots: string[] = [];
-afterEach(() => {
-  for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });
-});
+afterEach(removeFixtures);
 
-const assetService = (
-  execute: NonNullable<ConstructorParameters<typeof DesktopInputAssetsService>[0]["execute"]>,
-) => {
-  const root = mkdtempSync(join(tmpdir(), "lxe-input-assets-test-"));
-  roots.push(root);
-  return new DesktopInputAssetsService({
-    dataRoot: root,
-    executablePath: process.execPath,
-    managedPath: root,
-    platform: process.platform,
-    execute,
-  });
-};
+/** The fixture CLI prints `stdout`, then `stderr`, and exits with `code`. */
+const assetService = (stdout: string, code = 0, stderr = "", environment?: () => Record<string, string | undefined>) =>
+  new DesktopInputAssetsService(fixtureClient(`
+process.stdout.write(${JSON.stringify(stdout)});
+process.stderr.write(${JSON.stringify(stderr)});
+process.exitCode = ${code};
+`, environment ? { environment } : {}).client);
 
-const terminal = (data: Record<string, unknown>) => JSON.stringify({
-  type: "result", ok: true, data, files: [],
-}) + "\n";
-const executed = (stdout: string, error: Error | null = null, stderr = ""): AssetCommandExecution => ({ stdout, stderr, error });
+const terminal = (data: Record<string, unknown>) => resultLine({ command: "assets list", data }) + "\n";
 
 const managedSlot = {
   slot: "desktop_fixture",
@@ -46,40 +32,31 @@ const managedSlot = {
 
 describe("DesktopInputAssetsService", () => {
   test("keeps managed revision, validated previous, and factual current error in list", async () => {
-    const service = assetService(async () => executed(terminal({ success: true, slots: [managedSlot] })));
+    const service = assetService(terminal({ success: true, slots: [managedSlot] }));
     expect(await service.list()).toEqual([managedSlot]);
   });
 
   test("surfaces the CLI result error from stdout even on nonzero child exit", async () => {
-    const service = assetService(async () => executed(JSON.stringify({
-      type: "result", ok: false,
+    const service = assetService(resultLine({
+      command: "assets list", ok: false,
       data: { success: false, error: { code: "invalid_map", message: "SKU A 缺少成本" } },
       error: { code: "business_failed", message: "SKU A 缺少成本" },
-    }) + "\n", new Error("Command failed")));
+    }) + "\n", 2);
     await expect(service.list()).rejects.toThrow("SKU A 缺少成本");
-    await expect(service.list()).rejects.not.toThrow("Command failed");
+    await expect(service.list()).rejects.not.toThrow("exited with code");
   });
 
   test("uses observed stderr if the child emitted no structured terminal", async () => {
-    const service = assetService(async () => executed("not-json\n", new Error("Command failed"), "Python module missing: lxeskill"));
+    const service = assetService("not-json\n", 1, "Python module missing: lxeskill");
     await expect(service.list()).rejects.toThrow("Python module missing: lxeskill");
   });
 
   test("redacts known secrets and marks truncated diagnostics", async () => {
-    const previous = process.env.LXE_YACANG_PASSWORD;
-    process.env.LXE_YACANG_PASSWORD = "secret-for-test";
-    try {
-      const service = assetService(async () => executed(JSON.stringify({
-        type: "result", ok: false,
-        error: { message: `${"X".repeat(5000)} reason: secret-for-test` },
-      }) + "\n", new Error("Command failed")));
-      await expect(service.list()).rejects.toThrow("[truncated]");
-      try { await service.list(); } catch (cause) {
-        expect(String(cause)).not.toContain("secret-for-test");
-      }
-    } finally {
-      if (previous === undefined) delete process.env.LXE_YACANG_PASSWORD;
-      else process.env.LXE_YACANG_PASSWORD = previous;
-    }
+    const service = assetService(resultLine({
+      command: "assets list", ok: false,
+      error: { message: `${"X".repeat(5000)} reason: secret-for-test` },
+    }) + "\n", 1, "", () => ({ ...process.env, LXE_YACANG_PASSWORD: "secret-for-test" }));
+    await expect(service.list()).rejects.toThrow("[truncated]");
+    await expect(service.list()).rejects.not.toThrow("secret-for-test");
   });
 });
