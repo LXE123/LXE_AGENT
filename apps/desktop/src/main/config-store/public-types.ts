@@ -1,5 +1,5 @@
 import type { DesktopCloudPermissionSnapshot, DesktopPlatform } from "@lxe/desktop-protocol";
-import type { WireGuardTunnelConfiguration } from "../cloud/wireguard-types";
+import type { WireGuardTunnelConfiguration } from "../cloud/rules/wireguard-types";
 
 export interface DesktopCloudConfiguration {
   managed: boolean;

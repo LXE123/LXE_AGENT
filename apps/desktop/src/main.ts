@@ -65,7 +65,7 @@ import { createTrayIcon } from "./main/app-shell/brand";
 import { resolveDesktopBrandAssets } from "./main/app-shell/brand-assets";
 import { DesktopConversationAttachmentService } from "./main/conversations/conversation-attachments";
 import { prepareClipboardScreenshot } from "./main/conversations/inbound-image";
-import { DesktopCloudEnrollmentManager } from "./main/cloud/cloud-enrollment";
+import { DesktopCloudEnrollmentManager } from "./main/cloud/rules/cloud-enrollment";
 import { resolveCloudDestinationUrl } from "./main/cloud/cloud-destinations";
 import { DesktopConfigStore } from "./main/config-store";
 import { attachmentThumbnail } from "./main/conversations/attachment-thumbnail";

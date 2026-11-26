@@ -5,7 +5,7 @@ import { join, resolve, basename, relative } from "node:path";
 import { createRequire } from "node:module";
 import { DesktopCloudService } from "../apps/desktop/src/main/cloud/desktop-cloud";
 import { DesktopConfigStore } from "../apps/desktop/src/main/config-store";
-import { DesktopCloudEnrollmentManager } from "../apps/desktop/src/main/cloud/cloud-enrollment";
+import { DesktopCloudEnrollmentManager } from "../apps/desktop/src/main/cloud/rules/cloud-enrollment";
 import { DesktopCloudContextClient } from "../apps/desktop/src/main/cloud/cloud-context";
 import { DirectNativeCloudClient } from "../apps/desktop/src/main/cloud/native-cloud-client";
 import { createLogger } from "../packages/foundation/core/src/logging";

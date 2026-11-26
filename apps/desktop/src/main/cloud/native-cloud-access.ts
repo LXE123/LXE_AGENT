@@ -4,8 +4,8 @@ import type { DesktopNativeCloudAccess, DesktopObservedDevice, ManagedLlmCredent
 import type { DesktopConfigStore } from "../config-store";
 import { CloudHttpError } from "./cloud-errors";
 import { CloudContextError, contextDiagnostic } from "./cloud-context";
-import { sameObservedDevice } from "./cloud-permissions";
-import { managedLlmTargetSupported, parseManagedLlmCredential } from "./managed-llm";
+import { sameObservedDevice } from "./rules/cloud-permissions";
+import { managedLlmTargetSupported, parseManagedLlmCredential } from "./rules/managed-llm";
 import type { NativeCloudClient } from "./native-cloud-client";
 
 export class NativeIdentityChanged extends Error {}

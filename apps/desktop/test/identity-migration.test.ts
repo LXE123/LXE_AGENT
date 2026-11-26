@@ -6,7 +6,7 @@ import { resolveMachineIdentity } from "@lxe/core/machine-identity";
 import type { Logger } from "@lxe/core";
 import { DesktopConfigStore } from "../src/main/config-store";
 import { DesktopCloudService } from "../src/main/cloud/desktop-cloud";
-import { DesktopCloudEnrollmentManager } from "../src/main/cloud/cloud-enrollment";
+import { DesktopCloudEnrollmentManager } from "../src/main/cloud/rules/cloud-enrollment";
 
 const roots: string[] = [];
 afterEach(() => { for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true }); });
