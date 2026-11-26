@@ -598,6 +598,7 @@ module.exports = async ({suite,win,url,js,step,load,waitFor,click,key,focus,sett
   await step('selection quotes keep comments separate from the draft until confirmed and sent', async () => {
     await load('?app=1&workspaces=1&section=sessions&forkFixture=1&quoteHistory=1');
     const shopToggle = '[data-workspace-directory="/fixture/shop"] .workspace-group-toggle';
+    await waitFor(`!!document.querySelector('${shopToggle}')`, 'shop workspace loaded');
     const wasExpanded = await js(`document.querySelector('${shopToggle}').getAttribute('aria-expanded') === 'true'`);
     if (!wasExpanded) await click(shopToggle);
     await click('[data-session-id="Shop chat 2"] .session-index-open');

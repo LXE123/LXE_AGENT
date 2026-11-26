@@ -53,7 +53,12 @@ app.whenReady().then(async () => {
   };
   const focus = async selector => {
     win.webContents.focus();
-    await js(`document.querySelector(${JSON.stringify(selector)}).focus()`);
+    await waitFor(`(() => {
+      const element = document.querySelector(${JSON.stringify(selector)});
+      if (!element) return false;
+      element.focus();
+      return true;
+    })()`, `focus target: ${selector}`);
   };
   const click = async selector => {
     await focus(selector);

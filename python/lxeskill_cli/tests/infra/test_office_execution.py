@@ -55,7 +55,8 @@ signal.signal(signal.SIGTERM, signal.SIG_IGN)
 if mode == "leaf":
     (root / "leaf.pid").write_text(str(os.getpid()))
     while True:
-        (root / "heartbeat").write_text(str(time.monotonic_ns()))
+        with (root / "heartbeat").open("ab") as heartbeat:
+            heartbeat.write(b".")
         time.sleep(.02)
 closed = mode == "exit-closed"
 child = subprocess.Popen([sys.executable, __file__, "recalculate", "leaf", directory],
@@ -145,10 +146,13 @@ def test_cleanup_does_not_stop_an_unrelated_process(fake_kit, tmp_path):
         with pytest.raises(subprocess.TimeoutExpired):
             run_kit_bounded(["recalculate", "hang", str(tmp_path)], timeout_seconds=2, cleanup_seconds=.3)
         _assert_heartbeat_stopped(tmp_path / "heartbeat")
-        before = (other / "heartbeat").read_bytes()
-        time.sleep(.1)
+        heartbeat = other / "heartbeat"
+        before = heartbeat.stat().st_size
+        deadline = time.monotonic() + 2
+        while heartbeat.stat().st_size == before and time.monotonic() < deadline:
+            time.sleep(.02)
         assert process.poll() is None
-        assert (other / "heartbeat").read_bytes() != before
+        assert heartbeat.stat().st_size > before
     finally:
         process.kill()
         process.wait(timeout=5)
