@@ -19,7 +19,11 @@ async function fixture() {
   const database = new Database(join(root, "gateway.db"));
   const retention = new PastedTextRetention(database as unknown as DatabaseSync, directory);
   const agent = new SqliteRuntimeStore(join(root, "agent.db"));
-  cleanups.push(async () => { database.close(); await agent.stop(); rmSync(root, { recursive: true, force: true }); });
+  cleanups.push(async () => {
+    database.close(true); // Release the Bun SQLite file handle before removing the directory on Windows.
+    await agent.stop();
+    rmSync(root, { recursive: true, force: true });
+  });
   await agent.start();
   const session = (id: string) => agent.ensureSession({ session_id: id, source: {}, workspace: { directory: root, worktree: root } });
   await session("parent");
@@ -128,7 +132,7 @@ test("a failed reference check keeps the file and the next startup completes cle
     const retention = new PastedTextRetention(reopened as unknown as DatabaseSync, f.directory);
     await retention.collect(async candidates => f.agent.unusedAttachmentPaths(candidates), () => false);
     expect(existsSync(file.path)).toBe(false);
-  } finally { reopened.close(); }
+  } finally { reopened.close(true); }
 });
 
 test("startup only retries explicit deletion and a failed session deletion keeps its files", async () => {
