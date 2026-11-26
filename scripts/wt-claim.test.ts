@@ -242,6 +242,48 @@ describe(`wt-claim lifecycle (${windows ? "PowerShell" : "Bash"})`, () => {
     expect(existsSync(join(f.root, ".worktrees/.wt-claim.lock"))).toBe(false);
   }, 30_000);
 
+  test.each(["missing", "broken"] as const)("a slot directory with a %s .git file never reaches the main worktree", (state) => {
+    const f = fixture();
+    f.env.WT_POOL_MAX = "2";
+    const stray = join(f.root, ".worktrees", "pool-2");
+    if (state === "missing") {
+      // What a half-finished delete leaves behind: dependencies but no .git file.
+      mkdirSync(join(stray, "node_modules"), { recursive: true });
+    } else {
+      git(f.root, "worktree", "add", "--detach", stray, "main");
+      writeFileSync(join(stray, ".git"), `gitdir: ${join(f.temporary, "nowhere")}\n`);
+    }
+    writeFileSync(join(f.root, "content.txt"), "main worktree edit\n");
+    const mainBranch = () => git(f.root, "branch", "--show-current");
+    const message = "pool-2 is not a git worktree";
+
+    const status = f.run("status");
+    expectSuccess(status);
+    expect(status.stdout).toContain("pool-2  (not a git worktree");
+
+    const claim = f.run("other");
+    expect(claim.status).not.toBe(0);
+    expect(claim.stderr).toContain(message);
+    expect(claim.stderr).toContain("no idle slot (max 2)");
+    expect(existsSync(`${stray}.claim`)).toBe(false);
+    expect(mainBranch()).toBe("main");
+
+    // A claim marker next to the broken directory must not lead release,
+    // resume or refresh into the main worktree either.
+    writeFileSync(`${stray}.claim`, "ghost\n");
+    for (const args of [["release", "ghost"], ["ghost"], ["refresh-config", "ghost"]]) {
+      const rejected = f.run(...args);
+      expect(rejected.status).not.toBe(0);
+      expect(rejected.stderr).toContain(message);
+      expect(existsSync(join(f.root, ".worktrees/.wt-claim.lock"))).toBe(false);
+    }
+    expect(readFileSync(`${stray}.claim`, "utf8").trim()).toBe("ghost");
+    expect(mainBranch()).toBe("main");
+    expect(git(f.root, "rev-parse", "HEAD")).toBe(git(f.root, "rev-parse", "main"));
+    expect(readFileSync(join(f.root, "content.txt"), "utf8")).toBe("main worktree edit\n");
+    expect(git(f.slot, "branch", "--show-current")).toBe("codex/review");
+  }, 30_000);
+
   test("slots above the current limit stay visible, resumable and releasable", () => {
     const f = fixture();
     f.env.WT_POOL_MAX = "2";
