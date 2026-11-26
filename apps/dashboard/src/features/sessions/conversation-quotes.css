@@ -17,15 +17,42 @@
 .quote-icon { flex: none; width: 28px; height: 28px; border-radius: 6px; }
 .selection-quote, .quote-preview { background: var(--cds-surface-popover); border: 1px solid var(--border); box-shadow: var(--shadow-card); }
 .selection-quote { position: fixed; z-index: 50; border-radius: 10px; overflow: auto; max-height: 60vh; font-size: .82rem; }
-.quote-trigger, .quote-confirm { padding: 6px 10px; border-radius: 7px; }
-.selection-quote-card { box-sizing: border-box; width: 310px; max-width: 100%; padding: 9px; }
+.quote-trigger { padding: 6px 10px; border-radius: 7px; }
+.selection-quote:has(.selection-quote-card) {
+  border-radius: 14px;
+  box-shadow: 0 2px 6px var(--shadow-soft), 0 8px 24px var(--shadow-medium);
+}
+.selection-quote:has(textarea:focus-visible) { border-color: color-mix(in srgb, var(--cds-accent) 65%, var(--cds-surface-popover)); }
+.selection-quote-card { box-sizing: border-box; width: 332px; max-width: 100%; }
+.selection-quote-card header {
+  display: flex; align-items: center; gap: 8px; padding: 7px 8px 7px 14px;
+  background: var(--cds-alpha-1);
+}
 .selection-quote-card blockquote, .quote-preview blockquote { margin: 0; padding-inline-start: 10px; border-inline-start: 2px solid var(--border-strong); color: var(--text-soft); }
-.selection-quote-card blockquote { overflow: hidden; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow-wrap: anywhere; }
-.selection-quote-card textarea { box-sizing: border-box; width: 100%; min-height: 56px; margin-block: 8px 4px; padding: 6px; resize: vertical; font: inherit; color: var(--text); background: var(--cds-surface-popover); border: 1px solid var(--border); border-radius: 6px; }
-.selection-quote-card textarea:focus-visible { outline: 1px solid var(--accent); }
-.selection-quote-card footer, .quote-preview header { display: flex; align-items: center; justify-content: space-between; }
-.selection-quote-card .quote-confirm { color: var(--text); background: var(--cds-alpha-1); }
-.selection-quote-card [role="alert"] { color: var(--danger); }
+.selection-quote-card blockquote {
+  flex: 1; min-width: 0; padding-inline-start: 8px; overflow: hidden; overflow-wrap: anywhere;
+  display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2;
+  font-size: .8125rem; line-height: 1.4;
+}
+.selection-quote-card textarea {
+  display: block; box-sizing: border-box; width: 100%; field-sizing: content; resize: none;
+  min-height: 3lh; max-height: min(8lh, 28vh); padding: 10px 14px; overflow-y: auto;
+  border: 0; outline: none; background: transparent; color: var(--cds-ink);
+  font: inherit; font-size: .875rem; line-height: 1.5;
+}
+.selection-quote-card textarea::placeholder { color: var(--cds-secondary); }
+.selection-quote-card footer { display: flex; justify-content: flex-end; padding: 0 10px 10px; }
+.selection-quote-card .quote-confirm {
+  min-height: 28px; padding: 4px 12px; border-radius: 8px;
+  background: var(--cds-ink); color: var(--cds-surface-popover);
+  font-size: .8125rem; font-weight: 500; line-height: 1.4;
+}
+.selection-quote-card .quote-confirm:hover {
+  background: color-mix(in srgb, var(--cds-ink) 88%, var(--cds-surface-popover)); color: var(--cds-surface-popover);
+}
+.selection-quote-card .quote-confirm:focus-visible { outline-offset: 2px; }
+.selection-quote-card [role="alert"] { padding: 0 14px 8px; color: var(--danger); overflow-wrap: anywhere; }
+.quote-preview header { display: flex; align-items: center; justify-content: space-between; }
 .quote-preview { width: min(520px, 100%); max-height: 75vh; display: flex; flex-direction: column; gap: 14px; padding: 16px; border-radius: 14px; }
 .quote-preview-content { overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; }
 .quote-preview-content p { margin: 12px 0 0; }

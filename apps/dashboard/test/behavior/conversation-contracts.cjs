@@ -625,6 +625,16 @@ module.exports = async ({suite,win,url,js,step,load,waitFor,click,key,focus,sett
     await outside(); await settle();
     assert.equal(await js(`!!document.querySelector('${card}')`), false);
     await select();
+    const fieldHeight = () => js(`document.querySelector('${field}').clientHeight`);
+    const initialHeight = await fieldHeight();
+    await win.webContents.insertText('line\n'.repeat(3));
+    await settle();
+    assert.ok(await fieldHeight() > initialHeight, 'multiline comments expand the editor');
+    await win.webContents.insertText('line\n'.repeat(20));
+    await waitFor(`document.querySelector('${field}').scrollHeight > document.querySelector('${field}').clientHeight`, 'long comment scrolls inside the editor');
+    await click(card + ' header button');
+    assert.equal(await js(`!!document.querySelector('${card}')`), false);
+    await select();
     await win.webContents.insertText('unconfirmed');
     await js(`document.activeElement.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',isComposing:true,bubbles:true,cancelable:true}))`);
     assert.equal(await js(`document.querySelector('${field}').value`), 'unconfirmed');

@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState, type RefObject } from "react";
 import { createPortal } from "react-dom";
-import { Check, CornerUpLeft, X } from "lucide-react";
+import { CornerUpLeft, X } from "lucide-react";
 import { useUiText } from "../../shared/i18n";
 import type { ComposerQuoteAction } from "./composer-quotes";
 
@@ -106,14 +106,16 @@ export function SelectionQuote({ root, quoteRef }: {
     if (event.nativeEvent.isComposing || event.keyCode === 229 || composing.current) return;
     if (event.key === "Escape") { event.preventDefault(); event.stopPropagation(); dismiss(); }
   }}>
-    {editing ? <div className="selection-quote-card" role="dialog" aria-label={labels.quoteComment}>
-      <blockquote>{excerpt.text}</blockquote>
-      <textarea autoFocus aria-label={labels.quoteComment} placeholder={labels.quoteComment} value={comment}
+    {editing ? <div className="selection-quote-card" role="dialog" aria-label={labels.quote}>
+      <header>
+        <blockquote>{excerpt.text}</blockquote>
+        <button className="quote-icon" type="button" title={t.workspaces.cancel} aria-label={t.workspaces.cancel} onClick={dismiss}><X size={14} /></button>
+      </header>
+      <textarea rows={2} autoFocus aria-label={labels.quoteComment} placeholder={labels.quoteComment} value={comment}
         onChange={event => { setComment(event.target.value); setError(""); }}
         onCompositionStart={() => { composing.current = true; }} onCompositionEnd={() => { composing.current = false; }} />
       {error && <div role="alert">{error}</div>}
-      <footer><button className="quote-icon" type="button" title={t.workspaces.cancel} aria-label={t.workspaces.cancel} onClick={dismiss}><X size={15} /></button>
-        <button className="quote-confirm" type="button" onClick={confirm}><Check size={15} />{labels.stageQuote}</button></footer>
+      <footer><button className="quote-confirm" type="button" onClick={confirm}>{labels.stageQuote}</button></footer>
     </div> : <button className="quote-trigger" type="button" onMouseDown={e => e.preventDefault()} onClick={() => {
       setEditing(true);
       document.getSelection()?.removeAllRanges();
