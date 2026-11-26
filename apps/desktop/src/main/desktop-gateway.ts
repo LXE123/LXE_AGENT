@@ -49,6 +49,7 @@ import {
 import { publicDashboardChannelHealth } from "./dashboard-channel-health";
 import { DesktopLxeSkillHealth } from "./lxeskill-health";
 import { listLxeSkillCommands } from "./lxeskill-commands";
+import { runSessionDeletion } from "./session-deletion";
 import { desktopLxeSkillClient } from "./lxeskill-client";
 import type { LxeSkillQueryOptions } from "@lxe/core";
 import {
@@ -542,25 +543,31 @@ export class DesktopGateway {
           "session has an active or queued turn; stop it before deleting",
         );
       }
-      let gatewaySnapshot: ReturnType<NodeGatewayStore["detachSession"]> = undefined;
-      let removedBindings: ReturnType<DirectGatewayComposition["parts"]["bindings"]["removeSession"]> = [];
+      const runtime = this.runtime;
+      const parts = this.composition.parts;
       try {
-        await this.options.beforeDeleteSession?.(sessionId);
-        this.store?.pastedText?.prepareDeletion(sessionId, await this.runtime.sessionAttachmentPaths(sessionId));
-        gatewaySnapshot = this.store?.detachSession(sessionId);
-        removedBindings = this.composition.parts.bindings.removeSession(sessionId);
-        const result = await this.runtime.dashboardCall(
-          call as AgentDashboardRpcCall<"sessions.delete">,
-        );
-        this.automations?.service.pauseSession(sessionId, "绑定的会话已删除，请修改任务");
-        this.composition.parts.conversations.forgetSession(sessionId);
-        this.composition.parts.runtimeState.forget(sessionId);
-        await this.collectPastedText(sessionId);
-        return result as DashboardRpcResult<O>;
-      } catch (error) {
-        this.store?.restoreSession(gatewaySnapshot);
-        this.composition.parts.bindings.restore(removedBindings);
-        throw error;
+        return await runSessionDeletion({
+          detach: async onUndo => {
+            await this.options.beforeDeleteSession?.(sessionId);
+            this.store?.pastedText?.prepareDeletion(sessionId, await runtime.sessionAttachmentPaths(sessionId));
+            const gatewaySnapshot = this.store?.detachSession(sessionId);
+            onUndo(() => this.store?.restoreSession(gatewaySnapshot));
+            const removedBindings = parts.bindings.removeSession(sessionId);
+            onUndo(() => parts.bindings.restore(removedBindings));
+          },
+          deleteAgentSession: () => runtime.dashboardCall(call as AgentDashboardRpcCall<"sessions.delete">),
+          // A bound automation that stays active after a failed pause pauses itself at its next
+          // run, when it finds the target session missing.
+          cleanup: [
+            ["session_delete_automation_pause_failed",
+              () => this.automations?.service.pauseSession(sessionId, "绑定的会话已删除，请修改任务")],
+            ["session_delete_conversation_forget_failed", () => parts.conversations.forgetSession(sessionId)],
+            ["session_delete_runtime_state_forget_failed", () => parts.runtimeState.forget(sessionId)],
+          ],
+          afterCommit: () => this.collectPastedText(sessionId),
+          logFailure: (event, error) =>
+            createLogger("desktop.sessions").error(event, { session_id: sessionId, error: String(error) }),
+        }) as DashboardRpcResult<O>;
       } finally {
         releaseFence();
       }
