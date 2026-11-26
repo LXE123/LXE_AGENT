@@ -40,8 +40,17 @@ function QueryProbe(){
     <span id="query-result">{JSON.stringify({requested:session,actual:query.data?.session.session_id,loading:query.isFetchingPreviousPage,oldest:query.data?.messages_page.oldest_cursor})}</span></div>;
 }
 const noop = async () => {};
-function Fixture() {
-  const [data,setData]=useState(()=>page(990,1000));
+function Fixture({wheel = false}: {wheel?: boolean}) {
+  const [data,setData]=useState(() => {
+    const initial = page(990, 1000);
+    // At the latest bottom the wheel must hit the tool, with room for the reply to grow below it.
+    if (wheel) initial.messages = initial.messages.map(message => {
+      if (message.display_group_id === "g998") return {...message, content: "Continue"};
+      if (message.display_group_id === "g999") return {...message, content: "Reading the result."};
+      return message;
+    });
+    return initial;
+  });
   const [expanded,setExpanded]=useState(new Map<string,boolean>());
   const [phase,setPhase]=useState(0);
   const [imageGroup,setImageGroup]=useState("");
@@ -179,5 +188,5 @@ function PaginationFixture() {
 }
 const fixtureRoot=createRoot(document.getElementById("root")!);
 const fixtureParams = new URLSearchParams(location.search);
-fixtureRoot.render(<QueryClientProvider client={queryClient}>{fixtureParams.has("run-history") ? <RunHistoryFixture /> : fixtureParams.has("pagination") ? <PaginationFixture /> : fixtureParams.has("compaction") ? <CompactionFixture /> : <Fixture/>}</QueryClientProvider>);
+fixtureRoot.render(<QueryClientProvider client={queryClient}>{fixtureParams.has("run-history") ? <RunHistoryFixture /> : fixtureParams.has("pagination") ? <PaginationFixture /> : fixtureParams.has("compaction") ? <CompactionFixture /> : <Fixture wheel={fixtureParams.has("wheel")} />}</QueryClientProvider>);
 if (import.meta.hot) import.meta.hot.dispose(()=>fixtureRoot.unmount());

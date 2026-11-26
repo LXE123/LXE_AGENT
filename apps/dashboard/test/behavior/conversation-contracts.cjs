@@ -232,7 +232,7 @@ module.exports = async ({suite,win,url,js,step,load,waitFor,click,key,focus,sett
       assert.ok(following.every(distance=>Math.abs(distance)<=2),`bottom-follow gaps before paint: ${following}`);
     });
     await step('scrolling up past the top of a tool result releases stream following', async () => {
-      await win.loadURL(new URL('../features/sessions/window-fixture.html', url).href);
+      await win.loadURL(new URL('../features/sessions/window-fixture.html?wheel', url).href);
       const tool = '[data-display-group=g997] .tool-op-summary';
       await waitFor(`Boolean(document.querySelector('${tool}'))`, 'tool mounted');
       await js(`document.querySelector('${tool}').click()`);
