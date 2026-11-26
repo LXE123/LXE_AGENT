@@ -27,6 +27,9 @@
   /* A neutral grey shared by conversation cells and user bubbles. Keeping it
      independent prevents the warm page palette from tinting these surfaces. */
   --conversation-muted-fill: #f4f4f4;
+  --mermaid-canvas: #f7f7f7;
+  --mermaid-frame: #e8e8e8;
+  --mermaid-stroke: #727272;
   --table-header-fill: #f0f0f0;
   --inline-code-fill: var(--table-header-fill);
   --inline-code-text: #1f1f1f;
@@ -154,6 +157,9 @@ button {
   --surface-muted: #2e2c2a;
   --surface-subtle: #2a2827;
   --conversation-muted-fill: #302f2e;
+  --mermaid-canvas: #181818;
+  --mermaid-frame: #252525;
+  --mermaid-stroke: #a1a1a1;
   --table-header-fill: #2d2c2b;
   --inline-code-text: #f3f3f3;
   --row-hover: #3b3835;
@@ -6881,17 +6887,17 @@ pre {
 
 .mermaid-block {
   margin: 0 0 12px;
-  padding: 12px;
+  min-width: 0;
+  padding: 1rem;
   overflow-x: auto;
-  border: 1px solid var(--border);
+  border: 1px solid var(--mermaid-frame);
   border-radius: 8px;
-  background: var(--surface);
+  background: var(--mermaid-canvas);
 }
 
-.mermaid-block svg {
+.mermaid-block > svg {
   display: block;
-  min-width: 620px;
-  max-width: none;
+  margin-inline: auto;
   height: auto;
 }
 

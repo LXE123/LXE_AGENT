@@ -423,6 +423,7 @@ app.whenReady().then(async () => {
         const css = selector => getComputedStyle(document.querySelector(selector));
         return {
           node: css('#mermaid-fixture-0 .node rect').fill,
+          outline: css('#mermaid-fixture-0 .node rect').stroke,
           text: css('#mermaid-fixture-0 .nodeLabel').color,
           line: css('#mermaid-fixture-0 .flowchart-link').stroke,
           arrow: css('#mermaid-fixture-0 marker path').fill,
@@ -440,12 +441,15 @@ app.whenReady().then(async () => {
         return channels[0] * 0.2126 + channels[1] * 0.7152 + channels[2] * 0.0722;
       };
       const contrast = (a, b) => (Math.max(luminance(a), luminance(b)) + 0.05) / (Math.min(luminance(a), luminance(b)) + 0.05);
+      const canvas = theme => theme === "dark" ? "rgb(24, 24, 24)" : "rgb(247, 247, 247)";
       const ready = theme => waitFor(`document.querySelectorAll('.mermaid-block svg').length === 2
-        && getComputedStyle(document.querySelector('#mermaid-fixture-0 .node rect')).fill === ${JSON.stringify(theme === "dark" ? "rgb(48, 47, 46)" : "rgb(244, 244, 244)")}`, `${theme} diagrams`);
+        && getComputedStyle(document.querySelector('#mermaid-fixture-0 .node rect')).fill === ${JSON.stringify(canvas(theme))}`, `${theme} diagrams`);
       await step("light and dark diagrams have neutral nodes and readable labels, arrows and sequence notes", async () => {
         for (const theme of ["light", "dark"]) {
           await setTheme(theme); await mount([chart, sequence]); await ready(theme);
           const colors = await palette();
+          assert.equal(colors.node, colors.background);
+          assert.ok(contrast(colors.outline, colors.background) >= 3);
           assert.equal(colors.actor, colors.node);
           assert.equal(colors.arrow, colors.line);
           assert.ok(contrast(colors.text, colors.node) >= 4.5, JSON.stringify(colors));
@@ -466,9 +470,9 @@ app.whenReady().then(async () => {
         await setTheme("dark"); await settle(); await setTheme("light"); await settle(); await setTheme("dark");
         await ready("dark");
         await js("document.documentElement.dataset.fontSize='large'");
-        await waitFor("document.querySelector('#mermaid-fixture-0 svg') && getComputedStyle(document.querySelector('#mermaid-fixture-0 svg')).fontSize === '18px'", "large diagram text");
+        await waitFor("document.querySelector('#mermaid-fixture-0 svg') && getComputedStyle(document.querySelector('#mermaid-fixture-0 svg')).fontSize === '16.875px'", "large diagram text");
         await js("document.documentElement.dataset.fontSize='standard'");
-        await waitFor("document.querySelector('#mermaid-fixture-0 svg') && getComputedStyle(document.querySelector('#mermaid-fixture-0 svg')).fontSize === '16px'", "standard diagram text");
+        await waitFor("document.querySelector('#mermaid-fixture-0 svg') && getComputedStyle(document.querySelector('#mermaid-fixture-0 svg')).fontSize === '15px'", "standard diagram text");
         assert.equal(await js("document.querySelectorAll('#mermaid-fixture-0 .node').length"), 7);
         assert.ok((await js("getComputedStyle(document.querySelector('#mermaid-fixture-0 svg')).fontFamily")).includes("HarmonyOS Sans SC"));
       });
@@ -477,10 +481,26 @@ app.whenReady().then(async () => {
         for (const theme of ["light", "dark"]) {
           await setTheme(theme);
           await waitFor(`document.querySelector('#mermaid-fixture-0 .node:not(.highlight) rect')
-            && getComputedStyle(document.querySelector('#mermaid-fixture-0 .node:not(.highlight) rect')).fill === ${JSON.stringify(theme === "dark" ? "rgb(48, 47, 46)" : "rgb(244, 244, 244)")}`, "custom diagram rendered in current theme");
+            && getComputedStyle(document.querySelector('#mermaid-fixture-0 .node:not(.highlight) rect')).fill === ${JSON.stringify(canvas(theme))}`, "custom diagram rendered in current theme");
           await settle();
           assert.equal(await js("getComputedStyle(document.querySelector('#mermaid-fixture-0 .highlight rect')).fill"), "rgb(52, 86, 120)");
         }
+      });
+      await step("short diagrams center at natural size and wide diagrams scroll inside the frame", async () => {
+        await mount(["flowchart LR\nA[开始] --> B[结束]", "flowchart LR\nA[开始] --> B[输入资料] --> C[登录验证] --> D[选择商品] --> E[确认订单] --> F[完成]"]);
+        await ready("dark");
+        const sizes = await js(`Array.from(document.querySelectorAll('.mermaid-block')).map(frame => {
+          frame.style.maxWidth = '420px';
+          const svg = frame.querySelector('svg');
+          const diagram = svg.getBoundingClientRect(), box = frame.getBoundingClientRect();
+          frame.scrollLeft = frame.scrollWidth;
+          return { width: diagram.width, natural: svg.viewBox.baseVal.width, scroll: frame.scrollLeft,
+            leftGap: diagram.left - box.left, rightGap: box.right - diagram.right };
+        })`);
+        for (const size of sizes) assert.ok(Math.abs(size.width - size.natural) <= 1);
+        assert.equal(sizes[0].scroll, 0);
+        assert.ok(Math.abs(sizes[0].leftGap - sizes[0].rightGap) <= 1);
+        assert.ok(sizes[1].scroll > 0 && sizes[1].leftGap >= 0);
       });
     } else if (suite === "dialog") {
       await step("focus enters the first visible control and wraps in both directions", async () => {

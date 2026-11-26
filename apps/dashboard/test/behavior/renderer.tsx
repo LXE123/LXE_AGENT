@@ -549,11 +549,13 @@ const fixture = {
   },
   mountMermaid(charts: string[]) {
     reset();
-    flushSync(() => root!.render(<div className="message-markdown" style={{ padding: 24 }}>
-      {charts.map((chart, index) => <div id={`mermaid-fixture-${index}`} key={index}>
-        <MermaidBlock chart={chart} />
-      </div>)}
-    </div>));
+    flushSync(() => root!.render(<main className="conversation-feed"><article className="message-card role-assistant">
+      <div className="message-markdown" style={{ padding: 24 }}>
+        {charts.map((chart, index) => <div id={`mermaid-fixture-${index}`} key={index}>
+          <MermaidBlock chart={chart} />
+        </div>)}
+      </div>
+    </article></main>));
   },
   vietnamUploadFailure(value: boolean | string) { vietnamUploadError = value; },
   assets: workbenchDetailsFixture.controls,
