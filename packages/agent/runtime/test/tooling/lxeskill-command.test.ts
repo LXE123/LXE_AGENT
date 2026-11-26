@@ -70,16 +70,18 @@ test("attributes all Yacang login actions through one real CLI command", async (
   }));
 });
 
-test("attributes Philippines exports and resumes through the real CLI contract", async () => {
+test("attributes Philippines and Vietnam exports through the real CLI contract", async () => {
   const stats = new TurnStatistics({ directory: root, commandSkills: () => queryLxeSkillCommandSkills({
     cwd: root, environment: { ...process.env, LXESKILL_SKILL_SCOPE: "philippines-reports-export" },
     executablePath: join(root, process.platform === "win32" ? ".venv/Scripts/lxeskill.exe" : ".venv/bin/lxeskill"),
   }) });
   stats.observe("exec", { command: "lxeskill philippines reports export" });
   stats.observe("exec", { command: "lxeskill philippines reports export --resume-id 00112233445566778899aabbccddeeff" });
-  expect((await stats.snapshot()).executions).toMatchObject(Array(2).fill({
-    skill: "philippines-reports-export", command: "philippines reports export",
-  }));
+  stats.observe("exec", { command: "lxeskill vietnam reports export" });
+  stats.observe("exec", { command: "lxeskill vietnam reports export --resume-id 00112233445566778899aabbccddeeff" });
+  expect((await stats.snapshot()).executions).toMatchObject(["philippines", "philippines", "vietnam", "vietnam"].map(country => ({
+    skill: "philippines-reports-export", command: `${country} reports export`,
+  })));
 });
 
 test("attributes consolidated FBA commands through the real CLI contract", async () => {

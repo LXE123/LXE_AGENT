@@ -97,7 +97,7 @@ def ph_workspace(tmp_path, monkeypatch):
 @pytest.fixture
 def ph_online(ph_workspace, monkeypatch):
     """Synthetic HTTP responses; both ERP clients, workflows and storage are real."""
-    def install(paths):
+    def install(paths, *, yacang_id=46, tms_id=12107):
         state = {"calls": [], "queue": [], "reject": {}, "downloaded": set(), "tms_records": []}
         with closing(load_workbook(paths["tms_file"])) as book:
             rows = book.active.iter_rows(values_only=True)
@@ -105,7 +105,7 @@ def ph_online(ph_workspace, monkeypatch):
             for index, row in enumerate(rows, 1):
                 values = dict(zip(headers, row))
                 state["tms_records"].append({
-                    "id": index, "stockSku": values["库存SKU"], "warehouseId": 12107,
+                    "id": index, "stockSku": values["库存SKU"], "warehouseId": tms_id,
                     "warehouseName": values["仓库"], "stockQuantity": values["可用库存"],
                     "sale1": values["7天销量"], "sale2": values["15天销量"], "sale3": values["30天销量"],
                 })
@@ -154,24 +154,24 @@ def ph_online(ph_workspace, monkeypatch):
                     return response(request, 200, Path(paths["inventory_file"]).read_bytes())
                 if operation in {"queue", "inventory-baseline"}:
                     return response(request, 200, {"status": 1, "data": {"list": state["queue"]}})
-                assert params["warehouse_id"] == "46"
+                assert params["warehouse_id"] == str(yacang_id)
                 inventory = operation == "inventory-submit"
                 report = "inventory" if inventory else "sales"
                 state["queue"].append({
                     "id": str(len(state["queue"]) + 1), "type": "1" if inventory else "10",
                     "name": "库存导出" if inventory else "库存动销导出",
-                    "param_where": {"warehouse_id": "46", **({"goods_sku_condition": "2"} if inventory else {})},
+                    "param_where": {"warehouse_id": str(yacang_id), **({"goods_sku_condition": "2"} if inventory else {})},
                     "path": f"https://oss-accelerate.seaya.cn/{report}.xlsx",
                 })
                 return response(request, 200, {"status": 1})
             if operation == "login":
                 return response(request, 200, {"code": "200", "data": {"apiToken": "tms-offline-token"}})
             if operation == "findMyStockwarehouseList":
-                assert body["warehouseId"] == 12107
+                assert body["warehouseId"] == tms_id
                 return response(request, 200, {"code": "200", "datas": state["tms_records"],
                                                "totalNum": len(state["tms_records"]), "page": body["page"]})
             if operation == "exportStockwarehouse":
-                assert body["warehouseId"] == 12107
+                assert body["warehouseId"] == tms_id
                 return response(request, 200, {"code": "200", "pop": "https://tms-cos.mabangerp.com/offline.xlsx"})
             assert url.hostname == "tms-cos.mabangerp.com" and operation == "offline.xlsx"
             return response(request, 200, Path(paths["tms_file"]).read_bytes())

@@ -1,16 +1,24 @@
 ---
 name: philippines-reports-export
-description: 自动获取雅仓 PH8805 与马帮 TMS PH1 数据，生成菲律宾库存动销和库存列表两份合并报表。用户要求菲律宾或雅仓菲律宾的库存动销、库存列表或仓库数据时使用；明确要求马帮 TMS 时使用对应导出 Skill。
+description: 合并菲律宾或越南的雅仓和马帮 TMS 库存动销与库存列表，每次交付两份报表；明确要求马帮 TMS 时使用其独立导出 Skill。
 type: replenishment
 commands:
   - lxeskill philippines reports export
+  - lxeskill vietnam reports export
 ---
 
-# 菲律宾库存动销与库存列表
+# 菲律宾和越南库存动销与库存列表
 
 ## 输入与产出
 
-本流程使用雅仓 `PH8805` 的库存动销、当前库存，以及马帮 TMS `PH1` 的库存动销汇总表，按 SKU 相加对应字段，一次交付两份文件：
+本流程使用对应国家的雅仓库存动销、当前库存和马帮 TMS 汇总表，按 SKU 相加对应字段，一次交付两份文件：
+
+| 国家 | 雅仓 | 马帮 TMS | 命令 |
+| --- | --- | --- | --- |
+| 菲律宾 | `PH8805` | `PH1` | `lxeskill philippines reports export` |
+| 越南 | `VN8806` | `VN1` | `lxeskill vietnam reports export` |
+
+以下菲律宾文件名中的“菲律宾”在越南任务中替换为“越南”，工作表结构相同：
 
 | 文件 | 第一张表 | 第二张表 |
 | --- | --- | --- |
@@ -21,7 +29,7 @@ commands:
 
 每份文件的合并表沿用同文件雅仓原表对应列的样式和列宽，雅仓商品沿用其原行样式；TMS 独有商品沿用雅仓第一条数据行样式。雅仓原表没有数据行时，新增商品使用默认数据行样式。
 
-“导出菲律宾库存动销”“导出雅仓菲律宾库存列表”或“导出雅仓菲律宾仓数据”等请求使用这套两文件流程；只提到其中一份报表时也一起交付两份。明确要求马帮 TMS 时使用其独立导出 Skill。要求创建日期筛选或多个仓库时，先说明本流程不支持这些范围并确认需求。越南备货继续使用 `vietnam-replenishment`。
+用户要求菲律宾或越南的库存动销、库存列表、仓库数据，包括“导出雅仓越南库存”“导出越南合并动销”等，用相应国家命令交付两份文件；只提到其中一份报表时也一起交付两份。明确要求马帮 TMS 时使用其独立导出 Skill。要求创建日期筛选或多个仓库时，先说明本流程不支持这些范围并确认需求。越南备货清单使用 `vietnam-replenishment`，与本报表独立。
 
 ## 执行入口
 
@@ -32,14 +40,15 @@ commands:
 需要从两个系统取得本轮来源时，执行：
 
 ```bash
-lxeskill philippines reports export
+lxeskill philippines reports export  # 菲律宾
+lxeskill vietnam reports export      # 越南
 ```
 
-命令复用现有雅仓和 TMS service，依次取得 PH8805 两份报表与 PH1 最终汇总文件，完成校验和合并。认证分别来自桌面“雅仓”和“马帮 TMS”配置。单次命令包含完整编排，等待原执行结束后读取最终结果。
+命令复用现有雅仓和 TMS service，依次取得所选国家雅仓两份报表与 TMS 最终汇总文件，完成校验和合并。认证分别来自桌面“雅仓”和“马帮 TMS”配置。单次命令包含完整编排，等待原执行结束后读取最终结果。
 
-如果雅仓阶段返回 `login_required`，按登录 Skill 重新登录并保存。若结果含 `data.resume_id`，运行 `lxeskill philippines reports export --resume-id "<返回的编号>"` 继续同一次任务，只补取未完成的雅仓报表，再继续 TMS 和合并；没有该编号时重试原命令一次。再次失败时说明实际错误。遇到 403、429 或明显风控立即停止。
+如果雅仓阶段返回 `login_required`，按登录 Skill 重新登录并保存。若结果含 `data.resume_id`，在本国命令后添加 `--resume-id "<返回的编号>"` 继续同一次任务，只补取未完成的雅仓报表，再继续 TMS 和合并；没有该编号时重试原命令一次。再次失败时说明实际错误。遇到 403、429 或明显风控立即停止。
 
-命令参数以 `lxeskill describe philippines reports export` 为准。产物目录通过 `lxeskill datasets list` 查询，`dir` 相对于当前环境的 `artifact_root`。
+命令参数以 `lxeskill describe philippines reports export` 或 `lxeskill describe vietnam reports export` 为准。产物目录通过 `lxeskill datasets list` 查询，`dir` 相对于当前环境的 `artifact_root`。
 
 ## 合并规则
 
@@ -72,6 +81,6 @@ TMS 独有 SKU 的补入规则：
 
 自动取数有任何来源失败或部分成功时，组合命令失败且 `files=[]`；按 `data.stage`、`data.error` 和 `data.source_exports` 反馈失败阶段、实际错误及已完成来源。返回 `data.resume_id` 时，解决错误后可用该编号继续；遇到 403、429 或明显风控立即停止。这些来源文件不作为两份最终合并报表交付。
 
-只有自动入口确认 TMS 完整成功、PH1 接口记录数及文件行数/SKU 数均为零且无来源附件时，才按空 TMS 集合处理。此时 `data.tms_empty=true`，仍交付两份最终 XLSX，并说明本轮 TMS 无记录、结果仅含雅仓数据。
+只有自动入口确认 TMS 完整成功、所选仓库接口记录数及文件行数/SKU 数均为零且无来源附件时，才按空 TMS 集合处理。此时 `data.tms_empty=true`，仍交付两份最终 XLSX，并说明本轮 TMS 无记录、结果仅含雅仓数据。
 
 这两份文件是本轮来源报表的组合结果，不代表两个系统在同一时刻完成了库存快照，也不计算备货建议。
