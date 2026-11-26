@@ -6,15 +6,15 @@ import {
   mkdirSync,
   openSync,
   realpathSync,
-  rmdirSync,
   unlinkSync,
   writeFileSync,
 } from "node:fs";
-import { mkdir, rm, writeFile } from "node:fs/promises";
-import { basename, dirname, extname, join, resolve } from "node:path";
+import { mkdir, writeFile } from "node:fs/promises";
+import { basename, extname, join, resolve } from "node:path";
 import { createHash, randomUUID } from "node:crypto";
 import { DashboardRpcError, type DesktopDraftAttachmentPayload } from "@lxe/desktop-protocol";
 import { MAX_CONVERSATION_SCREENSHOTS, MAX_SCREENSHOT_BYTES } from "../conversation-paste";
+import { pastedTextName, removePastedText } from "./pasted-text-retention";
 
 const MEDIA_TYPES: Readonly<Record<string, string>> = {
   ".pdf": "application/pdf",
@@ -57,6 +57,8 @@ const invalidAttachment = (message: string): never => {
 
 /** Draft attachments live until sent, explicitly discarded, or cleared on shutdown. */
 export class DesktopConversationAttachmentService {
+  onDraftReleased?: () => void;
+  private readonly unsentPastes = new Set<string>();
   private generation = 0;
   private readonly staged = new Map<string, StagedConversationAttachment>();
   private readonly sending = new Map<string, { discardRequested: boolean }>();
@@ -88,26 +90,28 @@ export class DesktopConversationAttachmentService {
 
   async registerTextPaste(text: unknown, name: unknown): Promise<DesktopDraftAttachmentPayload> {
     if (typeof text !== "string" || !text || typeof name !== "string"
-      || !/^(?:Pasted text|粘贴的文本)(?: [1-9][0-9]*)?\.txt$/u.test(name) || name !== name.trim()) {
+      || !pastedTextName.test(name) || name !== name.trim()) {
       return invalidAttachment("Invalid pasted text attachment");
     }
     if (!this.pastedTextDirectory) return invalidAttachment("Text attachment storage is unavailable");
     const id = randomUUID();
     const generation = this.generation;
-    const directory = join(this.pastedTextDirectory, id);
-    const path = join(directory, name);
     await mkdir(this.pastedTextDirectory, { recursive: true });
+    if (!lstatSync(this.pastedTextDirectory).isDirectory()) return invalidAttachment("Invalid pasted text directory");
+    const directory = join(realpathSync(this.pastedTextDirectory), id);
+    const path = join(directory, name);
     await mkdir(directory, { mode: 0o700 });
     try {
       await writeFile(path, text, { encoding: "utf8", flag: "wx", mode: 0o600 });
       if (generation !== this.generation) throw new Error("Text attachment staging was cancelled");
     } catch (cause) {
-      await rm(directory, { recursive: true, force: true });
+      removePastedText(this.pastedTextDirectory, path);
       throw cause;
     }
     const item: StagedConversationAttachment = {
       attachment_id: id, name, path, size_bytes: Buffer.byteLength(text), media_type: "text/plain", origin: "pasted-text",
     };
+    this.unsentPastes.add(path);
     this.staged.set(id, item);
     return this.public(item);
   }
@@ -180,9 +184,12 @@ export class DesktopConversationAttachmentService {
 
   consume(attachmentIds: readonly string[]): void {
     for (const attachmentId of attachmentIds) {
+      const item = this.staged.get(attachmentId);
+      if (item) this.unsentPastes.delete(item.path);
       this.sending.delete(attachmentId);
       this.staged.delete(attachmentId);
     }
+    this.releaseDiscardedText();
   }
 
   /** Keep staged files alive while the gateway asynchronously admits a message. */
@@ -210,16 +217,25 @@ export class DesktopConversationAttachmentService {
         continue;
       }
       const item = this.staged.get(attachmentId);
-      if (item && item.origin !== "reference") {
-        this.removeFile(item.path);
-        if (item.origin === "pasted-text") {
-          try { rmdirSync(dirname(item.path)); } catch (cause) {
-            if (!["ENOENT", "ENOTEMPTY"].includes((cause as NodeJS.ErrnoException).code ?? "")) throw cause;
-          }
-        }
-      }
+      if (item?.origin === "screenshot") this.removeFile(item.path);
       this.staged.delete(attachmentId);
     }
+    this.releaseDiscardedText();
+  }
+
+  isStaged(path: string): boolean {
+    for (const item of this.staged.values()) if (item.path === path) return true;
+    return false;
+  }
+
+  private releaseDiscardedText(): void {
+    const stagedPaths = new Set([...this.staged.values()].map(item => item.path));
+    for (const path of this.unsentPastes) {
+      if (stagedPaths.has(path)) continue;
+      if (this.pastedTextDirectory) removePastedText(this.pastedTextDirectory, path);
+      this.unsentPastes.delete(path);
+    }
+    this.onDraftReleased?.();
   }
 
   clear(): void {

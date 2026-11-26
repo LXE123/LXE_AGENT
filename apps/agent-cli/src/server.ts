@@ -200,6 +200,10 @@ export class AgentProtocolServer {
         );
         return attachment ? { found: true, path: attachment.path } : { found: false };
       }
+      case "session_attachment_paths":
+        return this.readyHost().sessionAttachmentPaths(request.params.session_id);
+      case "unused_attachment_paths":
+        return this.readyHost().unusedAttachmentPaths(request.params.candidates);
       case "dashboard_call":
         return this.readyHost().dashboardCall(request.params) as Promise<JsonValue>;
       case "session_status": {

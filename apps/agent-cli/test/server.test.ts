@@ -240,6 +240,8 @@ describe("AgentProtocolServer", () => {
         sessionId === "session-1" && artifactId === "artifact-1"
           ? { path: "/private/artifacts/report.xlsx" }
           : undefined,
+      sessionAttachmentPaths: async (sessionId: string) => sessionId === "session-1" ? ["/private/input/orders.csv"] : [],
+      unusedAttachmentPaths: (candidates: { path: string }[]) => candidates.filter(c => c.path === "/unused.txt").map(c => c.path),
       resolveAttachment: async (sessionId: string, attachmentId: string) =>
         sessionId === "session-1" && attachmentId === "attachment-1"
           ? { path: "/private/input/orders.csv" }
@@ -284,6 +286,11 @@ describe("AgentProtocolServer", () => {
     }));
     expect(output.find((message) => !("type" in message) && message.id === "attachment-found"))
       .toMatchObject({ result: { found: true, path: "/private/input/orders.csv" } });
+    await server.accept(JSON.stringify({ jsonrpc: "2.0", id: "paths", method: "session_attachment_paths", params: { session_id: "session-1" } }));
+    await server.accept(JSON.stringify({ jsonrpc: "2.0", id: "unused", method: "unused_attachment_paths",
+      params: { candidates: [{ path: "/unused.txt", session_ids: ["deleted"] }, { path: "/private/input/orders.csv", session_ids: ["session-1"] }] } }));
+    expect(output.find(message => !("type" in message) && message.id === "paths")).toMatchObject({ result: ["/private/input/orders.csv"] });
+    expect(output.find(message => !("type" in message) && message.id === "unused")).toMatchObject({ result: ["/unused.txt"] });
     await server.shutdown();
   });
 

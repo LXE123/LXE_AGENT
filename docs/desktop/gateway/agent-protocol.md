@@ -44,6 +44,8 @@ MCP 设置页通过 `dashboard_call` 的 `mcp.servers.list/add/update` 查看配
 
 方法名、参数和通知列表统一以 [`AgentCommandPayloads` 与 `AgentEvent`](../../../packages/foundation/desktop-protocol/src/index.ts) 为准。执行与控制使用 `run_turn`、`cancel_turn`、`steer_turn`，会话状态使用 `session_status`；Dashboard 查询使用 `dashboard_call` 携带 `{ operation, input }`。方法只接受对象参数，省略 params 按空对象校验。
 
+永久删除会话前，桌面通过 `session_attachment_paths` 取得该会话的历史附件路径。删除成功后，通过 `unused_attachment_paths` 分批核对待清理的粘贴文件。agent-cli 只返回所有会话历史都没有引用、且桌面上报的接收会话都已删除的路径。文件由 Electron 清理。
+
 桌面问题通过 `sessions.questions` 查询当前快照、`sessions.answer` 提交答案，均由专用 Dashboard operation 到达 Runtime，不进入普通消息队列。`session.changed` 的 `questions` 变化只通知客户端重新查询，详见 [结构化提问](../../harness/runtime/tools/ask-user-question.md)。
 
 Gateway 生成 UUID 请求 ID；通用解析器接受字符串、有限数值与 null，并原样回传。

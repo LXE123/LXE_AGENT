@@ -1,4 +1,5 @@
 import { NodeAutomationStore } from "./automation-store";
+import { PastedTextRetention } from "./pasted-text-retention";
 import { existsSync, mkdirSync } from "node:fs";
 import { dirname } from "node:path";
 import { DatabaseSync } from "node:sqlite";
@@ -82,10 +83,11 @@ const withStatement = <Result>(
 export class NodeGatewayStore implements DirectGatewayStorage {
   private database: DatabaseSync | undefined;
   automations: NodeAutomationStore | undefined;
+  pastedText: PastedTextRetention | undefined;
 
   constructor(readonly path: string, private readonly legacyWorkspace: WorkspaceContext) {}
 
-  start(): void {
+  start(pastedTextDirectory?: string): void {
     if (this.database) return;
     mkdirSync(dirname(this.path), { recursive: true });
     const database = new DatabaseSync(this.path);
@@ -142,6 +144,7 @@ export class NodeGatewayStore implements DirectGatewayStorage {
         database.exec(`ALTER TABLE gateway_sessions DROP COLUMN ${retiredWorkspaceColumn}`);
       }
       this.automations = new NodeAutomationStore(database);
+      if (pastedTextDirectory) this.pastedText = new PastedTextRetention(database, pastedTextDirectory);
       database.exec("COMMIT");
     } catch (error) {
       try { database.exec("ROLLBACK"); } catch { /* Preserve the migration failure. */ }
@@ -152,6 +155,8 @@ export class NodeGatewayStore implements DirectGatewayStorage {
   }
 
   stop(): void {
+    this.pastedText?.stop();
+    this.pastedText = undefined;
     this.database?.close();
     this.database = undefined;
     this.automations = undefined;

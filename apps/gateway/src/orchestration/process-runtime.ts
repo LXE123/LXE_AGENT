@@ -439,6 +439,23 @@ export class ProcessAgentRuntime implements DirectAgentRuntime {
     return path;
   }
 
+  async sessionAttachmentPaths(sessionId: string): Promise<string[]> {
+    const paths = await this.request("session_attachment_paths", { session_id: sessionId });
+    if (!Array.isArray(paths) || !paths.every(p => typeof p === "string")) {
+      throw new AgentProcessError("agent-cli returned invalid session attachment paths", "AgentProtocolError");
+    }
+    return paths as string[];
+  }
+
+  async unusedAttachmentPaths(candidates: { path: string; session_ids: string[] }[]): Promise<string[]> {
+    const allowed = new Set(candidates.map(c => c.path));
+    const paths = await this.request("unused_attachment_paths", { candidates });
+    if (!Array.isArray(paths) || !paths.every(p => typeof p === "string" && allowed.has(p))) {
+      throw new AgentProcessError("agent-cli returned invalid unused attachment paths", "AgentProtocolError");
+    }
+    return paths as string[];
+  }
+
   async dashboardCall<O extends AgentDashboardRpcOperation>(
     call: AgentDashboardRpcCall<O>,
   ): Promise<DashboardRpcResult<O>> {

@@ -47,7 +47,7 @@ export type DesktopDraftAttachmentPayload = DesktopInputAttachmentPayload & {
   reference_key?: string;
 };
 
-export const AGENT_PROTOCOL_VERSION = 32 as const;
+export const AGENT_PROTOCOL_VERSION = 33 as const;
 
 /** Bounded process preview, independent of model stream sequence and wait cursors. */
 export type ExecTaskSnapshotPayload = {
@@ -130,6 +130,8 @@ export type AgentCommandPayloads = {
   resolve_image_view: { session_id: string; view_id: string };
   resolve_image_preview: { session_id: string; kind: "attachment" | "image_view"; id: string };
   resolve_attachment: { session_id: string; attachment_id: string };
+  session_attachment_paths: { session_id: string };
+  unused_attachment_paths: { candidates: { path: string; session_ids: string[] }[] };
   dashboard_call: AgentDashboardRpcCall;
   session_status: SessionStatusRequest;
   shutdown: Record<string, never>;
@@ -810,6 +812,8 @@ const agentCommands = new Set<AgentCommand>([
   "resolve_image_view",
   "resolve_image_preview",
   "resolve_attachment",
+  "session_attachment_paths",
+  "unused_attachment_paths",
   "dashboard_call",
   "session_status",
   "shutdown",
@@ -958,6 +962,16 @@ const validateRequestPayload = (command: AgentCommand, payload: Record<string, u
     case "resolve_attachment":
       requireText("session_id");
       requireText("attachment_id");
+      break;
+    case "session_attachment_paths":
+      requireText("session_id");
+      break;
+    case "unused_attachment_paths":
+      if (!Array.isArray(payload.candidates) || payload.candidates.length > 128 || !payload.candidates.every(value => {
+        const candidate = objectValue(value);
+        return typeof candidate?.path === "string" && candidate.path.length > 0 && Array.isArray(candidate.session_ids)
+          && candidate.session_ids.every(id => typeof id === "string" && id.length > 0);
+      })) throw new Error("unused_attachment_paths requires up to 128 paths with originating session IDs");
       break;
     case "dashboard_call":
       parseAgentDashboardRpcCall(payload);

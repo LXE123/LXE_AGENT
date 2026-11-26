@@ -96,6 +96,8 @@ export interface AgentRuntimeHost {
   resolveImagePreview: SqliteRuntimeStore["resolveImagePreview"];
   resolveImageView(sessionId: string, viewId: string): Promise<{ path: string } | undefined>;
   resolveAttachment(sessionId: string, attachmentId: string): Promise<{ path: string } | undefined>;
+  sessionAttachmentPaths: SqliteRuntimeStore["attachmentPaths"];
+  unusedAttachmentPaths: SqliteRuntimeStore["unusedAttachmentPaths"];
   dashboardCall<O extends AgentDashboardRpcOperation>(
     call: AgentDashboardRpcCall<O>,
   ): Promise<DashboardRpcResult<O>>;
@@ -366,6 +368,8 @@ export function createAgentRuntimeHost(
     },
     resolveImagePreview: (sessionId, kind, id) => store.resolveImagePreview(sessionId, kind, id),
     resolveImageView: (sessionId, viewId) => store.resolveImageView(sessionId, viewId),
+    sessionAttachmentPaths: id => store.attachmentPaths(id),
+    unusedAttachmentPaths: candidates => store.unusedAttachmentPaths(candidates),
     resolveAttachment: async (sessionId, attachmentId) => {
       const attachment = await store.resolveAttachment(sessionId, attachmentId);
       return attachment ? { path: attachment.path } : undefined;

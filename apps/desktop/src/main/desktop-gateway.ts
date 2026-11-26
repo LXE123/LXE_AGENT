@@ -139,7 +139,26 @@ export class DesktopGateway {
   private lxeskillQueryOptions: LxeSkillQueryOptions | undefined;
 
   private files: FilePreviewService | undefined;
-  constructor(private readonly options: DesktopGatewayOptions) {}
+  constructor(private readonly options: DesktopGatewayOptions) {
+    options.attachments.onDraftReleased = () => {
+      if (this.store?.pastedText?.takeDeferred()) void this.collectPastedText();
+    };
+  }
+
+  private async collectPastedText(sessionId?: string): Promise<void> {
+    const runtime = this.runtime;
+    if (!runtime?.isReady) return;
+    try {
+      await this.store?.pastedText?.collect(
+        candidates => runtime.unusedAttachmentPaths(candidates),
+        path => this.options.attachments.isStaged(path),
+        sessionId,
+      );
+    } catch (error) {
+      // Deletion is already committed. Keep the receipt so cleanup can retry on startup.
+      createLogger("desktop.attachments").warn("pasted_text_cleanup_failed", { error: String(error) });
+    }
+  }
   async resolveWorkspaceDirectory(sessionId: string): Promise<string | undefined> {
     if (this.composition?.parts.scheduler.isSessionDeletionFenced(sessionId)) throw new Error(`Session is being deleted: ${sessionId}`);
     if (!this.runtime) throw new Error("Agent runtime is unavailable");
@@ -307,7 +326,7 @@ export class DesktopGateway {
       join(this.options.paths.dataRoot, "db", "gateway.sqlite3"),
       legacyWorkspace,
     );
-    store.start();
+    store.start(join(this.options.paths.dataRoot, "attachments", "pasted-text"));
     const splitStorage = new SplitGatewayStorage(store, runtime);
     composition = createDirectGatewayComposition({
       projectRoot: this.options.paths.dataRoot,
@@ -351,6 +370,7 @@ export class DesktopGateway {
       });
       await this.automations.openPipe();
       await composition.start();
+      void this.collectPastedText();
       this.automations.service.start();
       this.gatewayState = "ready";
       this.lastError = "";
@@ -526,6 +546,7 @@ export class DesktopGateway {
       let removedBindings: ReturnType<DirectGatewayComposition["parts"]["bindings"]["removeSession"]> = [];
       try {
         await this.options.beforeDeleteSession?.(sessionId);
+        this.store?.pastedText?.prepareDeletion(sessionId, await this.runtime.sessionAttachmentPaths(sessionId));
         gatewaySnapshot = this.store?.detachSession(sessionId);
         removedBindings = this.composition.parts.bindings.removeSession(sessionId);
         const result = await this.runtime.dashboardCall(
@@ -534,6 +555,7 @@ export class DesktopGateway {
         this.automations?.service.pauseSession(sessionId, "绑定的会话已删除，请修改任务");
         this.composition.parts.conversations.forgetSession(sessionId);
         this.composition.parts.runtimeState.forget(sessionId);
+        await this.collectPastedText(sessionId);
         return result as DashboardRpcResult<O>;
       } catch (error) {
         this.store?.restoreSession(gatewaySnapshot);
@@ -546,6 +568,7 @@ export class DesktopGateway {
     if (call.operation === "sessions.send") {
       const attachmentIds = call.input.attachment_ids ?? [];
       let held = false;
+      let rollbackAdmission: (() => void) | undefined;
       try {
         const result = await this.composition.parts.conversations.send({
           ...(call.input.directory === undefined ? {} : { directory: call.input.directory }),
@@ -560,10 +583,15 @@ export class DesktopGateway {
             return prepareConversationAttachments(staged,
               (bytes, mediaType) => this.imageProcessor.prepareModelBlock(bytes, mediaType));
           },
+          beforeAttachmentAdmission: (sessionId, files) => {
+            rollbackAdmission = this.store?.pastedText?.admit(sessionId, files.map(file => file.path));
+          },
         });
+        rollbackAdmission = undefined;
         if (held) this.options.attachments.consume(attachmentIds);
         return result as DashboardRpcResult<O>;
       } catch (error) {
+        rollbackAdmission?.();
         if (error instanceof LocalConversationSessionNotFoundError) {
           throw new DashboardRpcError("not_found", error.message);
         }
