@@ -11,6 +11,8 @@ const MAX_ERROR_BYTES = 4_096;
 // The command's own explanation keeps this much room; stderr gets what is left of MAX_ERROR_BYTES.
 const MAX_REPORTED_ERROR_BYTES = 2_048;
 const DEFAULT_MAX_OUTPUT_BYTES = 1024 * 1024;
+// Longest stderr line, in characters, handed to an onStderr log callback.
+const MAX_STDERR_LINE = 4_096;
 // Short credentials are still redacted. One- or two-character values (placeholders, CLAUDE_CODE_CHILD_SESSION=1)
 // and switch values are not secrets, and replacing every "1" or "T" would garble the actual error.
 const MIN_SECRET_LENGTH = 3;
@@ -39,6 +41,7 @@ export interface LxeSkillRunOptions {
   /** Command-specific variables, applied after the shared ones. */
   environment?: Record<string, string>;
   onProgress?: (record: Record<string, unknown>) => void;
+  /** Receives stderr as redacted lines of at most 4,096 characters; a longer line arrives in pieces. */
   onStderr?: (line: string) => void;
 }
 
@@ -65,16 +68,59 @@ const tail = (text: string, bytes: number): string => {
   return encoded.length <= bytes ? text : encoded.subarray(-bytes).toString("utf8").replace(/^\uFFFD+/u, "");
 };
 
+/** Credential values in `environment` that diagnostics must not show. */
+const credentialValues = (environment: Environment): string[] => Object.entries(environment).flatMap(([name, secret]) => {
+  const value = secret?.trim() ?? "";
+  return secret && value.length >= MIN_SECRET_LENGTH && !FLAG_VALUE.test(value) && CREDENTIAL_NAME.test(name) ? [secret] : [];
+});
+
+const redact = (text: string, secrets: readonly string[]): string =>
+  secrets.reduce((result, secret) => result.replaceAll(secret, "[redacted]"), text);
+
 /** Remove credential values found in `environment`, then keep the last bytes of an over-long message. */
 export function redactAndBound(message: string, environment: Environment = process.env, maxBytes = MAX_ERROR_BYTES): string {
-  let detail = message.trim();
-  for (const [name, secret] of Object.entries(environment)) {
-    const value = secret?.trim() ?? "";
-    if (secret && value.length >= MIN_SECRET_LENGTH && !FLAG_VALUE.test(value) && CREDENTIAL_NAME.test(name)) {
-      detail = detail.replaceAll(secret, "[redacted]");
-    }
-  }
+  const detail = redact(message.trim(), credentialValues(environment));
   return Buffer.byteLength(detail, "utf8") <= maxBytes ? detail : `[truncated] ${tail(detail, maxBytes)}`;
+}
+
+const isHighSurrogate = (code: number): boolean => code >= 0xd800 && code <= 0xdbff;
+
+/** Split `text` into pieces of at most `size` code units, never inside a surrogate pair. */
+const pieces = (text: string, size: number): string[] => {
+  const result: string[] = [];
+  for (let start = 0; start < text.length;) {
+    let end = Math.min(text.length, start + size);
+    if (end < text.length && end - start > 1 && isHighSurrogate(text.charCodeAt(end - 1))) end -= 1;
+    result.push(text.slice(start, end));
+    start = end;
+  }
+  return result;
+};
+
+/**
+ * Hands stderr to a log callback as redacted lines of at most MAX_STDERR_LINE characters.
+ * A line without a newline is passed on in pieces, keeping back just enough text that a
+ * credential split between two writes is still recognised once the rest arrives.
+ */
+function stderrLineWriter(environment: Environment, write: (line: string) => void) {
+  const secrets = credentialValues(environment);
+  const keep = Math.min(MAX_STDERR_LINE / 2, Math.max(0, ...secrets.map(secret => secret.length - 1)));
+  let pending = "";
+  const emit = (text: string) => {
+    for (const piece of pieces(text, MAX_STDERR_LINE)) if (piece.trim()) write(piece);
+  };
+  return (text: string, final = false) => {
+    const lines = (pending + text).split(/\r?\n/u);
+    pending = final ? "" : lines.pop() ?? "";
+    for (const line of lines) emit(redact(line, secrets));
+    if (pending.length <= MAX_STDERR_LINE) return;
+    // Every complete credential is replaced; one that is still arriving can only start in the last `keep` characters.
+    const redacted = redact(pending, secrets);
+    let split = redacted.length - keep;
+    if (split > 0 && isHighSurrogate(redacted.charCodeAt(split - 1))) split -= 1;
+    emit(redacted.slice(0, split));
+    pending = redacted.slice(split);
+  };
 }
 
 const structuredMessage = (record: Record<string, unknown> | undefined): string => {
@@ -192,13 +238,10 @@ export class LxeSkillClient {
     });
     // Decode across chunks so a character split between two writes stays intact.
     const stderrDecoder = new StringDecoder("utf8");
-    let stderrLine = "";
+    const logStderr = options.onStderr ? stderrLineWriter(redactionSource, options.onStderr) : undefined;
     const takeStderr = (text: string, final = false) => {
       stderr = tail(stderr + text, MAX_ERROR_BYTES * 4);
-      if (!options.onStderr) return;
-      const parts = (stderrLine + text).split(/\r?\n/u);
-      stderrLine = final ? "" : parts.pop() ?? "";
-      for (const line of parts) if (line.trim()) options.onStderr(line);
+      logStderr?.(text, final);
     };
     child.stderr!.on("data", (chunk: Buffer) => takeStderr(stderrDecoder.write(chunk)));
     child.stdin!.on("error", () => { /* The command may exit without reading its input. */ });

@@ -213,6 +213,30 @@ process.stderr.write(bytes.subarray(2)); process.exitCode = 1;
     expect(message).toBe("lxeskill exited with code 1\nlogin refused for [redacted]");
   });
 
+  test("logs long stderr in bounded, redacted pieces without losing text", async () => {
+    const secret = "fixture-media-secret";
+    // 32 writes of about 4 KiB without a newline. One credential spans writes 10 and 11; another ends the stream.
+    const writes = Array.from({ length: 32 }, (_, index) => `${index}:`.padEnd(4_000, "x"));
+    writes[9] += secret.slice(0, 7);
+    writes[10] = secret.slice(7) + writes[10];
+    writes[31] += ` refused ${secret}`;
+    const { client } = fixtureClient(`
+for (const text of ${JSON.stringify(writes)}) {
+  process.stderr.write(text);
+  await new Promise(resolve => setTimeout(resolve, 5));
+}
+process.stderr.write("\\nsecond line ${secret}\\n");
+process.exitCode = 1;
+`, { environment: () => ({ LXE_YACANG_PASSWORD: secret }) });
+    const logged: string[] = [];
+    await failure(client.run(["media"], { timeoutMs: 10_000, onStderr: line => logged.push(line) }));
+    expect(logged.length).toBeGreaterThan(30);
+    expect(Math.max(...logged.map(line => line.length))).toBeLessThanOrEqual(4_096);
+    expect(logged.join("").includes(secret)).toBe(false);
+    expect(logged.at(-1)).toBe("second line [redacted]");
+    expect(logged.slice(0, -1).join("")).toBe(writes.join("").replaceAll(secret, "[redacted]"));
+  });
+
   test("reports the actual spawn failure for an absent executable", async () => {
     const root = mkdtempSync(join(tmpdir(), "lxe-cli-absent-"));
     try {
