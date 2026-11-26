@@ -3,8 +3,8 @@ import assert from "node:assert/strict";
 import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { createDirectGatewayComposition, type DirectAgentRuntime } from "@lxe/gateway/desktop";
-import { DesktopConversationAttachmentService } from "../../src/main/conversation-attachments";
-import { DesktopGateway } from "../../src/main/desktop-gateway";
+import { DesktopConversationAttachmentService } from "../../src/main/conversations/conversation-attachments";
+import { DesktopGateway } from "../../src/main/gateway/desktop-gateway";
 
 async function verify(root: string) {
   const workspace = { directory: root, worktree: root };

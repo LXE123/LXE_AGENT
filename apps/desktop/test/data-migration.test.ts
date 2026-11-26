@@ -3,7 +3,7 @@ import { copyFile } from "node:fs/promises";
 import { existsSync, mkdtempSync, mkdirSync, readFileSync, readdirSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { acquireDataRootLock, dataRootInitialized, initializeDataRoot, legacyDataSources, type DataMigrationPorts } from "../src/main/data-migration";
+import { acquireDataRootLock, dataRootInitialized, initializeDataRoot, legacyDataSources, type DataMigrationPorts } from "../src/main/data/data-migration";
 
 const roots: string[] = [];
 afterEach(() => { for (const root of roots.splice(0)) rmSync(root, {recursive: true, force: true}); });

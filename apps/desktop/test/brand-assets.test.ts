@@ -5,7 +5,7 @@ import {
   loadDesktopTrayImage,
   resolveDesktopBrandAssets,
   type TrayImageLike,
-} from "../src/main/brand-assets";
+} from "../src/main/app-shell/brand-assets";
 
 const desktopRoot = join(import.meta.dir, "..");
 

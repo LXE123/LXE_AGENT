@@ -1,9 +1,9 @@
 /** Adapt legacy identity response fixtures to the new wire contracts.
  * The dedicated native-cloud tests exercise real transport and credential-free access.
  */
-import { DesktopCloudService } from "../src/main/desktop-cloud";
-import { CloudContextError } from "../src/main/cloud-context";
-import { CloudHttpError, parseCloudError } from "../src/main/cloud-errors";
+import { DesktopCloudService } from "../src/main/cloud/desktop-cloud";
+import { CloudContextError } from "../src/main/cloud/cloud-context";
+import { CloudHttpError, parseCloudError } from "../src/main/cloud/cloud-errors";
 export function identityFixtureCloud(options: ConstructorParameters<typeof DesktopCloudService>[0]) {
   const fetcher = options.fetch;
   let response: Promise<Response> | undefined;

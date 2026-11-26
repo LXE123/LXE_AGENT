@@ -12,4 +12,4 @@
 
 发布必须先更新服务器，再升级桌面。Windows 真实安装环境应验证：旧绑定自动迁移、退出重开恢复、迁移后的 ERP 查询、设备和 VPN 信息保留。仅在 macOS 跑 `win32` 配置测试不能代替 Windows 真机联调。
 
-实现见 [desktop-cloud.ts](../../apps/desktop/src/main/desktop-cloud.ts) 的 `migrateIdentity` 和 [cloud.ts](../../apps/desktop/src/main/config-store/cloud.ts) 的候选身份持久化；测试入口见 [identity-migration.test.ts](../../apps/desktop/test/identity-migration.test.ts)。
+实现见 [desktop-cloud.ts](../../apps/desktop/src/main/cloud/desktop-cloud.ts) 的 `migrateIdentity` 和 [cloud.ts](../../apps/desktop/src/main/config-store/cloud.ts) 的候选身份持久化；测试入口见 [identity-migration.test.ts](../../apps/desktop/test/identity-migration.test.ts)。

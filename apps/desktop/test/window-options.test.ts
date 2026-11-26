@@ -4,7 +4,7 @@ import {
   DESKTOP_TITLEBAR_COLOURS,
   WINDOWS_TITLEBAR_COLOURS,
   DESKTOP_TITLEBAR_HEIGHT,
-} from "../src/main/window-options";
+} from "../src/main/app-shell/window-options";
 import { normalizeDesktopPlatform } from "../src/platform";
 
 describe("desktop window appearance", () => {

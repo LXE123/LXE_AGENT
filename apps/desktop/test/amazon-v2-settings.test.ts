@@ -2,8 +2,8 @@ import { expect, test } from "bun:test";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { DesktopAmazonV2SettingsService } from "../src/main/amazon-v2-settings";
-import { LxeSkillClient } from "../src/main/lxeskill-client";
+import { DesktopAmazonV2SettingsService } from "../src/main/lxeskill/amazon-v2-settings";
+import { LxeSkillClient } from "../src/main/lxeskill/lxeskill-client";
 
 test("Desktop settings use the real CLI and retain disk state after rejected edits", async () => {
   const dataRoot = mkdtempSync(join(tmpdir(), "amazon-settings-"));

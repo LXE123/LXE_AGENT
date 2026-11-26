@@ -1,7 +1,7 @@
 import {test,expect} from "bun:test";
 import {EventEmitter} from "node:events";
 import type {spawn} from "node:child_process";
-import {launchUpdateInstaller} from "../src/main/update-launch";
+import {launchUpdateInstaller} from "../src/main/updates/update-launch";
 function fixture(){
  const child=Object.assign(new EventEmitter(),{stdout:new EventEmitter(),stderr:new EventEmitter(),unref(){}});
  return {child,spawn:(()=>child) as unknown as typeof spawn};

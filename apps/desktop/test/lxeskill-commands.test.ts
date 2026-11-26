@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { repositoryRoot } from "@lxe/core";
-import { listLxeSkillCommands } from "../src/main/lxeskill-commands";
+import { listLxeSkillCommands } from "../src/main/lxeskill/lxeskill-commands";
 
 test("desktop gets its command listing from the public CLI", async () => {
   const root = repositoryRoot(import.meta.dir);

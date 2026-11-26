@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { withoutRetiredAgentTraceEnvironment } from "../src/main/runtime-environment-policy";
+import { withoutRetiredAgentTraceEnvironment } from "../src/main/gateway/runtime-environment-policy";
 
 describe("desktop runtime environment policy", () => {
   test("removes retired agent trace variables without changing unrelated settings", () => {

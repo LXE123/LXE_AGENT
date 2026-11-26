@@ -1,7 +1,7 @@
 import {expect,test} from "bun:test";
 import type {DesktopCloudState,DesktopUpdateRelease} from "@lxe/desktop-protocol";
-import {DesktopUpdateApi,UpdateConnectionMonitor,updateConnectionReady} from "../src/main/update-api";
-import {companyServerUrl} from "../src/main/company-server";
+import {DesktopUpdateApi,UpdateConnectionMonitor,updateConnectionReady} from "../src/main/updates/update-api";
+import {companyServerUrl} from "../src/main/cloud/company-server";
 
 function fixture(managed=false) {
  const config={managed,switch_in_progress:false,data_server_url:managed?"http://10.88.0.1:8000/":""};

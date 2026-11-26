@@ -1,7 +1,7 @@
 import {createRequire} from "node:module";
 import {existsSync,mkdirSync,readFileSync,rmSync,writeFileSync} from "node:fs";
 import {join,resolve} from "node:path";
-import {launchUpdateInstaller} from "../apps/desktop/src/main/update-launch";
+import {launchUpdateInstaller} from "../apps/desktop/src/main/updates/update-launch";
 
 if(process.platform!=="win32")throw new Error("Run native updater qualification on Windows");
 const path=resolve(process.argv[2]??"");

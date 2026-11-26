@@ -33,7 +33,7 @@
 | 职责 | 当前源码 |
 | --- | --- |
 | 共享色彩与亮暗主题 | [cds-theme.css](../../../apps/dashboard/src/shared/cds-theme.css) |
-| 标题栏与主导航外框 | [app-chrome.css](../../../apps/dashboard/src/shared/app-chrome.css)、[navigation-rail.css](../../../apps/dashboard/src/shared/navigation-rail.css)、[window-options.ts](../../../apps/desktop/src/main/window-options.ts) |
+| 标题栏与主导航外框 | [app-chrome.css](../../../apps/dashboard/src/shared/app-chrome.css)、[navigation-rail.css](../../../apps/dashboard/src/shared/navigation-rail.css)、[window-options.ts](../../../apps/desktop/src/main/app-shell/window-options.ts) |
 | 设置页 | [settings-theme.css](../../../apps/dashboard/src/desktop/settings-theme.css) |
 | 能力页与详情 | [theme.css](../../../apps/dashboard/src/features/capabilities/theme.css) |
 | 定时任务列表、详情与编辑器 | [AutomationsPage.tsx](../../../apps/dashboard/src/features/automations/AutomationsPage.tsx)、[theme.css](../../../apps/dashboard/src/features/automations/theme.css) |

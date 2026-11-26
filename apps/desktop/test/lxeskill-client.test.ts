@@ -2,7 +2,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { delimiter, join } from "node:path";
-import { LxeSkillClient, LxeSkillError, settingsPayload } from "../src/main/lxeskill-client";
+import { LxeSkillClient, LxeSkillError, settingsPayload } from "../src/main/lxeskill/lxeskill-client";
 import { fixtureClient, removeFixtures, sourceLxeSkillPath } from "./support/lxeskill-fixture";
 
 afterEach(removeFixtures);

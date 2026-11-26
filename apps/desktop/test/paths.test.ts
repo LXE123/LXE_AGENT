@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { posix, win32 } from "node:path";
-import { usesPackagedRuntime } from "../src/main/launch-mode";
+import { usesPackagedRuntime } from "../src/main/app-shell/launch-mode";
 import { resolveDesktopPaths } from "../src/main/paths";
 
 describe("desktop private runtime paths", () => {

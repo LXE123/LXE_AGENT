@@ -1,4 +1,4 @@
-import { companyServerUrl } from "../company-server";
+import { companyServerUrl } from "../cloud/company-server";
 import { text } from "./model";
 import { randomBytes } from "node:crypto";
 import type {
@@ -7,7 +7,7 @@ import type {
   DesktopCloudPermissionSnapshot,
 } from "./public-types";
 import type { DesktopConfigRepository } from "./repository";
-import type { WireGuardTunnelConfiguration } from "../wireguard-types";
+import type { WireGuardTunnelConfiguration } from "../cloud/wireguard-types";
 
 export class DesktopCloudConfigService {
   constructor(

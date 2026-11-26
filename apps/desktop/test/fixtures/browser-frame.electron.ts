@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { TEAM_SKILLS_URL } from "@lxe/desktop-protocol/team-skills";
 import { RECENT_SELECTION_MS } from "../../src/main/manual-tools/tab-budget";
 import { ManualBrowsers } from "../../src/main/manual-tools/browsers";
-import { registerTeamSkillsGuest } from "../../src/main/team-skills-view";
+import { registerTeamSkillsGuest } from "../../src/main/app-shell/team-skills-view";
 
 app.setPath("userData", process.argv[2]!);
 if (process.platform === "win32") app.disableHardwareAcceleration();

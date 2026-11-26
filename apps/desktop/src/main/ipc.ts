@@ -1,6 +1,6 @@
-import { validateTitlebarMenu } from "./titlebar-menu";
-import { validateConversationLinkMenu } from "./conversation-link-menu";
-import { isAmazonV2Settings } from "./amazon-v2-settings";
+import { validateTitlebarMenu } from "./app-shell/titlebar-menu";
+import { validateConversationLinkMenu } from "./conversations/conversation-link-menu";
+import { isAmazonV2Settings } from "./lxeskill/amazon-v2-settings";
 import { fileResult } from "./file-preview/errors";
 import { mkdirSync } from "node:fs";
 import { app, dialog, ipcMain, shell } from "electron";
@@ -33,7 +33,7 @@ import { IPC_CHANNELS } from "../ipc-channels";
 import { workspaceDirectory } from "./workspace-directory";
 import { WorkspaceApplications } from "./workspace-apps/service";
 import { bundleIconDataUrl } from "./workspace-apps/icons";
-import { readClipboardFilePaths } from "./clipboard-files";
+import { readClipboardFilePaths } from "./conversations/clipboard-files";
 import {
   validateDraftImagePreviewVariant,
   validateCloudActivationInput,

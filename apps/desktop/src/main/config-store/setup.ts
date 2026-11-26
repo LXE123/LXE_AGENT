@@ -1,4 +1,4 @@
-import { companyServerUrl } from "../company-server";
+import { companyServerUrl } from "../cloud/company-server";
 import { withManagedModels, managedTargetKey, managedCredentialFor, parseManagedState, singleManagedState, type ManagedLlmState } from "@lxe/core";
 import { randomUUID } from "node:crypto";
 import { rmSync } from "node:fs";
@@ -25,7 +25,7 @@ import type { DesktopConfigRepository } from "./repository";
 import type { DesktopLocalAuthStore } from "./auth-store";
 import { effectiveDesktopSecrets } from "./secrets";
 import type { DesktopConfigValidation } from "./validation";
-import { managedLlmTargetSupported } from "../managed-llm";
+import { managedLlmTargetSupported } from "../cloud/managed-llm";
 
 const sameManagedTarget = (
   left: ManagedLlmTarget,

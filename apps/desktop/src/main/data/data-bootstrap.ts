@@ -2,8 +2,8 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { join } from "node:path";
 import { dataRootInitialized, initializeDataRoot, legacyDataSources } from "./data-migration";
-import { relocateGatewayData } from "./gateway-store";
-import type { DesktopPaths } from "./paths";
+import { relocateGatewayData } from "../gateway/gateway-store";
+import type { DesktopPaths } from "../paths";
 
 const run = promisify(execFile);
 export async function bootstrapUserData(paths: DesktopPaths, appId: string, validateCredentials: (copy: string) => Promise<void>,

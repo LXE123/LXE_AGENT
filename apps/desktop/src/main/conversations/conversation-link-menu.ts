@@ -1,9 +1,9 @@
 import type { ConversationLinkMenuRequest, ConversationLinkMenuAction } from "@lxe/desktop-protocol";
 import type { MenuItemConstructorOptions } from "electron";
-import type { DesktopGateway } from "./desktop-gateway";
-import type { FileApplicationLookup } from "./file-preview/service";
-import { validateRef } from "./file-preview/paths";
-import { isExternallyOpenableUrl } from "./launch-mode";
+import type { DesktopGateway } from "../gateway/desktop-gateway";
+import type { FileApplicationLookup } from "../file-preview/service";
+import { validateRef } from "../file-preview/paths";
+import { isExternallyOpenableUrl } from "../app-shell/launch-mode";
 
 export function validateConversationLinkMenu(value: unknown): ConversationLinkMenuRequest {
   const input = value as Partial<ConversationLinkMenuRequest> | null;

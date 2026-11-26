@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { reportDesktopStartupFailure } from "../src/main/startup-failure";
+import { reportDesktopStartupFailure } from "../src/main/app-shell/startup-failure";
 
 describe("desktop startup failure reporting", () => {
   test("preserves the actual component startup error", () => {

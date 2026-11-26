@@ -7,7 +7,7 @@ import { createServer } from "node:net";
 import { SqliteRuntimeStore } from "../packages/agent/runtime/src/state/storage";
 import { cloneConfig } from "../apps/desktop/src/main/config-store/model";
 import { resolveMachineIdentity } from "../packages/foundation/core/src/machine-identity";
-import { MIGRATION_CREDENTIAL_ARGUMENT } from "../apps/desktop/src/main/data-credentials";
+import { MIGRATION_CREDENTIAL_ARGUMENT } from "../apps/desktop/src/main/data/data-credentials";
 
 const [mode,input,submode,install] = process.argv.slice(2);
 const q = JSON.parse(readFileSync(input!,"utf8"));

@@ -20,7 +20,7 @@ flowchart LR
 
 ## 事实来源
 
-- [`apps/desktop/src/main/desktop-gateway.ts`](../../../apps/desktop/src/main/desktop-gateway.ts)：桌面配置、环境和 Gateway 装配。
+- [`apps/desktop/src/main/desktop-gateway.ts`](../../../apps/desktop/src/main/gateway/desktop-gateway.ts)：桌面配置、环境和 Gateway 装配。
 - [`apps/gateway/src/orchestration/composition.ts`](../../../apps/gateway/src/orchestration/composition.ts)：Router、Scheduler、Channel 和 Runtime port 的组合。
 - [`apps/gateway/src/orchestration/lifecycle.ts`](../../../apps/gateway/src/orchestration/lifecycle.ts)：启动、停止、health 和失败回滚。
 - [`apps/gateway/src/orchestration/process-runtime.ts`](../../../apps/gateway/src/orchestration/process-runtime.ts)：受管 `agent-cli` 子进程协议。

@@ -7,7 +7,7 @@ import {
   decryptCloudEnrollment,
   DesktopCloudEnrollmentManager,
   type CloudEnrollmentPayload,
-} from "../src/main/cloud-enrollment";
+} from "../src/main/cloud/cloud-enrollment";
 
 const roots: string[] = [];
 afterEach(() => {

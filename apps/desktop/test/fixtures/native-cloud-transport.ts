@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
-import { CloudHttpError } from "../../src/main/cloud-errors";
-import { DirectNativeCloudClient } from "../../src/main/native-cloud-client";
+import { CloudHttpError } from "../../src/main/cloud/cloud-errors";
+import { DirectNativeCloudClient } from "../../src/main/cloud/native-cloud-client";
 
 const paths: string[] = [];
 const upstream = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch(request) {

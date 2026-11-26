@@ -3,11 +3,11 @@ import { mkdtempSync, mkdirSync, writeFileSync, rmSync, readdirSync } from "node
 import { tmpdir } from "node:os";
 import { join, resolve, basename, relative } from "node:path";
 import { createRequire } from "node:module";
-import { DesktopCloudService } from "../apps/desktop/src/main/desktop-cloud";
+import { DesktopCloudService } from "../apps/desktop/src/main/cloud/desktop-cloud";
 import { DesktopConfigStore } from "../apps/desktop/src/main/config-store";
-import { DesktopCloudEnrollmentManager } from "../apps/desktop/src/main/cloud-enrollment";
-import { DesktopCloudContextClient } from "../apps/desktop/src/main/cloud-context";
-import { DirectNativeCloudClient } from "../apps/desktop/src/main/native-cloud-client";
+import { DesktopCloudEnrollmentManager } from "../apps/desktop/src/main/cloud/cloud-enrollment";
+import { DesktopCloudContextClient } from "../apps/desktop/src/main/cloud/cloud-context";
+import { DirectNativeCloudClient } from "../apps/desktop/src/main/cloud/native-cloud-client";
 import { createLogger } from "../packages/foundation/core/src/logging";
 
 const root=resolve(import.meta.dirname,".."),temporary=mkdtempSync(join(tmpdir(),"native-cloud-page-"));

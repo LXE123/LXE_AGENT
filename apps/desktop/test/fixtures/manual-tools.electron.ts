@@ -4,7 +4,7 @@ import { createServer } from "node:http";
 import { mkdirSync, writeFileSync, readFileSync, existsSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { ManualToolsService } from "../../src/main/manual-tools/service";
-import { registerTeamSkillsGuest } from "../../src/main/team-skills-view";
+import { registerTeamSkillsGuest } from "../../src/main/app-shell/team-skills-view";
 const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 if (process.platform === "win32") app.disableHardwareAcceleration();
 app.on("window-all-closed", () => {});

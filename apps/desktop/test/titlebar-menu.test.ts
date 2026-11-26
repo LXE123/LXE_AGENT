@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { sendEditingShortcut, titlebarMenuTemplate, validateTitlebarMenu } from "../src/main/titlebar-menu";
+import { sendEditingShortcut, titlebarMenuTemplate, validateTitlebarMenu } from "../src/main/app-shell/titlebar-menu";
 import { createDesktopBridge } from "../src/preload-bridge";
 import { IPC_CHANNELS } from "../src/ipc-channels";
 

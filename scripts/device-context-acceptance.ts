@@ -3,10 +3,10 @@ import { mkdtempSync, writeFileSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { createRequire } from "node:module";
-import { DesktopCloudService } from "../apps/desktop/src/main/desktop-cloud";
-import { DesktopCloudContextClient, CloudContextError } from "../apps/desktop/src/main/cloud-context";
+import { DesktopCloudService } from "../apps/desktop/src/main/cloud/desktop-cloud";
+import { DesktopCloudContextClient, CloudContextError } from "../apps/desktop/src/main/cloud/cloud-context";
 import { DesktopConfigStore } from "../apps/desktop/src/main/config-store";
-import { DesktopCloudEnrollmentManager } from "../apps/desktop/src/main/cloud-enrollment";
+import { DesktopCloudEnrollmentManager } from "../apps/desktop/src/main/cloud/cloud-enrollment";
 import { createLogger } from "../packages/foundation/core/src/logging";
 
 const root = resolve(import.meta.dirname, "..");

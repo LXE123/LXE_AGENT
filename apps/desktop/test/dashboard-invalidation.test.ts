@@ -5,7 +5,7 @@ import {
   DashboardInvalidationBatcher,
   dashboardDomainsForMutation,
   dashboardInvalidationForAgentEvent,
-} from "../src/main/dashboard-invalidation";
+} from "../src/main/gateway/dashboard-invalidation";
 
 const lifecycleEvent = (
   type: "thread.started" | "turn.started" | "turn.completed" | "turn.failed",

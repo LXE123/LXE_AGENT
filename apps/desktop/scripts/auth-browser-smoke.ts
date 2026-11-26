@@ -4,8 +4,8 @@ import { spawn } from "node:child_process";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { AuthBrowserHost } from "../src/main/auth-browser-host";
-import { ElectronAuthBrowserSession, storageCookie } from "../src/main/auth-browser-session";
+import { AuthBrowserHost } from "../src/main/auth-browser/auth-browser-host";
+import { ElectronAuthBrowserSession, storageCookie } from "../src/main/auth-browser/auth-browser-session";
 
 const state = mkdtempSync(join(tmpdir(), "lxe-auth-smoke-"));
 app.setPath("userData", state);

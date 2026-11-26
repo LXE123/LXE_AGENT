@@ -17,7 +17,7 @@ import type {
   ManagedLlmCredential,
 } from "@lxe/desktop-protocol";
 import { DesktopCloudEnrollmentManager } from "./cloud-enrollment";
-import type { DesktopConfigStore } from "./config-store";
+import type { DesktopConfigStore } from "../config-store";
 import {
   previousEnrollmentRemoved,
   type WireGuardDependencyStatus,

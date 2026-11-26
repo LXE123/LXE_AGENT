@@ -6,7 +6,7 @@ import {
   previewConversationAttachment,
   previewConversationImageView,
   revealConversationArtifact,
-} from "../src/main/conversation-artifacts";
+} from "../src/main/conversations/conversation-artifacts";
 
 describe("conversation artifact opening", () => {
   test("previews only a resolved attachment and bounds thumbnail and expanded requests", async () => {

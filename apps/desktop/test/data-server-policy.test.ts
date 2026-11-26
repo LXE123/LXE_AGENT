@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import {
   resolveDataServerRuntimeEnvironment,
   withoutDataServerEnvironment,
-} from "../src/main/data-server-policy";
+} from "../src/main/cloud/data-server-policy";
 
 describe("desktop data server policy", () => {
   test("uses only scoped desktop configuration in source development and Preview", () => {

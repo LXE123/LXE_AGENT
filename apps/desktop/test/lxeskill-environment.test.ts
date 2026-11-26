@@ -3,10 +3,10 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { queryLxeSkill } from "@lxe/core";
-import { DesktopLxeSkillHealth } from "../src/main/lxeskill-health";
-import { DesktopInputAssetsService } from "../src/main/input-assets";
-import { LxeSkillClient } from "../src/main/lxeskill-client";
-import { DesktopVietnamSettingsService } from "../src/main/vietnam-settings";
+import { DesktopLxeSkillHealth } from "../src/main/lxeskill/lxeskill-health";
+import { DesktopInputAssetsService } from "../src/main/lxeskill/input-assets";
+import { LxeSkillClient } from "../src/main/lxeskill/lxeskill-client";
+import { DesktopVietnamSettingsService } from "../src/main/lxeskill/vietnam-settings";
 
 for (const variable of ["PYTHONHOME", "PYTHONPATH"] as const) {
   test(`controlled source CLI launches ignore inherited ${variable}`, async () => {

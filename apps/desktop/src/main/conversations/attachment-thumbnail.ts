@@ -1,7 +1,7 @@
 import { lstat, open } from "node:fs/promises";
 import { constants } from "node:fs";
 import { nativeImage } from "electron";
-import { MAX_SCREENSHOT_BYTES, MAX_SCREENSHOT_PIXELS } from "../conversation-paste";
+import { MAX_SCREENSHOT_BYTES, MAX_SCREENSHOT_PIXELS } from "../../conversation-paste";
 
 /** Bound preview reads independently of the unrestricted local-file reference. */
 export async function attachmentThumbnail(path: string, edge: number): Promise<string> {

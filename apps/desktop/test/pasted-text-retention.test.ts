@@ -6,8 +6,8 @@ import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { ProcessAgentRuntime } from "@lxe/gateway/desktop";
 import { SqliteRuntimeStore } from "../../../packages/agent/runtime/src/state/storage";
-import { DesktopConversationAttachmentService } from "../src/main/conversation-attachments";
-import { PastedTextRetention } from "../src/main/pasted-text-retention";
+import { DesktopConversationAttachmentService } from "../src/main/conversations/conversation-attachments";
+import { PastedTextRetention } from "../src/main/conversations/pasted-text-retention";
 
 const cleanups: (() => Promise<void>)[] = [];
 afterEach(async () => { for (const cleanup of cleanups.splice(0)) await cleanup(); });

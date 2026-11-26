@@ -1,7 +1,7 @@
 import type { Logger, ManagedLlmState } from "@lxe/core";
 import { managedTargetKey, parseManagedManifest } from "@lxe/core";
 import type { DesktopNativeCloudAccess, DesktopObservedDevice, ManagedLlmCredential } from "@lxe/desktop-protocol";
-import type { DesktopConfigStore } from "./config-store";
+import type { DesktopConfigStore } from "../config-store";
 import { CloudHttpError } from "./cloud-errors";
 import { CloudContextError, contextDiagnostic } from "./cloud-context";
 import { sameObservedDevice } from "./cloud-permissions";

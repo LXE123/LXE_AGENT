@@ -6,8 +6,8 @@ import type { DesktopSyntheticPerformerTask } from "@lxe/desktop-protocol";
 import {
   DesktopSyntheticPerformerService,
   syntheticPerformerTaskDirectoryName,
-} from "../src/main/synthetic-performer";
-import { LxeSkillClient } from "../src/main/lxeskill-client";
+} from "../src/main/lxeskill/synthetic-performer";
+import { LxeSkillClient } from "../src/main/lxeskill/lxeskill-client";
 
 const roots: string[] = [];
 

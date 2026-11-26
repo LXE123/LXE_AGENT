@@ -3,7 +3,7 @@ import { accessSync, constants } from "node:fs";
 import { AutomationClock, AutomationService, AutomationBlockedError, AutomationTargetMissingError, type DirectGatewayComposition, type ProcessAgentRuntime, type AutomationStore } from "@lxe/gateway/desktop";
 import { DESKTOP_MCP_NAME, parseDashboardRpcCall, type AutomationDefinition, type AutomationOperation, type DashboardRpcCall, type AutomationRun, type AutomationRunView } from "@lxe/desktop-protocol";
 import { startDesktopPipe } from "@lxe/desktop-protocol/local-pipe-server";
-import { desktopTools } from "../mcp/tools";
+import { desktopTools } from "../../mcp/tools";
 
 const object = (value: unknown): Record<string, unknown> => {
   if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("Desktop tool arguments must be an object");

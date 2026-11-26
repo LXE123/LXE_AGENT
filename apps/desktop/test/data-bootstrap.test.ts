@@ -2,8 +2,8 @@ import { expect, test } from "bun:test";
 import { mkdtempSync, mkdirSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { bootstrapUserData } from "../src/main/data-bootstrap";
-import { DATA_LOCATION_MARKER } from "../src/main/data-migration";
+import { bootstrapUserData } from "../src/main/data/data-bootstrap";
+import { DATA_LOCATION_MARKER } from "../src/main/data/data-migration";
 import type { DesktopPaths } from "../src/main/paths";
 
 const unusedStorage = async () => {throw new Error("must not read credentials");};
