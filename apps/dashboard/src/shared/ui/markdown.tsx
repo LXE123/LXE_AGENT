@@ -1,4 +1,4 @@
-import React, { useEffect, useId, useMemo, useState } from "react";
+import React, { useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
 import rehypeKatex from "rehype-katex";
 import type { Components, Options } from "react-markdown";
 
@@ -26,38 +26,45 @@ export function loadMermaid(): Promise<MermaidApi> {
   return mermaidLoader;
 }
 
-function renderMermaidChart(id: string, chart: string) {
+function renderMermaidChart(id: string, chart: string, container: HTMLDivElement) {
   // initialize changes Mermaid's global configuration. Keep it and the entire
   // async render together so several diagrams cannot overwrite each other's theme.
   const render = mermaidRenderQueue.then(async () => {
     const mermaid = await loadMermaid();
     const root = document.documentElement;
-    const styles = getComputedStyle(root);
+    const styles = getComputedStyle(container.closest(".message-markdown") ?? root);
     const color = (token: string) => styles.getPropertyValue(token).trim();
-    const text = color("--text");
-    const border = color("--border-strong");
+    const text = styles.color;
+    const canvas = color("--mermaid-canvas");
+    const stroke = color("--mermaid-stroke");
+    const fontPixels = Number.parseFloat(styles.fontSize);
     mermaid.initialize({
       startOnLoad: false,
       securityLevel: "strict",
       theme: "base",
+      sequence: {
+        actorFontSize: fontPixels,
+        messageFontSize: fontPixels,
+        noteFontSize: fontPixels,
+      },
       themeVariables: {
         darkMode: root.dataset.theme === "dark",
-        background: color("--surface"),
-        primaryColor: color("--conversation-muted-fill"),
+        background: canvas,
+        primaryColor: canvas,
         secondaryColor: color("--surface-subtle"),
-        tertiaryColor: color("--surface"),
+        tertiaryColor: canvas,
         primaryTextColor: text,
         secondaryTextColor: text,
         tertiaryTextColor: text,
-        primaryBorderColor: border,
-        secondaryBorderColor: border,
-        tertiaryBorderColor: border,
-        lineColor: color("--muted"),
-        arrowheadColor: color("--muted"),
-        edgeLabelBackground: color("--surface"),
+        primaryBorderColor: stroke,
+        secondaryBorderColor: stroke,
+        tertiaryBorderColor: stroke,
+        lineColor: stroke,
+        arrowheadColor: stroke,
+        edgeLabelBackground: canvas,
         noteBkgColor: color("--surface-subtle"),
         noteTextColor: text,
-        noteBorderColor: border,
+        noteBorderColor: stroke,
         fontFamily: color("--font-sans"),
         fontSize: styles.fontSize,
       },
@@ -125,6 +132,7 @@ export const markdownComponents = {
 
 export function MermaidBlock({ chart }: { chart: string }) {
   const t = useUiText();
+  const container = useRef<HTMLDivElement>(null);
   const reactId = useId();
   const mermaidId = useMemo(
     () => `skill-mermaid-${reactId.replace(/[^a-zA-Z0-9_-]/g, "-")}`,
@@ -134,6 +142,15 @@ export function MermaidBlock({ chart }: { chart: string }) {
   const [error, setError] = useState("");
   const chartText = chart.trim();
 
+  useLayoutEffect(() => {
+    const diagram = container.current?.querySelector("svg");
+    // Mermaid emits responsive SVGs with width="100%". Keep their drawing
+    // scale when the viewport narrows so labels stay legible while scrolling.
+    if (diagram?.getAttribute("width") === "100%" && diagram.viewBox.baseVal.width > 0) {
+      diagram.setAttribute("width", String(diagram.viewBox.baseVal.width));
+    }
+  }, [svg]);
+
   useEffect(() => {
     let cancelled = false;
     let revision = 0;
@@ -142,11 +159,11 @@ export function MermaidBlock({ chart }: { chart: string }) {
       const currentRevision = ++revision;
       setSvg("");
       setError("");
-      if (!chartText) {
+      if (!chartText || !container.current) {
         return;
       }
       try {
-        const result = await renderMermaidChart(mermaidId, chartText);
+        const result = await renderMermaidChart(mermaidId, chartText, container.current);
         if (!cancelled && currentRevision === revision) {
           setSvg(result.svg);
         }
@@ -171,7 +188,7 @@ export function MermaidBlock({ chart }: { chart: string }) {
 
   if (error) {
     return (
-      <div className="mermaid-block error">
+      <div ref={container} className="mermaid-block error">
         <div className="mermaid-block-status error">{t.mermaid.renderError(error)}</div>
         <pre className="mermaid-source-fallback">{chart}</pre>
       </div>
@@ -179,11 +196,12 @@ export function MermaidBlock({ chart }: { chart: string }) {
   }
 
   if (!svg) {
-    return <div className="mermaid-block-status">{t.mermaid.rendering}</div>;
+    return <div ref={container} className="mermaid-block-status">{t.mermaid.rendering}</div>;
   }
 
   return (
     <div
+      ref={container}
       className="mermaid-block"
       dangerouslySetInnerHTML={{ __html: svg }}
     />

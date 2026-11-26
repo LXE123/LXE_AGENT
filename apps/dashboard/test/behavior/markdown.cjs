@@ -123,9 +123,20 @@ module.exports = async ({ win, js, step, settle, waitFor, focus, key }) => {
       }))`);
       assert.deepEqual(headings.map(h => [h.tag, h.text, h.body]),
         Array.from({ length: 6 }, (_, i) => [`H${i + 1}`, `Heading ${i + 1}`, `Body ${i + 1}.`]));
+      if (surface === "conversation") {
+        assert.deepEqual(headings.map(h => h.size), [22, 18, 16, 16, 14, 14]);
+        assert.equal(headings[0].bodySize, 15);
+        for (const [lang, expected] of [["zh-CN", "24px"], ["en", "21px"]]) {
+          const lineHeight = await js(`(() => {
+            document.documentElement.lang = ${JSON.stringify(lang)};
+            return getComputedStyle(document.querySelector('.message-markdown p')).lineHeight;
+          })()`);
+          assert.equal(lineHeight, expected);
+        }
+      }
       for (const [index, heading] of headings.entries()) {
         assert.ok(heading.height > 0, `${heading.tag} is rendered`);
-        assert.ok(heading.size >= heading.bodySize, `${heading.tag} is not smaller than its body: ${JSON.stringify(heading)}`);
+        if (surface === "skill") assert.ok(heading.size >= heading.bodySize, `${heading.tag} is not smaller than its body`);
         if (index) assert.ok(heading.size <= headings[index - 1].size, "heading sizes follow their semantic hierarchy");
         assert.ok(heading.bodyTop >= heading.bottom - 1, "heading does not overlap the following paragraph");
       }

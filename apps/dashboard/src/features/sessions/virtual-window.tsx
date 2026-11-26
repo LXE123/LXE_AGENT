@@ -19,7 +19,7 @@ function rowBottomPadding(row: ConversationRow, next: ConversationRow | undefine
   if (row.kind === "compaction" || next?.kind === "compaction") return 12;
   // The label and the first answer line have different insets inside their rows.
   if (row.kind === "process" && toolCardGroup(next) === row.id) return 14;
-  if (next?.presentation === "final" && toolCardGroup(row) === processId(next)) return 12;
+  if (next?.presentation === "final" && toolCardGroup(row) === processId(next)) return 13;
   // The status control and the first text line already have vertical insets.
   if (next && row.turnId === next.turnId) {
     if ((row.kind === "process" || row.kind === "status") && next.presentation === "final") return 6;

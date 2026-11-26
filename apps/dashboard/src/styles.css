@@ -27,6 +27,9 @@
   /* A neutral grey shared by conversation cells and user bubbles. Keeping it
      independent prevents the warm page palette from tinting these surfaces. */
   --conversation-muted-fill: #f4f4f4;
+  --mermaid-canvas: #f7f7f7;
+  --mermaid-frame: #e8e8e8;
+  --mermaid-stroke: #727272;
   --table-header-fill: #f0f0f0;
   --inline-code-fill: var(--table-header-fill);
   --inline-code-text: #1f1f1f;
@@ -154,6 +157,9 @@ button {
   --surface-muted: #2e2c2a;
   --surface-subtle: #2a2827;
   --conversation-muted-fill: #302f2e;
+  --mermaid-canvas: #181818;
+  --mermaid-frame: #252525;
+  --mermaid-stroke: #a1a1a1;
   --table-header-fill: #2d2c2b;
   --inline-code-text: #f3f3f3;
   --row-hover: #3b3835;
@@ -5773,58 +5779,81 @@ h1 {
   margin-top: 3px;
 }
 
-/* Assistant prose shares one reading rhythm in both themes, including while
-   streaming. Other Markdown surfaces retain their existing typography. */
+/* Assistant Markdown has its own type scale, shared by streamed and completed
+   replies. rem units follow the user's text-size setting. */
 .conversation-feed :is(.message-card.role-assistant, .timeline-text.process-message-content) .message-markdown {
-  line-height: 1.55;
-}
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  row-gap: 0.75rem;
+  font-size: 0.9375rem;
+  font-weight: 400;
+  line-height: 1.4;
 
-.conversation-feed :is(.message-card.role-assistant, .timeline-text.process-message-content) .message-markdown p:not(:last-child) {
-  margin-bottom: 0.75em;
-}
+  &:lang(zh), &:lang(ja), &:lang(ko) {
+    line-height: 1.6;
+  }
 
-.conversation-feed :is(.message-card.role-assistant, .timeline-text.process-message-content) .message-markdown :is(h1, h2, h3, h4, h5, h6, strong, b) {
-  font-weight: 600;
-}
+  & > * {
+    min-width: 0;
+    margin-block: 0;
+  }
 
-.conversation-feed :is(.message-card.role-assistant, .timeline-text.process-message-content) .message-markdown :is(h1, h2, h3, h4, h5, h6) {
-  margin-bottom: 7px;
-}
+  & :is(h1, h2, h3, h4, h5, h6) {
+    margin-block: 0.5rem 0;
+    line-height: 1.5;
+  }
+  /* Tighten the grid gap after a heading. Nested quotes and list items use
+     normal block flow and have no grid gap to offset. */
+  & > :is(h1, h2, h3, h4, h5, h6) { margin-bottom: -0.25rem; }
 
-.conversation-feed :is(.message-card.role-assistant, .timeline-text.process-message-content) .message-markdown h1 {
-  margin-top: 30px;
-  font-size: 1.5rem;
-}
+  & :is(h1, h2, h3, h4, h5, strong, b, th) {
+    font-weight: 600;
+  }
 
-.conversation-feed :is(.message-card.role-assistant, .timeline-text.process-message-content) .message-markdown h2 {
-  margin-top: 26px;
-  font-size: 1.1875rem;
-}
+  & :is(h1, h2) {
+    margin-top: 0.75rem;
+  }
 
-.conversation-feed :is(.message-card.role-assistant, .timeline-text.process-message-content) .message-markdown h3 {
-  margin-top: 21px;
-  font-size: 1rem;
-}
+  & h1 { font-size: 1.375rem; }
+  & h2 { font-size: 1.125rem; }
+  & :is(h3, h4) { font-size: 1rem; }
+  & :is(h5, h6) {
+    font-size: 0.875rem;
+    line-height: 1.25rem;
+  }
+  & h6 { font-weight: 580; }
 
-.conversation-feed :is(.message-card.role-assistant, .timeline-text.process-message-content) .message-markdown :is(h4, h5, h6) {
-  margin-top: 18px;
-}
+  & :is(ul, ol) {
+    padding-inline-start: 2rem;
+    margin-block: 0 0.75rem;
+  }
+  & li { padding-inline-start: 0.5rem; }
+  & li + li { margin-top: 0.25rem; }
+  & li :is(ul, ol) { margin-block: 0.25rem 0; }
 
-/* Keep the first heading flush with its container, including inside quotes. */
-.conversation-feed :is(.message-card.role-assistant, .timeline-text.process-message-content) .message-markdown > :is(h1, h2, h3, h4, h5, h6):first-child,
-.conversation-feed :is(.message-card.role-assistant, .timeline-text.process-message-content) .message-markdown blockquote > :is(h1, h2, h3, h4, h5, h6):first-child {
-  margin-top: 0;
-}
+  & blockquote {
+    margin-inline-start: 0.5rem;
+    padding-inline-start: 1rem;
+    border-inline-start-width: 4px;
+  }
 
-.conversation-feed :is(.message-card.role-assistant, .timeline-text.process-message-content) .message-markdown > :is(h1, h2, h3, h4, h5, h6):last-child,
-.conversation-feed :is(.message-card.role-assistant, .timeline-text.process-message-content) .message-markdown blockquote > :is(h1, h2, h3, h4, h5, h6):last-child {
-  margin-bottom: 0;
-}
+  & table {
+    font-size: 0.875rem;
+    line-height: 1.7;
+  }
+  & th { font-size: inherit; }
 
-/* Table density is independent of the prose rhythm; code blocks already
-   declare their own line height. */
-.conversation-feed :is(.message-card.role-assistant, .timeline-text.process-message-content) .message-markdown table {
-  line-height: 1.7;
+  & code:not(pre code) {
+    font-size: 0.9em;
+    line-height: 1;
+  }
+  & pre, & pre code {
+    font-size: 0.875rem;
+    line-height: 1.625;
+  }
+
+  & > :first-child, & blockquote > :first-child { margin-top: 0; }
+  & > :last-child, & blockquote > :last-child { margin-bottom: 0; }
 }
 
 .message-markdown .markdown-file-link {
@@ -6858,17 +6887,17 @@ pre {
 
 .mermaid-block {
   margin: 0 0 12px;
-  padding: 12px;
+  min-width: 0;
+  padding: 1rem;
   overflow-x: auto;
-  border: 1px solid var(--border);
+  border: 1px solid var(--mermaid-frame);
   border-radius: 8px;
-  background: var(--surface);
+  background: var(--mermaid-canvas);
 }
 
-.mermaid-block svg {
+.mermaid-block > svg {
   display: block;
-  min-width: 620px;
-  max-width: none;
+  margin-inline: auto;
   height: auto;
 }
 
