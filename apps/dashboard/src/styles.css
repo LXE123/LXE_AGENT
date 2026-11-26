@@ -5779,12 +5779,7 @@ h1 {
   margin-top: 3px;
 }
 
-/* Assistant Markdown has its own type scale, shared by streamed and completed
-   replies. rem units follow the user's text-size setting. */
-.conversation-feed :is(.message-card.role-assistant, .timeline-text.process-message-content) .message-markdown {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr);
-  row-gap: 0.75rem;
+.conversation-feed :is(.message-card.role-user, .message-card.role-assistant, .timeline-text.process-message-content) .message-markdown {
   font-size: 0.9375rem;
   font-weight: 400;
   line-height: 1.4;
@@ -5792,6 +5787,13 @@ h1 {
   &:lang(zh), &:lang(ja), &:lang(ko) {
     line-height: 1.6;
   }
+}
+
+/* Assistant Markdown lays out paragraphs and headings as separate blocks. */
+.conversation-feed :is(.message-card.role-assistant, .timeline-text.process-message-content) .message-markdown {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  row-gap: 0.75rem;
 
   & > * {
     min-width: 0;
@@ -9305,10 +9307,6 @@ pre {
 .conversation-feed .message-card.role-user.has-attachments > .message-content > *,
 .conversation-feed .message-card.role-user.has-attachments .message-block {
   width: 100%;
-}
-
-.conversation-feed .message-card.role-user .message-markdown {
-  line-height: 1.6;
 }
 
 .conversation-feed .message-card.role-user .message-markdown > :last-child {

@@ -718,6 +718,19 @@ module.exports = async ({suite,win,url,js,step,load,waitFor,click,key,focus,sett
     await load('?app=1&workspaces=1&section=sessions&forkFixture=1&quoteHistory=1');
     await click('[data-session-id="Shop chat 2"] .session-index-open');
     await waitFor(`document.querySelector('${bubble} .user-reference-text')?.textContent === 'final text'`, 'multiline quote from history');
+    for (const [lang, lineHeight] of [['en', '21px'], ['zh-CN', '24px']]) {
+      const typography = await js(`(() => {
+        const card = document.querySelector('${bubble}');
+        card.lang = '${lang}';
+        const metrics = ['.user-reference-text', '.sent-quote-open', 'blockquote + p'].map(selector => {
+          const style = getComputedStyle(card.querySelector(selector));
+          return [style.fontSize, style.lineHeight, style.fontWeight];
+        });
+        card.removeAttribute('lang');
+        return metrics;
+      })()`);
+      for (const style of typography) assert.deepEqual(style, ['15px', lineHeight, '400'], lang);
+    }
     for (const theme of ['dark', 'light']) {
       const layout = await js(`(() => {
         document.documentElement.dataset.theme = '${theme}';
