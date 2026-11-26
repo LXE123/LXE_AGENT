@@ -30,6 +30,7 @@ export function SelectionQuote({ root, quoteRef }: {
   const [error, setError] = useState("");
   const panel = useRef<HTMLDivElement>(null);
   const composing = useRef(false);
+  const compositionEndedAt = useRef(0);
   function dismiss() {
     composing.current = false;
     setExcerpt(undefined);
@@ -111,13 +112,20 @@ export function SelectionQuote({ root, quoteRef }: {
   return createPortal(<div ref={panel} className="selection-quote conversation-chrome-theme" onKeyDown={event => {
     if (event.nativeEvent.isComposing || event.keyCode === 229 || composing.current) return;
     if (event.key === "Escape") { event.preventDefault(); event.stopPropagation(); dismiss(); }
+    if (event.target instanceof HTMLTextAreaElement && event.key === "Enter" && !event.shiftKey) {
+      event.preventDefault();
+      event.stopPropagation();
+      // Some IMEs end composition immediately before their final Enter keydown.
+      if (!event.repeat && Date.now() - compositionEndedAt.current >= 10) confirm();
+    }
   }}>
     {editing ? <div className="selection-quote-card" role="dialog" aria-label={labels.quote}>
       <blockquote>{excerpt.text}</blockquote>
       <div className="quote-comment-controls">
         <textarea rows={1} autoFocus aria-label={labels.quoteComment} placeholder={labels.quoteComment} value={comment}
           onChange={event => { setComment(event.target.value); setError(""); }}
-          onCompositionStart={() => { composing.current = true; }} onCompositionEnd={() => { composing.current = false; }} />
+          onCompositionStart={() => { composing.current = true; }}
+          onCompositionEnd={() => { composing.current = false; compositionEndedAt.current = Date.now(); }} />
         {comment && <button className="quote-icon" type="button" title={t.workspaces.cancel} aria-label={t.workspaces.cancel} onClick={dismiss}><X size={14} /></button>}
         <button className="quote-confirm" type="button" title={labels.stageQuote} aria-label={labels.stageQuote} onClick={confirm}><Check size={16} /></button>
       </div>

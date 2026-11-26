@@ -641,6 +641,14 @@ module.exports = async ({suite,win,url,js,step,load,waitFor,click,key,focus,sett
     await select();
     await win.webContents.insertText('unconfirmed');
     await js(`document.activeElement.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',isComposing:true,bubbles:true,cancelable:true}))`);
+    await js(`(() => {
+      const field = document.activeElement;
+      const enter = () => field.dispatchEvent(new KeyboardEvent('keydown', {key:'Enter', bubbles:true, cancelable:true}));
+      field.dispatchEvent(new CompositionEvent('compositionstart', {bubbles:true}));
+      enter();
+      field.dispatchEvent(new CompositionEvent('compositionend', {bubbles:true}));
+      enter();
+    })()`);
     assert.equal(await js(`document.querySelector('${field}').value`), 'unconfirmed');
     await key('Escape');
     assert.equal(await js(`!!document.querySelector('${card}')`), false);
@@ -650,7 +658,14 @@ module.exports = async ({suite,win,url,js,step,load,waitFor,click,key,focus,sett
     await win.webContents.insertText('why?');
     await outside(); await settle();
     assert.equal(await js(`document.querySelector('${field}').value`), 'why?');
-    await click('.quote-confirm');
+    await key('Enter', ['shift']);
+    await win.webContents.insertText('details');
+    const multilineComment = 'why?\ndetails';
+    assert.equal(await js(`document.querySelector('${field}').value`), multilineComment);
+    await key('Enter');
+    assert.equal(await js(`!!document.querySelector('${card}')`), false);
+    assert.equal(await js("document.querySelector('.reference-editor').textContent"), 'my draft');
+    assert.equal((await state()).calls.filter(c => c.operation === 'sessions.send').length, 0);
     await click('[data-session-id="Default chat"] .session-index-open');
     await waitFor("!document.querySelector('.composer-quotes')", 'quotes are scoped to their conversation');
     await load('?app=1&workspaces=1&section=sessions&forkFixture=1&quoteHistory=1');
@@ -659,7 +674,7 @@ module.exports = async ({suite,win,url,js,step,load,waitFor,click,key,focus,sett
     await waitFor("document.querySelector('.reference-editor')?.textContent === 'my draft' && !!document.querySelector('.composer-quotes .message-quote-open')", 'draft and quote restored after reload');
     await click('.composer-quotes .message-quote-open');
     assert.equal(await js("document.querySelector('.quote-preview blockquote').textContent"), 'assistant one');
-    assert.equal(await js("document.querySelector('.quote-preview p').textContent"), 'why?');
+    assert.equal(await js("document.querySelector('.quote-preview p').textContent"), multilineComment);
     await key('Escape');
     await select();
     await click('.quote-confirm'); // No comment stages an ordinary excerpt.
@@ -668,7 +683,7 @@ module.exports = async ({suite,win,url,js,step,load,waitFor,click,key,focus,sett
       await waitFor(`document.querySelector('${bubble} .user-reference-text')?.textContent === 'my draft'`, 'reader-facing message body');
       assert.equal(await js(`document.querySelector('${bubble}').textContent.includes('<!--')`), false);
       assert.equal(await js(`document.querySelectorAll('${bubble} .quote-icon').length`), 0);
-      for (const [index, comment] of [[1, 'why?'], [2, '']]) {
+      for (const [index, comment] of [[1, multilineComment], [2, '']]) {
         await click(`${bubble} .message-quote-row:nth-child(${index}) .message-quote-open`);
         assert.equal(await js("document.querySelector('.quote-preview blockquote').textContent"), 'assistant one');
         assert.equal(await js("document.querySelector('.quote-preview p')?.textContent ?? ''"), comment);
@@ -685,7 +700,7 @@ module.exports = async ({suite,win,url,js,step,load,waitFor,click,key,focus,sett
     await checkBubble();
     await js("behavior.releaseWorkspaceSend()");
     await waitFor("!document.querySelector('.composer-quotes') && !document.querySelector('.reference-editor').textContent", 'sent quotes clear');
-    assert.equal((await state()).calls.findLast(c=>c.operation==='sessions.send').input.text, '<!-- reply 1 -->\n> assistant one\n\nwhy?\n\n\n<!-- attach -->\n> assistant one\n\nmy draft');
+    assert.equal((await state()).calls.findLast(c=>c.operation==='sessions.send').input.text, '<!-- reply 1 -->\n> assistant one\n\nwhy?\ndetails\n\n\n<!-- attach -->\n> assistant one\n\nmy draft');
     await load('?app=1&workspaces=1&section=sessions&forkFixture=1&quoteHistory=1');
     await click('[data-session-id="Shop chat 2"] .session-index-open');
     await checkBubble();
