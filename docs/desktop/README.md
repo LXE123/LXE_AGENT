@@ -46,7 +46,7 @@ uv sync --frozen --all-groups --python 3.12.10
 
 | 目录 | 内容 |
 | --- | --- |
-| `gateway/` | Desktop Gateway 装配、会话删除、定时任务、渠道状态 |
+| `gateway/` | Desktop Gateway 装配、定时任务、渠道状态；`dashboard-handlers/` 处理需要 Desktop 自己参与的 Dashboard 请求（会话、文件、设置），其余请求原样转给 agentcli |
 | `conversations/` | 对话提交、附件、粘贴文本保留、产物 |
 | `lxeskill/` | lxeskill client、设置页、输入素材、媒体任务、CLI 状态检查 |
 | `cloud/` | 公司云端接入、权限、WireGuard、受管模型凭据 |
