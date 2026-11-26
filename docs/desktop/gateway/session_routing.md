@@ -9,22 +9,29 @@ Session Router 是平台事件进入调度器前的控制面。它解析稳定 s
 - [`router.ts`](/apps/gateway/src/orchestration/router.ts)：消息路由和控制命令。
 - [`session-bindings.ts`](/apps/gateway/src/state/session-bindings.ts)：稳定 source-to-session 映射。
 - [`session-state.ts`](/apps/gateway/src/state/session-state.ts)：进程内 steering 状态。
+- [`owner.ts`](/apps/gateway/src/channels/feishu/owner.ts)：飞书所有者配对与准入。
 
 ## 飞书入口边界
 
-飞书用户准入由飞书后台的应用可用范围负责。本地不再维护 Bot 或 union ID 白名单；所有由当前已认证应用连接投递的用户消息都可以进入 Router。
+飞书渠道是这台电脑上 Agent 的个人远程入口：只响应一个所有者，在哪个聊天里找它都是同一个助手。
 
-Feishu adapter 在进入 Router 前继续验证消息身份和会话语义：
+**所有者怎么确定。** 设置 → 飞书 → 「绑定所有者」生成一个 6 位配对码，10 分钟内有效。所有者在飞书里**私聊**机器人发送这个码，Gateway 就把这条消息的发送人 open_id 记为所有者，保存在 `db/feishu-owner.json`（和 `sessions.json` 同目录）。能拿到配对码的人，就是同时能操作这台电脑和这个飞书账号的人。open_id 只在一个飞书应用内有效，所以记录里同时保存 App ID，换了应用就需要重新配对。重新配对期间，原所有者在新码被使用前照常可用。
+
+Feishu adapter 在进入 Router 前按顺序检查：
 
 1. 事件声明的 App ID 与当前 `FEISHU_APP_ID` 一致；缺失时使用当前配置。
-2. 群聊消息明确 @ 当前 Bot；私聊无需 @。
-3. source 中用于构造 session key 的字段完整。
+2. 不是重复或超过 5 分钟的旧消息。
+3. 群聊消息明确 @ 当前 Bot；私聊无需 @。
+4. 发送人 open_id 存在。
+5. 所有者准入：配对码消息完成绑定；还没有所有者时拒绝并提示去设置里绑定；发送人不是所有者时拒绝并回复「这是个人助手」。
 
-App ID 不一致或群聊未 @Bot 的事件不会创建 session、response route 或 pending job。Bot、用户与会话标识仍保留用于路由、统计和审计，不用于授权。
+这些检查都在转换消息内容之前完成，被拒绝的消息不会下载附件，也不会去查引用消息。被拒绝的消息不会创建 session、response route 或 pending job；需要回复的拒绝直接回复原消息。
 
 ## Session source 与 binding
 
-`SessionSource` 归一化平台、bot、用户、chat type、chat id、thread 和显示名。稳定 session key 由平台身份和会话边界组成：私聊按用户隔离，群聊按 chat/thread 与用户规则隔离。
+`SessionSource` 归一化平台、bot、用户、chat type、chat id、thread 和显示名。session key 只由平台决定（`agent:main:feishu:personal`）：私聊、群聊和话题里的消息都进入同一个 session。回复仍按每条消息自己的 response route 回到它来的那个聊天。
+
+因为所有聊天共用一个 session，Router 在每条消息开头标明来源，例如 `[来自飞书私聊]`，或 `[来自飞书群聊 chat_id=…：群成员都能看到回复，不要透露私聊或其他聊天中的内容]`。附件消息的第一个文本块也带上同样的标记。
 
 `SessionBindingStore` 使用原子 UTF-8 JSON 保存 source key 到 session id 的映射：
 
@@ -64,7 +71,7 @@ Router 在 enqueue 前 upsert route；CardKit 创建后可 patch `platform_messa
 
 ### Steering
 
-飞书的 `/steer` 是 session 级开关。启用后，纯文本插话在当前回复和本批工具调用结束后生效。飞书附件仍作为普通 job 排队。若 run 已进入 closing 或不存在，消息回退到队首，不能丢失。
+飞书的 `/steer` 是 session 级开关。启用后，纯文本插话在当前回复和本批工具调用结束后生效。飞书附件仍作为普通 job 排队。正在执行的回复只在它自己的聊天里作答，所以来自另一个聊天的消息总是排队，不会插进去。若 run 已进入 closing 或不存在，消息回退到队首，不能丢失。
 
 ## Skill 与 connector 权限
 

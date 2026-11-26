@@ -1,0 +1,65 @@
+.desktop-feishu-owner {
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+  padding: 16px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface-muted);
+}
+
+.desktop-feishu-owner-heading {
+  display: grid;
+  gap: 4px;
+}
+
+.desktop-feishu-owner-heading span,
+.desktop-feishu-owner-code span {
+  color: var(--muted);
+  font-size: 0.75rem;
+}
+
+.desktop-feishu-owner-state {
+  margin: 0;
+  font-size: 0.8125rem;
+}
+
+.desktop-feishu-owner-code {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+
+.desktop-feishu-owner-code code {
+  padding: 6px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+  font-size: 1.25rem;
+  letter-spacing: 0.2em;
+}
+
+.desktop-feishu-owner-pair {
+  justify-self: start;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--text);
+  background: var(--surface);
+  font: inherit;
+  font-size: 0.75rem;
+  cursor: pointer;
+}
+
+.desktop-feishu-owner-pair:disabled { opacity: 0.55; cursor: wait; }
+.desktop-feishu-owner-pair:hover:not(:disabled) { background: var(--surface-muted); }
+
+.desktop-feishu-owner-error {
+  margin: 0;
+  color: var(--danger);
+  font-size: 0.75rem;
+}

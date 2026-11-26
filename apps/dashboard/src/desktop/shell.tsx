@@ -3,6 +3,7 @@ import { WindowsTitlebar } from "./windows-titlebar";
 import { UsagePanel } from "./usage-panel";
 import { ErpSettingsTabs } from "./erp-settings-tabs";
 import { DeviceContextPanel } from "./device-context-panel";
+import { FeishuOwnerPanel } from "./feishu-owner-panel";
 import "./settings-theme.css";
 import { useEffect, useRef, useState, type FormEvent, type ReactNode, type RefObject } from "react";
 import { useQueryClient } from "@tanstack/react-query";
@@ -965,6 +966,7 @@ function DesktopSettingsForm({
               />
             </label>
           </div>
+          {setup.feishu.configured ? <FeishuOwnerPanel /> : null}
           {setup.feishu.managed ? (
             <button className="desktop-clear-integration" onClick={() => onClearIntegration("feishu")} type="button">
               <Trash2 size={14} />{t.desktop.clearIntegration}

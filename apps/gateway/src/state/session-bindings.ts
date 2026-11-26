@@ -77,17 +77,14 @@ export class SessionSource {
     return this.user_id_alt || this.user_id;
   }
 
+  /**
+   * A channel is one person's remote entry to the Agent, so every chat on it
+   * shares one session. Replies still go back to each message's own chat
+   * through its response route.
+   */
   get sessionKey(): string {
     if (!this.platform) throw new Error("session source platform required");
-    if (!this.chat_id) throw new Error("session source chat_id required");
-    const prefix = `agent:main:${this.platform}`;
-    if (this.chat_type === "dm") return `${prefix}:dm:${this.chat_id}`;
-    if (this.chat_type === "group") {
-      if (this.thread_id) return `${prefix}:group:${this.chat_id}:${this.thread_id}`;
-      if (!this.userKey) throw new Error("group session source user_id or user_id_alt required");
-      return `${prefix}:group:${this.chat_id}:${this.userKey}`;
-    }
-    return `${prefix}:${this.chat_type}:${this.chat_id}`;
+    return `agent:main:${this.platform}:personal`;
   }
 
   toJSON(): JsonRecord {

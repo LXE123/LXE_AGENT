@@ -397,6 +397,7 @@ const dashboard = {
       case "models.current": return currentModel;
       case "models.list": return { items: [currentModel] };
       case "channels.health": return { items: {}, total: 0 };
+      case "channels.feishu.owner": return { available: true, paired: false, owner_open_id_masked: "", paired_at: "", pairing: null };
       case "stats.skills.list": case "stats.tools.list": return { items: [], days: call.input.days };
       case "stats.overview": return {
         days: call.input.days, peak_hour: null, modules: [], daily: [],

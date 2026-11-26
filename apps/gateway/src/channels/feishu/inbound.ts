@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import type { AgentDiagnostic, InboundEvent, JsonObject } from "@lxe/protocol";
 import { createFeishuDiagnostic } from "./response";
+import type { FeishuAccessDecision } from "./owner";
 
 export interface FeishuMention {
   key: string;
@@ -62,6 +63,8 @@ export interface FeishuInboundOptions {
   uuid?: () => string;
   resolveResources?: (resources: FeishuInboundResource[], snapshot: FeishuMessageSnapshot) => Promise<ResolvedResources>;
   converterContext?: FeishuMessageConverterContext;
+  /** Runs before any content is converted or downloaded, so refused senders cost no API calls. */
+  access?: (snapshot: FeishuMessageSnapshot) => FeishuAccessDecision;
   loadQuote?: (parentId: string, chatId: string) => Promise<{
     text: string;
     metadata: JsonObject;
@@ -78,11 +81,14 @@ export type FeishuInboundRejectReason =
   | "group_bot_identity_missing"
   | "group_without_bot_mention"
   | "missing_sender_open_id"
+  | "pairing_completed"
+  | "owner_unpaired"
+  | "not_owner"
   | "empty_content";
 
 export type FeishuNormalizeDecision =
   | { accepted: true; event: InboundEvent }
-  | { accepted: false; reason: FeishuInboundRejectReason; metadata: JsonObject };
+  | { accepted: false; reason: FeishuInboundRejectReason; metadata: JsonObject; reply?: string };
 
 const record = (value: unknown): Record<string, unknown> =>
   value !== null && typeof value === "object" && !Array.isArray(value)
@@ -770,14 +776,16 @@ export class FeishuInboundNormalizer {
     if (rejected) return this.rejected(snapshot, rejected);
     const botOpenId = text(this.options.botOpenId);
     const mentions = snapshot.mentions;
-    let { message, resources, diagnostics } = await convertFeishuMessage(snapshot, this.options.converterContext);
     if (snapshot.chat_type === "group") {
       if (!botOpenId) return this.rejected(snapshot, "group_bot_identity_missing");
       if (!mentions.some((item) => mentionOpenId(item) === botOpenId)) return this.rejected(snapshot, "group_without_bot_mention");
-      message = stripBotMention(message, mentions, botOpenId);
     }
     const userId = text(snapshot.sender_open_id);
     if (!userId) return this.rejected(snapshot, "missing_sender_open_id");
+    const access = this.options.access?.(snapshot);
+    if (access && !access.allowed) return { ...this.rejected(snapshot, access.reason), reply: access.reply };
+    let { message, resources, diagnostics } = await convertFeishuMessage(snapshot, this.options.converterContext);
+    if (snapshot.chat_type === "group") message = stripBotMention(message, mentions, botOpenId);
     let blocks: JsonObject[] = [];
     let resourceMetadata: JsonObject[] = [];
     if (resources.length > 0) {
@@ -899,7 +907,7 @@ export class FeishuInboundNormalizer {
     snapshot: FeishuMessageSnapshot,
     reason: FeishuInboundRejectReason,
     resourceCount = 0,
-  ): FeishuNormalizeDecision {
+  ): Extract<FeishuNormalizeDecision, { accepted: false }> {
     return {
       accepted: false,
       reason,

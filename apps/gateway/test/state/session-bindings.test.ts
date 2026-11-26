@@ -10,17 +10,18 @@ afterEach(() => {
 });
 
 describe("SessionSource", () => {
+  // Every chat on a channel shares the owner's one personal session.
   const keyCases: Array<[string, Record<string, string>, string]> = [
-    ["p2p", {}, "agent:main:feishu:dm:chat-1"],
-    ["private", {}, "agent:main:feishu:dm:chat-1"],
-    ["", {}, "agent:main:feishu:dm:chat-1"],
-    ["chat", { user_id: "open", user_id_alt: "union" }, "agent:main:feishu:group:chat-1:union"],
-    ["group", { user_id: "open" }, "agent:main:feishu:group:chat-1:open"],
-    ["group", { thread_id: "thread-1" }, "agent:main:feishu:group:chat-1:thread-1"],
-    ["channel", {}, "agent:main:feishu:channel:chat-1"],
-    ["thread", {}, "agent:main:feishu:thread:chat-1"],
+    ["p2p", {}, "agent:main:feishu:personal"],
+    ["private", {}, "agent:main:feishu:personal"],
+    ["", {}, "agent:main:feishu:personal"],
+    ["chat", { user_id: "open", user_id_alt: "union" }, "agent:main:feishu:personal"],
+    ["group", { user_id: "open" }, "agent:main:feishu:personal"],
+    ["group", { thread_id: "thread-1" }, "agent:main:feishu:personal"],
+    ["channel", {}, "agent:main:feishu:personal"],
+    ["thread", {}, "agent:main:feishu:personal"],
   ];
-  test.each(keyCases)("normalizes %s and constructs its key", (
+  test.each(keyCases)("normalizes %s and keys it to the personal session", (
     chatType: string,
     fields: Record<string, string>,
     expected: string,
@@ -36,18 +37,12 @@ describe("SessionSource", () => {
     expect(source.toJSON().extra).toEqual({ bot_app_id: "bot" });
   });
 
-  test("rejects incomplete sources at the same key boundaries as Python", () => {
+  test("requires only the platform to key a session", () => {
     expect(() => SessionSource.from({ chat_id: "chat" }).sessionKey).toThrow(
       "session source platform required",
     );
-    expect(() => SessionSource.from({ platform: "feishu" }).sessionKey).toThrow(
-      "session source chat_id required",
-    );
-    expect(
-      () =>
-        SessionSource.from({ platform: "feishu", chat_id: "chat", chat_type: "group" })
-          .sessionKey,
-    ).toThrow("group session source user_id or user_id_alt required");
+    expect(SessionSource.from({ platform: "feishu", chat_type: "group" }).sessionKey)
+      .toBe("agent:main:feishu:personal");
   });
 });
 
@@ -101,7 +96,7 @@ describe("SessionBindingStore", () => {
     const store = new SessionBindingStore(join(root, "sessions.json"));
     const first = SessionSource.from({ platform: "feishu", chat_id: "chat-1", chat_type: "dm" });
     const second = SessionSource.from({
-      platform: "feishu", chat_id: "chat-2", chat_type: "group", user_id: "user-2",
+      platform: "other-channel", chat_id: "chat-2", chat_type: "group", user_id: "user-2",
     });
     store.bind(first, "shared-session");
     store.bind(second, "shared-session");

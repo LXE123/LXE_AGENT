@@ -128,3 +128,21 @@ test("Desktop's own MCP switch stays in Desktop while other MCP servers go to ag
   await call("mcp.servers.update", { name: "github", enabled: true })(context);
   expect(seen).toEqual(["desktop false", "agentcli github"]);
 });
+
+test("Feishu owner pairing reports unavailable without the channel and starts a code with it", async () => {
+  expect(await call("channels.feishu.owner", {})({ parts: {} })).toEqual({
+    available: false, paired: false, owner_open_id_masked: "", paired_at: "", pairing: null,
+  });
+  await expect(call("channels.feishu.owner.pair", {})({ parts: {} })).rejects.toThrow("飞书渠道未配置");
+
+  let pairing: { code: string; expires_at: string } | null = null;
+  const feishuOwner = {
+    status: () => ({ paired: false, owner_open_id_masked: "", paired_at: "", pairing }),
+    startPairing: () => (pairing = { code: "123456", expires_at: "2026-01-01T00:10:00.000Z" }),
+  };
+  expect(await call("channels.feishu.owner.pair", {})({ parts: { feishuOwner } })).toEqual({
+    available: true, paired: false, owner_open_id_masked: "", paired_at: "",
+    pairing: { code: "123456", expires_at: "2026-01-01T00:10:00.000Z" },
+  });
+  expect((await call("channels.feishu.owner", {})({ parts: { feishuOwner } })).pairing?.code).toBe("123456");
+});

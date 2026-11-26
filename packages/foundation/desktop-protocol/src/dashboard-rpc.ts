@@ -434,6 +434,16 @@ export type ChannelHealthList = {
   total: number;
 };
 
+/** The Feishu channel answers only the owner who sent this desktop's pairing code in a private chat. */
+export type FeishuOwnerPayload = {
+  /** False when the Feishu channel is not configured or Gateway is not running. */
+  available: boolean;
+  paired: boolean;
+  owner_open_id_masked: string;
+  paired_at: string;
+  pairing: { code: string; expires_at: string } | null;
+};
+
 export type SkillStatPayload = {
   name: string;
   module: string;
@@ -626,6 +636,8 @@ export interface DashboardRpcSpec extends AutomationRpcSpec {
   "mcp.servers.list": { input: DashboardRpcEmptyInput; result: McpServerListPayload };
   "mcp.servers.update": { input: { name: string; enabled: boolean }; result: McpServerPayload };
   "channels.health": { input: DashboardRpcEmptyInput; result: ChannelHealthList };
+  "channels.feishu.owner": { input: DashboardRpcEmptyInput; result: FeishuOwnerPayload };
+  "channels.feishu.owner.pair": { input: DashboardRpcEmptyInput; result: FeishuOwnerPayload };
   "stats.overview": { input: { days?: number }; result: StatsOverviewPayload };
   "stats.skills.list": { input: { days?: number }; result: ApiList<SkillStatPayload> & { days: number } };
   "stats.skills.detail": { input: { name: string; days?: number }; result: SkillUsageDetailPayload };
@@ -652,7 +664,7 @@ export type DashboardRpcResult<O extends DashboardRpcOperation> =
 
 export type AgentDashboardRpcOperation = Exclude<
   DashboardRpcOperation,
-  AutomationOperation | "commands.list" | "channels.health" | "sessions.send" | "sessions.stop" | "sessions.activity"
+  AutomationOperation | "commands.list" | "channels.health" | "channels.feishu.owner" | "channels.feishu.owner.pair" | "sessions.send" | "sessions.stop" | "sessions.activity"
     | "sessions.status.list" | "sessions.status.ack"
     | "sessions.file.open" | "sessions.file.reveal" | "sessions.attachment.open" | "sessions.attachment.preview" | "sessions.image_view.preview"
 >;
@@ -1027,6 +1039,8 @@ export function parseDashboardRpcCall(value: unknown): DashboardRpcCall {
     case "toolsets.list":
     case "mcp.servers.list":
     case "channels.health":
+    case "channels.feishu.owner":
+    case "channels.feishu.owner.pair":
     case "models.list":
       return { operation, input: emptyInput(input, operation) } as DashboardRpcCall;
     case "skills.user.content":
@@ -1093,6 +1107,8 @@ export function parseAgentDashboardRpcCall(value: unknown): AgentDashboardRpcCal
   const call = parseDashboardRpcCall(value);
   if (call.operation === "automations.list" || call.operation === "automations.save" || call.operation === "automations.status" || call.operation === "automations.delete" || call.operation === "automations.run" || call.operation === "automations.runs" || call.operation === "automations.preview" || call.operation === "automations.editing" || call.operation === "commands.list"
     || call.operation === "channels.health"
+    || call.operation === "channels.feishu.owner"
+    || call.operation === "channels.feishu.owner.pair"
     || call.operation === "sessions.send"
     || call.operation === "sessions.stop"
     || call.operation === "sessions.activity"

@@ -932,7 +932,20 @@ export const ZH_TEXT = {
     feishu: {
       description: "App ID 与 App Secret 必须成对填写；整组留空即可跳过。",
       appSecret: "App Secret",
-      appSecretPlaceholder: "输入 App Secret"
+      appSecretPlaceholder: "输入 App Secret",
+      owner: {
+        title: "所有者",
+        description: "飞书渠道是你的个人助手：只响应绑定的所有者，私聊和在群里 @ 都进入同一个会话。",
+        loading: "正在读取…",
+        unavailable: "飞书渠道未运行。保存 App ID 和 App Secret 并等待连接后再绑定。",
+        unpaired: "还没有绑定所有者，飞书里的所有消息都会被拒绝。",
+        paired: (openId: string, time: string) => `已绑定 ${openId}（${time}）`,
+        codeHint: (time: string) => `在飞书里私聊机器人并发送这个配对码，${time} 前有效。`,
+        pair: "绑定所有者",
+        rebind: "重新绑定",
+        newCode: "换一个配对码",
+        starting: "生成中…"
+      }
     },
     logging: {
       description: "标准日志适合长期运行，排障日志仅建议在复现问题时开启。",
@@ -1912,7 +1925,20 @@ export const UI_TEXT: Record<Language, UiText> = {
       feishu: {
         description: "App ID and App Secret must be filled in together; leave the whole group blank to skip.",
         appSecret: "App Secret",
-        appSecretPlaceholder: "Enter the App Secret"
+        appSecretPlaceholder: "Enter the App Secret",
+        owner: {
+          title: "Owner",
+          description: "The Feishu channel is your personal assistant: it answers only the paired owner, and private chats and group @-mentions share one session.",
+          loading: "Loading…",
+          unavailable: "The Feishu channel is not running. Save the App ID and App Secret and wait for it to connect, then pair.",
+          unpaired: "No owner is paired yet, so every Feishu message is refused.",
+          paired: (openId: string, time: string) => `Paired with ${openId} (${time})`,
+          codeHint: (time: string) => `Send this code to the bot in a private Feishu chat before ${time}.`,
+          pair: "Pair owner",
+          rebind: "Pair again",
+          newCode: "New code",
+          starting: "Generating…"
+        }
       },
       logging: {
         description: "Standard logs suit long-term use; enable diagnostic logs only while reproducing an issue.",

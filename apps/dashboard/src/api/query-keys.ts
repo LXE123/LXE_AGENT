@@ -24,6 +24,7 @@ export const dashboardQueryKeys = {
   },
   channelHealth: {
     all: ["channel-health"] as const,
+    feishuOwner: ["channel-health", "feishu-owner"] as const,
   },
   models: {
     all: ["models"] as const,

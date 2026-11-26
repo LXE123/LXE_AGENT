@@ -15,6 +15,7 @@ import {
   type FeishuMessageConverterContext,
 } from "./inbound";
 import { FeishuMedia } from "./media";
+import type { FeishuOwnerAccess } from "./owner";
 import { createFeishuInboundResourceResolver } from "./resources";
 import type { InboundImageProcessorPort } from "./image-contract";
 import {
@@ -37,6 +38,8 @@ export interface FeishuAdapterOptions {
   config: FeishuConfig;
   store: FeishuRouteStatePort;
   imageProcessor: InboundImageProcessorPort;
+  /** Only the paired owner reaches the Agent; without it every sender is accepted (tests only). */
+  owner?: FeishuOwnerAccess;
   sdkFactory?: FeishuSdkFactory;
   hasInflight?: () => boolean | Promise<boolean>;
   restartClock?: RestartClock;
@@ -273,6 +276,7 @@ export class FeishuAdapter implements ChannelAdapter {
       botName: identity.name,
       appId: this.options.config.appId,
       botIdSource: identity.openId ? "probe" : "",
+      ...(this.options.owner ? { access: (snapshot) => this.options.owner!.decide(snapshot) } : {}),
       ...(resourceResolver ? { resolveResources: resourceResolver } : {}),
       converterContext,
       loadQuote: async (parentId, chatId) => {
@@ -512,9 +516,12 @@ export class FeishuAdapter implements ChannelAdapter {
         const fields = { reason: decision.reason, ...decision.metadata };
         if (["missing_sender_open_id", "empty_content", "group_bot_identity_missing", "bot_app_id_mismatch"].includes(decision.reason)) {
           this.logger.warn("feishu_inbound_discarded", fields);
+        } else if (decision.reply) {
+          this.logger.info("feishu_inbound_discarded", fields);
         } else {
           this.logger.debug("feishu_inbound_discarded", fields);
         }
+        if (decision.reply) await this.replyDirectly(snapshot, decision.reply);
         return;
       }
       const event = decision.event;
@@ -537,6 +544,24 @@ export class FeishuAdapter implements ChannelAdapter {
         error,
       });
     }
+  }
+
+  /** Answers a message that never becomes an Agent turn, so it has no stored response route. */
+  private async replyDirectly(
+    snapshot: NonNullable<ReturnType<typeof snapshotMessageEvent>>,
+    markdown: string,
+  ): Promise<void> {
+    if (!this.media) throw new Error("Feishu adapter is not ready");
+    await this.media.sendMarkdown({
+      response_route_id: "",
+      platform_message_id: "",
+      owner_user_id: snapshot.sender_open_id,
+      conversation_id: snapshot.chat_id,
+      conversation_type: snapshot.chat_type,
+      sender_nick: "",
+      message_id: snapshot.message_id,
+      extra_data: { source_message_id: snapshot.message_id },
+    }, markdown);
   }
 
   private dumpRawEvent(data: unknown): void {

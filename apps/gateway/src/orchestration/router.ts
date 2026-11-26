@@ -68,6 +68,30 @@ export function normalizeControlCommand(text: string): "stop" | "clear" | "steer
   return CONTROL_COMMANDS[command] ?? "";
 }
 
+const PLATFORM_LABELS: Readonly<Record<string, string>> = { feishu: "飞书" };
+
+/**
+ * All chats share one session, so each message states where it came from.
+ * Group replies are visible to every member, which the label spells out.
+ */
+export function sourceLabel(context: Pick<SessionContext, "platform" | "is_group" | "conversation_id">): string {
+  const platform = PLATFORM_LABELS[context.platform] ?? context.platform;
+  return context.is_group
+    ? `[来自${platform}群聊 chat_id=${context.conversation_id}：群成员都能看到回复，不要透露私聊或其他聊天中的内容]`
+    : `[来自${platform}私聊]`;
+}
+
+function labelledInput(context: SessionContext): { text: string; blocks: JsonObject[] } {
+  const label = sourceLabel(context);
+  const text = `${label}\n${context.user_input}`.trim();
+  const blocks = context.user_content_blocks.map((block) => ({ ...block }));
+  if (blocks.length === 0) return { text, blocks };
+  const first = blocks.findIndex((block) => block.type === "text");
+  if (first >= 0) blocks[first] = { ...blocks[first], text: `${label}\n${clean(blocks[first]!.text)}`.trim() };
+  else blocks.unshift({ type: "text", text: label });
+  return { text, blocks };
+}
+
 export function sourceFromEvent(event: InboundEvent): SessionSource {
   const raw: Record<string, unknown> = { ...event.source };
   if (!("platform" in raw)) raw.platform = clean(event.platform);
@@ -168,6 +192,7 @@ export class SessionRouter {
       session_key: context.session_key,
       source: { ...context.source },
     };
+    const input = labelledInput(context);
     const job: AgentJob = {
       job_id: this.id(),
       session_id: entry.session_id,
@@ -177,13 +202,13 @@ export class SessionRouter {
       conversation_id: context.conversation_id,
       is_group: context.is_group,
       message_id: context.message_id,
-      user_input: context.user_input,
+      user_input: input.text,
       job_kind: "turn",
       sender_nick: context.sender_nick,
       workspace: session.workspace,
       source: { ...context.source },
       raw_data: rawData,
-      user_content_blocks: context.user_content_blocks.map((block) => ({ ...block })),
+      user_content_blocks: input.blocks,
       diagnostics: context.diagnostics.map((diagnostic) => ({ ...diagnostic })),
     };
     await runWithLogContext({ session_id: job.session_id, turn_id: job.job_id }, async () => {
@@ -223,8 +248,11 @@ export class SessionRouter {
   private async trySteer(sessionId: string, context: SessionContext): Promise<boolean> {
     if (!this.state.isSteeringEnabled(sessionId)) return false;
     if (context.user_content_blocks.length > 0 || context.diagnostics.length > 0 || !context.user_input) return false;
+    // The running turn answers in its own chat; a message from another chat waits its turn.
+    const active = this.options.scheduler.activeRun(sessionId);
+    if (active && clean(active.originJob.conversation_id) !== context.conversation_id) return false;
     const accepted = await this.options.scheduler.steerActive(sessionId, {
-      text: context.user_input,
+      text: `${sourceLabel(context)}\n${context.user_input}`,
       response_route_id: context.response_route_id,
       message_id: context.message_id,
     });
