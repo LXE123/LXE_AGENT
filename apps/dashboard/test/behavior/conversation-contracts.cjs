@@ -99,20 +99,23 @@ module.exports = async ({suite,win,url,js,step,load,waitFor,click,key,focus,sett
         await textClick('Complete');
         await click('.conversation-process-toggle');
         await waitFor("Boolean(document.querySelector('.tool-op-list') && document.querySelector('.response-final-answer'))", 'tool and answer');
-        await settle();
-        const gaps = await js(`(() => {
-          function textBounds(selector) {
-            const range = document.createRange();
-            range.selectNodeContents(document.querySelector(selector));
-            return range.getBoundingClientRect();
-          }
-          const label = textBounds('.live-progress-label');
-          const card = document.querySelector('.tool-op-list').getBoundingClientRect();
-          const answer = textBounds('.response-final-answer p strong');
-          return [card.top - label.bottom, answer.top - card.bottom];
-        })()`);
-        assert.ok(gaps[0] >= 17 && gaps[0] <= 21, `${mode}: keep the original space below the label, got ${gaps[0]}`);
-        assert.ok(Math.abs(gaps[0] - gaps[1]) <= 2, `${mode}: visible tool card gaps ${gaps}`);
+        for (const lang of ['en', 'zh-CN']) {
+          await js(`document.documentElement.lang = ${JSON.stringify(lang)}; document.fonts.ready`);
+          await settle();
+          const gaps = await js(`(() => {
+            function textBounds(selector) {
+              const range = document.createRange();
+              range.selectNodeContents(document.querySelector(selector));
+              return range.getBoundingClientRect();
+            }
+            const label = textBounds('.live-progress-label');
+            const card = document.querySelector('.tool-op-list').getBoundingClientRect();
+            const answer = textBounds('.response-final-answer p strong');
+            return [card.top - label.bottom, answer.top - card.bottom];
+          })()`);
+          assert.ok(gaps[0] >= 17 && gaps[0] <= 21, `${mode}/${lang}: keep the original space below the label, got ${gaps[0]}`);
+          assert.ok(Math.abs(gaps[0] - gaps[1]) <= 2, `${mode}/${lang}: visible tool card gaps ${gaps}`);
+        }
       }
     });
     await step('resize compensation and row positions agree before the same paint',async()=>{
