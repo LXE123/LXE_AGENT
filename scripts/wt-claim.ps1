@@ -14,6 +14,11 @@ function Invoke-LxeGit {
         [switch]$AllowFailure
     )
 
+    # Windows PowerShell turns redirected native stderr into error records, and
+    # under the script-wide Stop preference the first one throws before the
+    # exit code is read, so -AllowFailure never got to return. Failure is
+    # judged by the exit code below instead.
+    $ErrorActionPreference = "Continue"
     $output = @(& git -C $WorkingDirectory @Arguments 2>&1)
     $exitCode = $LASTEXITCODE
     if ($exitCode -ne 0 -and -not $AllowFailure) {
@@ -232,11 +237,12 @@ try {
             continue
         }
         elseif (-not (Test-LxeSlotWorktree $directory)) {
-            Write-Warning "skipping $(Get-LxeNotWorktreeMessage $index)"
+            # stderr like the Bash entrypoint; Write-Warning would land on stdout.
+            [Console]::Error.WriteLine("wt-claim: skipping $(Get-LxeNotWorktreeMessage $index)")
             continue
         }
         elseif (Test-LxeSlotDirty $directory) {
-            Write-Warning "skipping pool-$index (dirty but unclaimed - inspect manually)"
+            [Console]::Error.WriteLine("wt-claim: skipping pool-$index (dirty but unclaimed - inspect manually)")
             continue
         }
         if ($reattach) {
