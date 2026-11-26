@@ -44,6 +44,7 @@ function linkedPath(directory: string, path: string) {
   if (process.platform === "win32" && /^[/\\]{2}/.test(requested)) throw invalidFileReference("A local file is required");
   return requested;
 }
+export interface FileApplicationLookup { applications: readonly FileApplication[]; error?: string }
 export class FilePreviewService {
   private requests = new Map<string, Request>();
   private handles = new Map<string, Handle>();
@@ -90,16 +91,17 @@ export class FilePreviewService {
     const directory = await this.runtime().resolveWorkspaceDirectory(ref.session_id);
     const absolutePath = ref.kind === "linked" ? linkedPath(directory, ref.path) : resolve(directory, ref.path);
     const relativePath = relative(directory, absolutePath);
+    const failed = (error: unknown): FileApplicationLookup => ({ applications: [], error: fileFailure(error, "applications").diagnostic });
     let canonical: string | undefined;
-    let applications: readonly FileApplication[] = [];
-    let lookupError: string | undefined;
+    let applications: Promise<FileApplicationLookup>;
     try {
       canonical = await regularFile(ref.kind === "linked" ? absolutePath : await workspacePath(directory, ref.path));
-      applications = await this.listApplications(canonical);
-    } catch (error) { lookupError = fileFailure(error, "applications").diagnostic; }
+      // The menu decides how long to wait; a slow handler lookup must not delay the path items.
+      applications = this.listApplications(canonical).then(value => ({ applications: value }), failed);
+    } catch (error) { applications = Promise.resolve(failed(error)); }
     return {
       absolutePath, relativePath: isAbsolute(relativePath) ? undefined : relativePath, filename: basename(absolutePath),
-      applications, lookupError,
+      applications,
       authorize: () => {
         if (ref.kind === "linked") this.clickedFiles.set(JSON.stringify([ref.session_id, ref.path]), canonical ? { canonical } : {});
       },

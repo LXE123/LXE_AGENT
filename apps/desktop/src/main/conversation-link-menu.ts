@@ -1,6 +1,7 @@
 import type { ConversationLinkMenuRequest, ConversationLinkMenuAction } from "@lxe/desktop-protocol";
 import type { MenuItemConstructorOptions } from "electron";
 import type { DesktopGateway } from "./desktop-gateway";
+import type { FileApplicationLookup } from "./file-preview/service";
 import { validateRef } from "./file-preview/paths";
 import { isExternallyOpenableUrl } from "./launch-mode";
 
@@ -24,10 +25,25 @@ export function validateConversationLinkMenu(value: unknown): ConversationLinkMe
 }
 
 export type ConversationMenuCommand = () => ConversationLinkMenuAction | Promise<ConversationLinkMenuAction>;
+type MenuSelect = (command: ConversationMenuCommand) => void;
+export const APPLICATION_MENU_WAIT_MS = 300;
+
+async function settledWithin<T>(value: Promise<T>, milliseconds: number): Promise<T | undefined> {
+  let timer: Parameters<typeof clearTimeout>[0];
+  try {
+    return await Promise.race([value, new Promise<undefined>(resolve => { timer = setTimeout(resolve, milliseconds); })]);
+  } finally { clearTimeout(timer); }
+}
+
 export async function conversationLinkMenuTemplate(
   request: ConversationLinkMenuRequest, files: Pick<DesktopGateway, "fileLinkMenu" | "fileCall">,
-  native: { copy(text: string): void; openUrl(url: string): Promise<void>; platform: NodeJS.Platform },
-  select: (command: ConversationMenuCommand) => void,
+  native: {
+    copy(text: string): void; openUrl(url: string): Promise<void>; platform: NodeJS.Platform;
+    /** Pops a follow-up menu at the original point and runs the chosen command. */
+    popup(build: (select: MenuSelect) => MenuItemConstructorOptions[]): Promise<ConversationLinkMenuAction>;
+    applicationWaitMs?: number;
+  },
+  select: MenuSelect,
 ): Promise<MenuItemConstructorOptions[]> {
   const label = (zh: string, en: string) => request.language === "zh" ? zh : en;
   const item = (label: string, command: ConversationMenuCommand): MenuItemConstructorOptions => ({ label, click: () => select(command) });
@@ -59,8 +75,20 @@ export async function conversationLinkMenuTemplate(
     await files.fileCall({ operation: "open", input: { ref, ...options } });
     return null;
   };
-  const apps = file.applications.map(app => item(app.name, () => open({ application: app.id })));
-  if (!apps.length) apps.push({ label: file.lookupError || label("没有可用应用", "No applications available"), enabled: false });
+  const applicationItems = (lookup: FileApplicationLookup, choose: typeof item) => {
+    const apps = lookup.applications.map(app => choose(app.name, () => open({ application: app.id })));
+    if (!apps.length) apps.push({ label: lookup.error || label("没有可用应用", "No applications available"), enabled: false });
+    return apps;
+  };
+  // Show the menu promptly; a slow handler lookup moves to a follow-up menu at the same point.
+  const ready = await settledWithin(file.applications, native.applicationWaitMs ?? APPLICATION_MENU_WAIT_MS);
+  const apps = ready ? applicationItems(ready, item) : [
+    item(label("用默认应用打开", "Open with default application"), () => open({})),
+    item(label("选择其他应用…", "Choose another application…"), async () => {
+      const lookup = await file.applications;
+      return native.popup(choose => applicationItems(lookup, (name, command) => ({ label: name, click: () => choose(command) })));
+    }),
+  ];
   const reveal = native.platform === "darwin" ? label("在 Finder 中显示", "Show in Finder")
     : native.platform === "win32" ? label("在文件资源管理器中显示", "Show in File Explorer") : label("在文件管理器中显示", "Show in file manager");
   return [

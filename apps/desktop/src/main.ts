@@ -31,6 +31,7 @@ import {
   session,
   shell,
   Tray,
+  type MenuItemConstructorOptions,
 } from "electron";
 import { createLogger } from "@lxe/core";
 import type {
@@ -520,22 +521,26 @@ async function bootstrap(): Promise<void> {
       const frame = owner.webContents.mainFrame;
       const generation = ++linkMenuGeneration;
       const current = () => generation === linkMenuGeneration && window === owner && !owner.isDestroyed() && owner.webContents.mainFrame === frame;
-      let choose: (command: ConversationMenuCommand | null) => void;
-      const selection = new Promise<ConversationMenuCommand | null>(resolve => { choose = resolve; });
-      const template = await conversationLinkMenuTemplate(request, gateway, {
-        copy: text => clipboard.writeText(text), openUrl: url => shell.openExternal(url), platform: process.platform,
-      }, command => choose(command));
-      if (!current()) return null;
-      const menu = Menu.buildFromTemplate(template);
-      const zoom = owner.webContents.getZoomFactor();
-      const cancel = () => choose(null);
-      owner.once("closed", cancel);
-      try {
-        menu.popup({ window: owner, x: Math.round(request.x * zoom), y: Math.round(request.y * zoom),
-          callback: () => setImmediate(cancel) });
-        const command = await selection;
-        return command && current() ? await command() : null;
-      } finally { owner.removeListener("closed", cancel); }
+      // The first menu and any follow-up menu share one anchor and one generation.
+      const popup = async (build: (select: (command: ConversationMenuCommand) => void) => MenuItemConstructorOptions[] | Promise<MenuItemConstructorOptions[]>) => {
+        let choose: (command: ConversationMenuCommand | null) => void;
+        const selection = new Promise<ConversationMenuCommand | null>(resolve => { choose = resolve; });
+        const template = await build(command => choose(command));
+        if (!current()) return null;
+        const menu = Menu.buildFromTemplate(template);
+        const zoom = owner.webContents.getZoomFactor();
+        const cancel = () => choose(null);
+        owner.once("closed", cancel);
+        try {
+          menu.popup({ window: owner, x: Math.round(request.x * zoom), y: Math.round(request.y * zoom),
+            callback: () => setImmediate(cancel) });
+          const command = await selection;
+          return command && current() ? await command() : null;
+        } finally { owner.removeListener("closed", cancel); }
+      };
+      return popup(select => conversationLinkMenuTemplate(request, gateway, {
+        copy: text => clipboard.writeText(text), openUrl: url => shell.openExternal(url), platform: process.platform, popup,
+      }, select));
     },
     showTitlebarMenu: async request => {
       const owner = window;

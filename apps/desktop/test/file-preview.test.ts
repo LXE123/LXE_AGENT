@@ -50,14 +50,15 @@ test("looking up a file menu or copying its paths leaves external preview access
   const menu = await service.fileLinkMenu(ref);
   expect(menu.absolutePath).toBe(join(outside, "external.txt"));
   expect(menu.relativePath).toBe(join("..", "outside", "external.txt"));
-  expect(menu.applications[0]?.id).toBe("installed");
+  expect((await menu.applications).applications[0]?.id).toBe("installed");
   await expect(service.resolve(ref)).rejects.toThrow("from its conversation");
   menu.authorize();
   expect(await service.resolve(ref)).toBe(await realpath(menu.absolutePath));
   const missing = await service.fileLinkMenu({ ...ref, path: "../outside/gone.txt" });
   expect(missing.filename).toBe("gone.txt");
-  expect(missing.lookupError).toContain("ENOENT");
-  expect(missing.applications).toEqual([]);
+  const lookup = await missing.applications;
+  expect(lookup.error).toContain("ENOENT");
+  expect(lookup.applications).toEqual([]);
 });
 test("a relative link cannot silently follow a repointed directory symlink", async () => {
   const { service, workspace, outside, root } = await fixture();
