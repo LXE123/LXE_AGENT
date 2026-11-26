@@ -154,7 +154,9 @@ def kill_process(version: str) -> None:
         process_name = "SuperBrowser.exe" if safe_version == "v5" else "ziniao.exe"
         cmd = ["taskkill", "/f", "/t", "/im", process_name]
     elif system == "Darwin":
-        cmd = ["killall", "ziniao"]
+        # The macOS client can retain its main process after SIGTERM. Starting
+        # WebDriver requires that old main process to exit, as on Windows /f.
+        cmd = ["killall", "-9", "ziniao"]
     elif system == "Linux":
         cmd = ["killall", "ziniaobrowser"]
     else:

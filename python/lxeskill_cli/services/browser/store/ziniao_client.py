@@ -92,6 +92,13 @@ class ZiniaoClient:
             return list(result.get("browserList") or [])
         raise ZiniaoClientError(f"failed to load browser list: {result}")
 
+    def update_core(self) -> dict[str, Any]:
+        result = self._send({"action": "updateCore", "requestId": str(uuid.uuid4()), **self._user_info})
+        status_code = str(result.get("statusCode"))
+        if status_code in {"0", "-10000"}:
+            return result
+        raise ZiniaoClientError(f"failed to update Ziniao core: {result}")
+
     def get_running_info(self) -> list[dict[str, Any]]:
         result = self._send({"action": "getRunningInfo", "requestId": str(uuid.uuid4())})
         if str(result.get("statusCode")) == "0":

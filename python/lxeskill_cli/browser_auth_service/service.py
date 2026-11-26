@@ -22,7 +22,7 @@ from services.mabang.auth_constants import MABANG_MEMCACHE_COOKIE_NAME, PRIVATE_
 from services.mabang import config as mabang_settings
 
 from . import config as auth_settings
-from .binding import bound_executable, host_connection
+from .binding import host_connection, launch_chromium as _launch_chromium
 
 logger = get_logger(__name__)
 
@@ -832,9 +832,6 @@ def _clear_state_file(state_file: Path) -> None:
     state_file.unlink(missing_ok=True)
 
 
-def _launch_chromium(playwright, *, headless: bool):
-    """Launch the explicitly bound browser in an independent temporary profile."""
-    return playwright.chromium.launch(executable_path=bound_executable(), headless=headless)
 
 
 def _is_login_url(url: str) -> bool:

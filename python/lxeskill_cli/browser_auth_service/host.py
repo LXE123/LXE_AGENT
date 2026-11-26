@@ -22,23 +22,29 @@ class HostBrowserError(PlaywrightError):
 
 
 class HostContext:
-    def __init__(self, connection: tuple[str, str], *, headless: bool):
+    def __init__(self, connection: tuple[str, str], *, headless: bool, purpose: str | None = None):
+        self._connect(connection)
+        self.session_id = self.call("open", headless=headless, **({"purpose": purpose} if purpose else {}))["session_id"]
+
+    def _connect(self, connection: tuple[str, str]):
         self.url, self.token = connection
         self.opener = build_opener(ProxyHandler({}))
         self.session_id = ""
         self.current_url = ""
         self.closed = False
-        self.session_id = self.call("open", headless=headless)["session_id"]
 
     def call(self, operation: str, **arguments):
+        return self._request("/v1/auth-browser", operation, arguments, timeout_ms=arguments.get("timeout", 30000))
+
+    def _request(self, route: str, operation: str, arguments: dict, *, timeout_ms: int):
         request = Request(
-            self.url + "/v1/auth-browser",
+            self.url + route,
             data=json.dumps({"operation": operation, "session_id": self.session_id, "arguments": arguments}).encode("utf-8"),
             headers={"Authorization": f"Bearer {self.token}", "Content-Type": "application/json"},
             method="POST",
         )
         try:
-            response = self.opener.open(request, timeout=min(45, max(5, arguments.get("timeout", 30000) / 1000 + 5)))
+            response = self.opener.open(request, timeout=min(45, max(5, timeout_ms / 1000 + 5)))
         except HTTPError as exc:
             response = exc
         with response:
@@ -71,6 +77,8 @@ class HostContext:
                 self.call("close")
             finally:
                 self.closed = True
+
+
 
 
 class HostLocator:

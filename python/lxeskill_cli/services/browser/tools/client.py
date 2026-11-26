@@ -22,7 +22,11 @@ def _text_content(result: ExecuteToolResult) -> list[dict[str, Any]]:
         output_parts.append(summary)
 
     payload = dict(result.payload or {})
-    if result.tool_name == "ziniao_browser" and str(payload.get("action") or "").strip() == "get_status":
+    action = str(payload.get("action") or "").strip()
+    if result.tool_name == "ziniao_browser" and action == "open_store":
+        selected = {key: payload[key] for key in ("store_id", "store_name", "reused") if key in payload}
+        output_parts.append(f"Store JSON: {json.dumps(selected, ensure_ascii=False)}")
+    if result.tool_name == "ziniao_browser" and action in {"get_status", "open_store"}:
         status_data = dict(payload.get("data") or {})
         if status_data:
             output_parts.append(f"Status JSON: {json.dumps(status_data, ensure_ascii=False, sort_keys=True)}")

@@ -1,3 +1,5 @@
+import { DesktopLogisticsSettingsService } from "./main/logistics-settings";
+import { LogisticsLoginHost } from "./main/logistics-login-host";
 import { DesktopVietnamSettingsService } from "./main/vietnam-settings";
 import { DesktopAmazonV2SettingsService } from "./main/amazon-v2-settings";
 import { sendEditingShortcut, titlebarMenuTemplate } from "./main/titlebar-menu";
@@ -79,6 +81,8 @@ import {
 import { DesktopGateway } from "./main/desktop-gateway";
 import { AuthBrowserHost } from "./main/auth-browser-host";
 import { ElectronAuthBrowserSession } from "./main/auth-browser-session";
+import { BrowserSessionHost } from "./main/browser-session-host";
+import { ElectronPageBrowserSession } from "./main/page-browser-session";
 import { editContextMenuTemplate } from "./main/edit-context-menu";
 import { DesktopLoggingManager } from "./main/logging";
 import { MacOSWireGuardProvisioner } from "./main/macos-wireguard-provisioner";
@@ -195,6 +199,9 @@ let removeIpcHandlers: (() => void) | undefined;
 let activeGateway: DesktopGateway | undefined;
 let manualTools: ManualToolsService | undefined;
 let activeAuthBrowserHost: AuthBrowserHost | undefined;
+let activePageBrowserHost: BrowserSessionHost | undefined;
+let activeLogisticsLoginHost: LogisticsLoginHost | undefined;
+let activeLogisticsSettings: DesktopLogisticsSettingsService | undefined;
 const applicationWindows = (): BrowserWindow[] => window && !window.isDestroyed() ? [window] : [];
 let activeCloud: DesktopCloudService | undefined;
 let activeInvalidationBatcher: DashboardInvalidationBatcher | undefined;
@@ -227,6 +234,10 @@ const shutdownApplication = (exitCode = 0): Promise<void> => {
     activeSyntheticPerformer = undefined;
     activeConversationAttachments?.clear();
     activeConversationAttachments = undefined;
+    await activeLogisticsSettings?.stopLogins();
+    activeLogisticsSettings = undefined;
+    await activeLogisticsLoginHost?.stop();
+    activeLogisticsLoginHost = undefined;
     try {
       await activeGateway?.stop();
     } catch (error) {
@@ -235,6 +246,8 @@ const shutdownApplication = (exitCode = 0): Promise<void> => {
     try { await manualTools?.stop(); } catch (error) { logger.error("manual_tools_stop_failed", { error }); }
     await activeAuthBrowserHost?.stop();
     activeAuthBrowserHost = undefined;
+    await activePageBrowserHost?.stop();
+    activePageBrowserHost = undefined;
     removeIpcHandlers?.();
     removeIpcHandlers = undefined;
     tray?.destroy();
@@ -343,8 +356,33 @@ async function bootstrap(): Promise<void> {
   const authBrowserHost = new AuthBrowserHost(async headless => new ElectronAuthBrowserSession(headless));
   await authBrowserHost.start();
   activeAuthBrowserHost = authBrowserHost;
+  const pageBrowserHost = new BrowserSessionHost(async args => {
+    if (typeof args.chat_session_id !== "string" || !args.chat_session_id) {
+      throw new Error("Browser open requires chat_session_id");
+    }
+    const workspace = await gateway.resolveWorkspaceDirectory(args.chat_session_id);
+    if (!workspace) throw new Error(`Session workspace not found: ${args.chat_session_id}`);
+    return new ElectronPageBrowserSession(args.chat_session_id);
+  }, {
+    route: "/v1/browser",
+    environmentPrefix: "LXE_BROWSER_HOST",
+    idleMs: 30 * 60_000,
+    disconnectPolicy: "keep_session",
+  });
+  await pageBrowserHost.start();
+  activePageBrowserHost = pageBrowserHost;
+  const logisticsSettings = new DesktopLogisticsSettingsService({
+    platform: process.platform, executablePath: paths.lxeskillExecutablePath,
+    dataRoot: paths.dataRoot, managedPath: paths.managedPath, environment: () => config.environment(), safeStorage,
+  });
+  activeLogisticsSettings = logisticsSettings;
+  const logisticsLoginHost = new LogisticsLoginHost((request, signal) => logisticsSettings.ensureLogin(request, signal));
+  await logisticsLoginHost.start();
+  activeLogisticsLoginHost = logisticsLoginHost;
   gateway = new DesktopGateway({
-    beforeDeleteSession: sessionId => manualTools?.closeSession(sessionId) ?? Promise.resolve(),
+    beforeDeleteSession: async sessionId => {
+      await Promise.all([manualTools?.closeSession(sessionId), pageBrowserHost.closeOwner(sessionId)]);
+    },
     paths,
     config,
     version: app.getVersion(),
@@ -352,6 +390,8 @@ async function bootstrap(): Promise<void> {
     desktopLoggingStatus: () => logging.status(),
     attachments: conversationAttachments,
     authBrowserEnvironment: () => authBrowserHost.environment(),
+    browserEnvironment: () => pageBrowserHost.environment(),
+    logisticsLoginEnvironment: () => logisticsLoginHost.environment(),
     allowedSkillTypes: () => cloud?.allowedSkillTypes()
       ?? config.cloudPermissionSnapshot()?.allowed_skill_types
       ?? [],
@@ -491,9 +531,11 @@ async function bootstrap(): Promise<void> {
       gatewayStopStarted = true;
       await gateway.stop(true);
       await authBrowserHost.stop(true);
+      await pageBrowserHost.stop(true);
     },
     recover: async () => {
       await authBrowserHost.start();
+      await pageBrowserHost.start();
       if (gatewayStopStarted) await gateway.recoverAfterUpdate();
       gatewayStopStarted = false;
       cloud.start();
@@ -669,6 +711,9 @@ async function bootstrap(): Promise<void> {
     syntheticPerformerOutputPath: (taskId) => syntheticPerformer.outputPath(taskId),
     listInputAssets: () => inputAssets.list(),
     inputAssetSlotDirectory: (slot) => inputAssets.directoryFor(slot),
+    getLogisticsSettings: () => logisticsSettings.read(),
+    saveLogisticsProfile: (input, revision) => logisticsSettings.save(input, revision),
+    deleteLogisticsProfile: (id, revision) => logisticsSettings.delete(id, revision),
     getVietnamSettings: () => vietnamSettings.read(),
     getAmazonV2Settings: () => amazonV2Settings.read(),
     saveAmazonV2Settings: input => amazonV2Settings.save(input),

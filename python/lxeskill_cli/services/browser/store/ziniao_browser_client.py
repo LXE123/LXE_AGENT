@@ -3,10 +3,13 @@ from __future__ import annotations
 import os
 import platform
 import subprocess
+import tempfile
 import time
 from pathlib import Path
 from typing import Any
 
+from shared.diagnostics import diagnostic
+from shared.infra.cloud_client import redact
 from shared.logging import get_logger
 
 from . import ziniao_config as ziniao_settings
@@ -15,6 +18,11 @@ from .ziniao_lifecycle import ZiniaoLifecycleManager
 from .ziniao_process import download_driver, kill_process, normalize_browser_version
 
 logger = get_logger(__name__)
+
+_CLIENT_STARTUP_TIMEOUT_SEC = 20
+_CLIENT_STARTUP_POLL_SEC = 1
+_CORE_UPDATE_TIMEOUT_SEC = 300
+_CORE_UPDATE_POLL_SEC = 2
 
 
 def _user_info() -> dict[str, str]:
@@ -72,7 +80,9 @@ def _build_macos_client_command(client_path: str, control_port: int) -> list[str
             raise RuntimeError(f"ZINIAO_CLIENT_PATH 不存在: {path}")
         if not (path.is_file() or (path.suffix.lower() == ".app" and path.is_dir())):
             raise RuntimeError(f"ZINIAO_CLIENT_PATH 不是 macOS app 或可执行文件: {path}")
-    return ["open", "-a", _resolve_macos_open_target(client_path), "--args", *_client_args(control_port)]
+    # LaunchServices may otherwise activate an existing ordinary-mode process
+    # without applying --args. Cleanup still precedes this fresh launch.
+    return ["open", "-n", "-a", _resolve_macos_open_target(client_path), "--args", *_client_args(control_port)]
 
 
 def _build_linux_client_command(client_path: str, control_port: int) -> list[str]:
@@ -106,6 +116,7 @@ class ZiniaoBrowserClient:
         self._client = ZiniaoClient(self.control_port, self.user_info)
         self._client_pid = 0
         self._client_ready = False
+        self._core_ready = False
 
     @property
     def client(self) -> ZiniaoClient:
@@ -118,6 +129,8 @@ class ZiniaoBrowserClient:
         )
         download_driver(str(ziniao_settings.ZINIAO_WEBDRIVER_PATH or "").strip())
         kill_process(browser_version)
+        self._client_ready = False
+        self._core_ready = False
 
     def _mark_client_ready(self, *, client_pid: int = 0) -> None:
         resolved_pid = ZiniaoLifecycleManager.resolve_client_pid(
@@ -132,12 +145,31 @@ class ZiniaoBrowserClient:
 
     def _probe_client(self) -> bool:
         try:
-            self._client.get_browser_list()
+            self._client.get_running_info()
             self._mark_client_ready()
             return True
         except Exception:
             self._client_ready = False
             return False
+
+    def _ensure_core_ready(self) -> None:
+        if self._core_ready:
+            return
+
+        deadline = time.monotonic() + _CORE_UPDATE_TIMEOUT_SEC
+        last_result: dict[str, Any] = {}
+        while True:
+            result = dict(self._client.update_core() or {})
+            last_result = result
+            status_code = str(result.get("statusCode"))
+            if status_code == "0":
+                self._core_ready = True
+                return
+            if status_code != "-10000":
+                raise RuntimeError(f"紫鸟内核更新失败: {result}")
+            if time.monotonic() >= deadline:
+                raise RuntimeError(f"紫鸟内核更新超时: {last_result}")
+            time.sleep(_CORE_UPDATE_POLL_SEC)
 
     def open_client(self, *, allow_start: bool = True) -> bool:
         if self._client_ready:
@@ -150,24 +182,44 @@ class ZiniaoBrowserClient:
         self._prepare_client_startup()
 
         creationflags = getattr(subprocess, "CREATE_NO_WINDOW", 0) if os.name == "nt" else 0
-        process = subprocess.Popen(
-            _build_client_command(self.control_port),
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            creationflags=creationflags,
-        )
-        launched_pid = int(getattr(process, "pid", 0) or 0)
-        deadline = time.time() + 20
-        last_error = ""
-        while time.time() < deadline:
-            try:
-                self._client.get_browser_list()
-                self._mark_client_ready(client_pid=launched_pid)
-                return True
-            except Exception as exc:
-                last_error = str(exc).strip()
-                time.sleep(1)
-        raise RuntimeError(last_error or "紫鸟客户端启动失败")
+        # A file avoids blocking a verbose client on an unread PIPE. Capture the
+        # launcher too: macOS open exits before the automation API is ready.
+        command = _build_client_command(self.control_port)
+        with tempfile.TemporaryFile() as output:
+            process = subprocess.Popen(
+                command,
+                stdout=output,
+                stderr=subprocess.STDOUT,
+                creationflags=creationflags,
+            )
+            launched_pid = int(process.pid or 0)
+            deadline = time.monotonic() + _CLIENT_STARTUP_TIMEOUT_SEC
+            last_error = ""
+            while time.monotonic() < deadline:
+                try:
+                    self._client.get_running_info()
+                    self._mark_client_ready(client_pid=launched_pid)
+                    return True
+                except Exception as exc:
+                    last_error = f"{type(exc).__name__}: {exc}"
+                # open returning zero only confirms launch dispatch. Continue
+                # probing the real API; a nonzero launcher exit is actionable.
+                if process.poll() not in (None, 0):
+                    break
+                time.sleep(_CLIENT_STARTUP_POLL_SEC)
+            output.seek(0)
+            captured = output.read(8193)
+            details = {
+                "command": command,
+                "launcher_exit": process.poll(),
+                "control_error": last_error,
+                "launcher_output": diagnostic(
+                    redact(captured[:8192].decode("utf-8", errors="replace"),
+                           secrets=tuple(self.user_info.values())),
+                    truncated=len(captured) > 8192,
+                ),
+            }
+        raise RuntimeError(diagnostic(redact(details, secrets=tuple(self.user_info.values()))))
 
     def close_client(self) -> None:
         if not self.open_client(allow_start=False):
@@ -181,6 +233,7 @@ class ZiniaoBrowserClient:
 
     def start_browser(self, browser_oauth: str) -> dict[str, Any]:
         self.open_client()
+        self._ensure_core_ready()
         result = self._client.start_browser(str(browser_oauth or "").strip())
         return dict(result or {})
 
@@ -197,12 +250,20 @@ class ZiniaoBrowserClient:
             logger.info("[Ziniao] stop_browser skipped: local client API unavailable: %s", exc)
             self._client_ready = False
 
-    def get_browser_list(self) -> list[dict[str, Any]]:
-        self.open_client()
+    def get_browser_list(
+        self, *, allow_start: bool = True, allow_update: bool = False,
+    ) -> list[dict[str, Any]]:
+        # Reuse-only reads call the API directly: connection/authentication
+        # errors stay intact and cannot trigger startup or core downloads.
+        if allow_start:
+            self.open_client()
+        if allow_update:
+            self._ensure_core_ready()
         return [dict(item or {}) for item in list(self._client.get_browser_list() or [])]
 
-    def get_running_info(self) -> list[dict[str, Any]]:
-        self.open_client()
+    def get_running_info(self, *, allow_start: bool = True) -> list[dict[str, Any]]:
+        if allow_start:
+            self.open_client()
         return [dict(item or {}) for item in list(self._client.get_running_info() or [])]
 
 

@@ -9,6 +9,13 @@ from uuid import uuid4
 
 from services.browser.browser.actions import _is_incomplete_download, save_screenshot
 from services.browser.browser.shadow_dom import SHADOW_DOM_HELPERS_JS
+from services.browser.tools.driver_session import (
+    list_browser_tabs,
+    select_unique_host_tab,
+    validate_target_handle,
+)
+from shared import diagnostics
+from shared.web_request_gate import run_request
 
 
 def download_snapshot(directory: Path) -> dict[str, tuple[int, int]]:
@@ -27,8 +34,38 @@ def download_snapshot(directory: Path) -> dict[str, tuple[int, int]]:
 
 
 class BrowserOperations:
-    def __init__(self, driver, *, downloads: Path, output: Path, deadline: float):
+    """Public script context; driver is the host's paired Selenium connection.
+
+    Python scripts expose run(browser, params). Diagnostics reuse host redaction;
+    scripts need no imports from LXE's internal modules or connection code.
+    """
+
+    diagnostics = diagnostics
+    shadow_dom_helpers = SHADOW_DOM_HELPERS_JS
+    validate_target_handle = staticmethod(validate_target_handle)
+
+    def temporary_browser(self):
+        from .temporary import temporary_browser
+
+        return temporary_browser(self.session_id)
+
+    def list_pages(self):
+        return list_browser_tabs(self.driver, strict=True)
+
+    def select_page(self, host, handle=""):
+        return select_unique_host_tab(self.driver, host, target_handle=handle)
+
+    def request(self, key, parameters, operation, *, deduplicate=True):
+        """Run an explicitly keyed request with the existing shared bookkeeping."""
+        return run_request(key, parameters, operation, deduplicate=deduplicate)
+
+    def __init__(self, driver, *, downloads: Path, output: Path, deadline: float, store_id: str = "",
+                 session_id: str = "", state_directory: Path | None = None):
         self.driver = driver
+        self.store_id = store_id
+        self.store_name = ""
+        self.session_id = session_id
+        self.state_directory = state_directory or output
         self.downloads = downloads
         self.output = output
         self.deadline = deadline

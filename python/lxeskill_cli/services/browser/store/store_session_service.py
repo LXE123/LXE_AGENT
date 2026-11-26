@@ -59,11 +59,15 @@ class StoreSessionService:
         self._map = session_map or StoreSessionMap()
         self._browser = browser_client or ZiniaoBrowserClient()
 
-    def _browser_catalog(self) -> tuple[list[dict[str, Any]], dict[int, dict[str, Any]], dict[str, dict[str, Any]]]:
+    def _browser_catalog(self, *, reuse_only: bool = False) -> tuple[list[dict[str, Any]], dict[int, dict[str, Any]], dict[str, dict[str, Any]]]:
         entries: list[dict[str, Any]] = []
         by_id: dict[int, dict[str, Any]] = {}
         by_oauth: dict[str, dict[str, Any]] = {}
-        for item in self._browser.get_browser_list():
+        browsers = (
+            self._browser.get_browser_list(allow_start=False, allow_update=False)
+            if reuse_only else self._browser.get_browser_list()
+        )
+        for item in browsers:
             entry = _catalog_entry(item)
             entries.append(entry)
             browser_id = int(entry["browserId"] or 0)
@@ -233,6 +237,36 @@ class StoreSessionService:
         )
         return record
 
+    def resolve_store_name(self, store_name: str) -> str:
+        """Resolve a user-supplied name from the live client, starting it if needed.
+
+        Prefer the full name; a first whitespace-delimited name also supports
+        catalog names such as 'Amazon-Yunjian-US 公司全名'. Never fuzzy-match
+        substrings or choose one of multiple matching environments.
+        """
+        if not isinstance(store_name, str) or not store_name.strip() or len(store_name) > 256:
+            raise ValueError("请提供店铺名称（最多 256 字符）")
+        requested = store_name.strip().casefold()
+        entries, _, _ = self._browser_catalog()
+        matches = [
+            entry for entry in entries
+            if entry["browserName"].casefold() == requested
+        ]
+        if not matches:
+            matches = [
+                entry for entry in entries
+                if entry["browserName"] and entry["browserName"].split()[0].casefold() == requested
+            ]
+        if not matches:
+            raise ValueError(f"未找到店铺: {store_name.strip()}；请核对店铺名称")
+        if len(matches) != 1:
+            names = "; ".join(entry["browserName"] for entry in matches[:20])
+            suffix = " [truncated]" if len(matches) > 20 else ""
+            raise ValueError(
+                f"店铺名称不唯一: {store_name.strip()}；请提供完整店铺名称。候选: {names}{suffix}"
+            )
+        return _safe_browser_oauth(matches[0]["browserOauth"])
+
     def start_store_session(
         self,
         browser_oauth: str,
@@ -271,10 +305,12 @@ class StoreSessionService:
         return [dict(item or {}) for item in list(status.get("running_stores") or [])]
 
     def list_store_status(self) -> dict[str, list[dict[str, Any]]]:
-        catalog_entries, catalog_by_id, catalog_by_oauth = self._browser_catalog()
+        # Status reads must never trigger client startup, downloads or updates.
+        catalog_entries, catalog_by_id, catalog_by_oauth = self._browser_catalog(reuse_only=True)
         running_stores = self._normalized_running_summaries(
             catalog_by_id=catalog_by_id,
             catalog_by_oauth=catalog_by_oauth,
+            running_entries=self._browser.get_running_info(allow_start=False),
         )
         self._reconcile_map(
             {
@@ -316,15 +352,24 @@ class StoreSessionService:
             "inactive_stores": inactive_stores,
         }
 
-    def ensure_store_session(self, browser_oauth: str, *, force_restart: bool = False) -> ZiniaoStoreSessionState:
+    def ensure_store_session(
+        self,
+        browser_oauth: str,
+        *,
+        force_restart: bool = False,
+        start_if_missing: bool = True,
+    ) -> ZiniaoStoreSessionState:
         safe_browser_oauth = _safe_browser_oauth(browser_oauth)
         trace_event("session.ensure.request", store_id=safe_browser_oauth, force_restart=force_restart)
-        _, catalog_by_id, catalog_by_oauth = self._browser_catalog()
+        _, catalog_by_id, catalog_by_oauth = self._browser_catalog(reuse_only=not start_if_missing)
         catalog_entry = catalog_by_oauth.get(safe_browser_oauth)
         if catalog_entry is None:
             trace_event("session.catalog.miss", level="error", store_id=safe_browser_oauth)
             raise RuntimeError(f"目标店铺不存在: {safe_browser_oauth}")
-        running_entries = self._browser.get_running_info()
+        running_entries = (
+            self._browser.get_running_info(allow_start=False)
+            if not start_if_missing else self._browser.get_running_info()
+        )
         running_summaries = self._normalized_running_summaries(
             catalog_by_id=catalog_by_id,
             catalog_by_oauth=catalog_by_oauth,
@@ -338,6 +383,15 @@ class StoreSessionService:
         self._reconcile_map(running_browser_oauths)
 
         if not force_restart and safe_browser_oauth in running_browser_oauths:
+            # The cache is disposable. Prefer current connection parameters,
+            # since a live environment may have reopened on a different port.
+            rebuilt = self._record_from_running_info(
+                browser_oauth=safe_browser_oauth,
+                catalog_entry=catalog_entry,
+                running_entries=running_entries,
+            )
+            if rebuilt is not None:
+                return rebuilt
             existing = self._map.get(safe_browser_oauth)
             if existing is not None:
                 trace_event(
@@ -348,13 +402,10 @@ class StoreSessionService:
                     browser_path=existing.browser_path,
                 )
                 return existing
-            rebuilt = self._record_from_running_info(
-                browser_oauth=safe_browser_oauth,
-                catalog_entry=catalog_entry,
-                running_entries=running_entries,
-            )
-            if rebuilt is not None:
-                return rebuilt
+
+        if not start_if_missing:
+            trace_event("session.ensure.not_running", level="error", store_id=safe_browser_oauth)
+            raise RuntimeError(f"目标店铺未运行，严格附着已停止: {safe_browser_oauth}")
 
         record = self._record_from_start(
             browser_oauth=safe_browser_oauth,

@@ -1,3 +1,4 @@
+import { registerLogisticsIpc } from "./logistics-ipc";
 import { validateTitlebarMenu } from "./titlebar-menu";
 import { validateConversationLinkMenu } from "./conversation-link-menu";
 import { isAmazonV2Settings } from "./amazon-v2-settings";
@@ -13,6 +14,8 @@ import type {
   DesktopCloudEnrollmentSelection,
   DesktopCloudState,
   DesktopHealth,
+  DesktopLogisticsSettingsState,
+  DesktopLogisticsProfileInput,
   DesktopInputAssetSlot,
   DesktopVietnamSettingsState,
   DesktopVietnamTemplateExportResult,
@@ -90,6 +93,9 @@ export interface DesktopIpcApplication {
   syntheticPerformerOutputPath(taskId: string): string;
   listInputAssets(): Promise<DesktopInputAssetSlot[]>;
   inputAssetSlotDirectory(slot: string): Promise<string>;
+  getLogisticsSettings(): Promise<DesktopLogisticsSettingsState>;
+  saveLogisticsProfile(input: DesktopLogisticsProfileInput, revision: number): Promise<DesktopLogisticsSettingsState>;
+  deleteLogisticsProfile(id: string, revision: number): Promise<DesktopLogisticsSettingsState>;
   getVietnamSettings(): Promise<DesktopVietnamSettingsState>;
   saveVietnamParameters(input: unknown): Promise<DesktopVietnamSettingsState>;
   getAmazonV2Settings(): Promise<DesktopAmazonV2Settings>;
@@ -289,6 +295,7 @@ export function registerDesktopIpc(application: DesktopIpcApplication): () => vo
     if (error) throw new Error(error);
   });
   ipcMain.handle(IPC_CHANNELS.listInputAssets, () => application.listInputAssets());
+  registerLogisticsIpc(ipcMain, application);
   ipcMain.handle(IPC_CHANNELS.getVietnamSettings, (event) => {
     trustedWorkspaceSender(event);
     return application.getVietnamSettings();

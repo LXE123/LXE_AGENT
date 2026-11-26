@@ -18,8 +18,16 @@ def binding_file() -> Path:
 
 
 def host_connection() -> tuple[str, str] | None:
-    url = os.environ.get(HOST_URL_ENV, "").strip()
-    token = os.environ.get(HOST_TOKEN_ENV, "").strip()
+    return _host_connection(HOST_URL_ENV, HOST_TOKEN_ENV)
+
+
+def page_host_connection() -> tuple[str, str] | None:
+    return _host_connection("LXE_BROWSER_HOST_URL", "LXE_BROWSER_HOST_TOKEN")
+
+
+def _host_connection(url_env: str, token_env: str) -> tuple[str, str] | None:
+    url = os.environ.get(url_env, "").strip()
+    token = os.environ.get(token_env, "").strip()
     if not url and not token:
         return None
     parsed = urlsplit(url)
@@ -50,6 +58,11 @@ def bound_executable() -> str:
     if not Path(executable).is_file():
         raise FileNotFoundError(f"绑定的浏览器不存在，请重新绑定: {executable}")
     return executable
+
+
+def launch_chromium(playwright, *, headless: bool):
+    """Launch the bound browser in an independent temporary profile."""
+    return playwright.chromium.launch(executable_path=bound_executable(), headless=headless)
 
 
 def _probe(executable: str) -> str:

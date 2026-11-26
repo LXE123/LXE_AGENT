@@ -1,12 +1,13 @@
-"""Own the store lock, attached driver and Node controller for one invocation."""
+"""Own the paired driver and bounded JS/Python invocation for installed scripts."""
 
 from __future__ import annotations
 
 import json
+import runpy
 import subprocess
 import sys
 import time
-from contextlib import contextmanager
+from contextlib import contextmanager, redirect_stdout
 from pathlib import Path
 from uuid import uuid4
 
@@ -14,7 +15,11 @@ from services.browser.browser.selenium_runner import SeleniumRunner
 from services.browser.core.driver_binary import driver_folder_path
 from services.browser.store.store_driver_session import store_lock
 from services.browser.store.ziniao_browser_client import ZiniaoBrowserClient
-from services.browser.tools.driver_session import detach_driver, select_first_normal_tab
+from services.browser.tools.driver_session import (
+    detach_driver,
+    select_first_normal_tab,
+    select_unique_host_tab,
+)
 from shared.bounded_worker import enter_worker
 from shared.process_lock import InterProcessLockTimeout
 
@@ -45,12 +50,17 @@ def running_info(client, store_id: str) -> dict:
 
 
 @contextmanager
-def running_browser(store_id: str):
+def running_browser(store_id: str, *, target_host: str = "", target_handle: str = "", allow_blank: bool = False):
     with store_lock(store_id, timeout_seconds=0):
         info = running_info(ZiniaoBrowserClient().client, store_id)
         driver = SeleniumRunner(driver_folder_path()).get_driver(info)
         try:
-            select_first_normal_tab(driver)
+            if target_host:
+                select_unique_host_tab(driver, target_host, target_handle=target_handle)
+            elif allow_blank:
+                select_first_normal_tab(driver, allow_blank=True)
+            else:
+                select_first_normal_tab(driver)
             yield driver, Path(info["downloadPath"])
         finally:
             detach_driver(driver)
@@ -93,9 +103,28 @@ def run_control(node: str, script: str, params: dict, operations: BrowserOperati
 
 def main(request: dict) -> dict:
     deadline = time.monotonic() + request["timeout"]
-    with running_browser(request["store_id"]) as (driver, downloads):
-        operations = BrowserOperations(driver, downloads=downloads, output=Path(request["output"]), deadline=deadline)
-        result = run_control(request["node"], request["script"], request["params"], operations)
+    target = {key: request[key] for key in ("target_host", "target_handle") if key in request}
+    python_script = Path(request["script"]).suffix.lower() == ".py"
+    if python_script:
+        # A preparation script can open the first page of a fresh store.
+        target["allow_blank"] = True
+    with running_browser(request["store_id"], **target) as (driver, downloads):
+        operations = BrowserOperations(driver, downloads=downloads, output=Path(request["output"]),
+                                       deadline=deadline, store_id=request["store_id"],
+                                       session_id=request.get("session_id", ""),
+                                       state_directory=Path(request.get("state_directory", request["output"])))
+        if python_script:
+            # The existing supervised worker owns the connection and lifetime.
+            # Add only the installed script's directory for its sibling modules.
+            sys.path.insert(0, str(Path(request["script"]).parent))
+            try:
+                with redirect_stdout(sys.stderr):
+                    namespace = runpy.run_path(request["script"])
+                    result = namespace["run"](operations, request["params"])
+            finally:
+                sys.path.pop(0)
+        else:
+            result = run_control(request["node"], request["script"], request["params"], operations)
         return {"ok": True, "result": result, "downloads": operations.downloaded_files,
                 "screenshots": operations.screenshots}
 
