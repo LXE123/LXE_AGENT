@@ -17,8 +17,8 @@ import { OpenFileButton } from "../file-preview/OpenFileButton";
 import { UserQuestionGate } from "./user-questions";
 import { questionAnswerSummary, UserQuestionSummary } from "./user-question-summary";
 import type { PendingUserQuestion, PendingApproval, PermissionMode } from "@lxe/desktop-protocol";
-import type { DesktopDraftAttachmentPayload } from "@lxe/desktop-protocol";
-import { conversationAttachments } from "./attachment-draft";
+import { PastedTextAttachment } from "./pasted-text-attachment";
+import { conversationAttachments, type ComposerAttachment } from "./attachment-draft";
 import { ComposerQuotes } from "./ComposerQuotes";
 import { SelectionQuote } from "./SelectionQuote";
 import { composeQuotedMessage } from "./message-quotes";
@@ -640,7 +640,7 @@ function InputAttachmentList({
   onOpen,
   onRemove,
 }: {
-  attachments: DesktopDraftAttachmentPayload[];
+  attachments: ComposerAttachment[];
   draft?: boolean;
   onOpen?: (attachmentId: string) => Promise<void>;
   onRemove?: (attachmentId: string) => void;
@@ -659,7 +659,9 @@ function InputAttachmentList({
   return (
     <div className={`turn-file-list input-attachment-list${draft ? " input-attachment-draft" : ""}`} role="group" aria-label={t.conversation.attachments}>
       {!draft ? <span className="turn-file-label">{t.conversation.attachments}</span> : null}
-      {attachments.map((attachment) => draft && attachment.media_type.startsWith("image/") ? (
+      {attachments.map((attachment) => draft && attachment.pastedText ? (
+        <PastedTextAttachment key={attachment.attachment_id} attachment={attachment} excerpt={attachment.pastedText} onRemove={onRemove} />
+      ) : draft && attachment.media_type.startsWith("image/") ? (
         <DraftImageAttachment key={attachment.attachment_id} attachment={attachment} onRemove={onRemove} />
       ) : (
         <span className={`input-attachment-chip${draft ? " input-attachment-file" : ""}`} key={attachment.attachment_id}>
@@ -1203,7 +1205,6 @@ export function ConversationComposer({
   const actionLabel = showStop
     ? stopPending ? t.conversation.stopping : t.conversation.stop
     : sending ? t.conversation.sending : t.conversation.send;
-  const showCharacterCount = composedText.length >= Math.floor(8192 * 0.75);
   const selectFiles = () => {
     setError("");
     return attachmentDraft.stage(async () => {
@@ -1257,7 +1258,6 @@ export function ConversationComposer({
     };
   }, [runtimeReady, question, stageDroppedFiles]);
   const submit = async () => {
-    if (composedText.length > 8192) { setError(t.conversation.quoteTooLong); return; }
     if (!runtimeReady || question || modelSaving || thinkingSaving || sending || attachmentDraft.pending > 0 || (!message && attachments.length === 0)) return;
     setSending(true);
     setError("");
@@ -1299,9 +1299,16 @@ export function ConversationComposer({
           <InputAttachmentList draft attachments={attachments} onRemove={sending ? undefined : removeAttachment} />
         ) : null}
         {attachmentDraft.pending > 0 ? <span className="conversation-input-hint" role="status">{t.conversation.preparingAttachments}</span> : null}
-        <ComposerQuotes session={conversationKey} quotes={quotes} draft={text} quoteRef={quoteRef} editorRef={textareaRef} disabled={!runtimeReady} />
+        <ComposerQuotes session={conversationKey} quotes={quotes} quoteRef={quoteRef} editorRef={textareaRef} disabled={!runtimeReady} />
         <ReferenceComposer ref={textareaRef} session={conversationKey} value={text} onChange={setText}
           disabled={!runtimeReady} placeholder={runtimeReady ? (activity?.active?.state === "running" ? t.conversation.steerPlaceholder : t.conversation.placeholder) : runtimeUnavailableMessage}
+          onPasteText={(pasted, count) => {
+            setError("");
+            void attachmentDraft.stageText(pasted, count, t.conversation.pastedTextName, async (value, name) => {
+              if (!window.lxe) throw new Error(t.conversation.unavailable);
+              return window.lxe.desktop.stagePastedConversationText(value, name);
+            });
+          }}
           onSubmit={() => void submit()} onFiles={files => {
             if (!runtimeReady || sending) return;
             setError("");
@@ -1342,18 +1349,13 @@ export function ConversationComposer({
               onChange={onThinkingLevelChange}
               saving={thinkingSaving}
             />
-            {showCharacterCount ? (
-              <span className="conversation-character-count">
-                {t.conversation.characterCount(formatNumber(composedText.length), formatNumber(8192))}
-              </span>
-            ) : null}
             <button
               aria-label={actionLabel}
               className="conversation-send-button"
               data-mode={showStop ? "stop" : "send"}
               disabled={showStop
                 ? stopPending
-                : !runtimeReady || Boolean(question) || modelSaving || thinkingSaving || sending || attachmentDraft.pending > 0 || composedText.length > 8192 || !hasDraft}
+                : !runtimeReady || Boolean(question) || modelSaving || thinkingSaving || sending || attachmentDraft.pending > 0 || !hasDraft}
               onClick={() => void (showStop ? stop() : submit())}
               title={actionLabel}
               type="button"

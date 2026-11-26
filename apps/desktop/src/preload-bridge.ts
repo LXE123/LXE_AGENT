@@ -101,6 +101,7 @@ export function createDesktopBridge(
         ipc.invoke(IPC_CHANNELS.previewDraftConversationFile, attachmentId, ...(variant === undefined ? [] : [variant])),
       discardConversationFiles: (attachmentIds) =>
         ipc.invoke(IPC_CHANNELS.discardConversationFiles, attachmentIds),
+      stagePastedConversationText: (text, name) => ipc.invoke(IPC_CHANNELS.stagePastedConversationText, text, name),
       stagePastedConversationFiles: async (pastedFiles) => {
         if (!files) throw new Error("Local file paths are unavailable");
         const nativeFiles = await ipc.invoke<DesktopDraftAttachmentPayload[]>(IPC_CHANNELS.readClipboardConversationFiles);

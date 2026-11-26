@@ -336,7 +336,7 @@ async function bootstrap(): Promise<void> {
   const conversationAttachments = new DesktopConversationAttachmentService({
     directory: join(paths.dataRoot, "attachments", "screenshots"),
     prepare: prepareClipboardScreenshot,
-  });
+  }, join(paths.dataRoot, "attachments", "pasted-text"));
   activeConversationAttachments = conversationAttachments;
   const authBrowserHost = new AuthBrowserHost(async headless => new ElectronAuthBrowserSession(headless));
   await authBrowserHost.start();
@@ -682,6 +682,7 @@ async function bootstrap(): Promise<void> {
     installVietnamTemplate: sourcePath => vietnamSettings.uploadTemplate(sourcePath),
     exportVietnamTemplate: path => vietnamSettings.exportTemplate(path),
     registerConversationFiles: (selectedPaths) => conversationAttachments.register(selectedPaths),
+    registerPastedConversationText: (text, name) => conversationAttachments.registerTextPaste(text, name),
     registerPastedConversationFiles: (input) => conversationAttachments.registerPaste(input),
     isTrustedFileSender: event => !!window && event.sender === window.webContents && event.senderFrame === window.webContents.mainFrame,
     fileCall: call => gateway.fileCall(call),

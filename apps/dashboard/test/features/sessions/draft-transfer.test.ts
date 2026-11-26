@@ -14,10 +14,11 @@ test("workspace switching merges text and attachments without overwriting or dis
   expect(to.items.map(item => item.attachment_id)).toEqual(["b", "a"]); expect(from.items).toEqual([]);
   appendComposerDraftPrompt({ getItem: () => null, setItem: (_key, text) => expect(text).toBe("target\n\nsource\n\nmore") }, "move-b", "more");
 });
-test("oversized or pending draft moves leave both drafts intact", () => {
+test("long drafts merge while pending attachments still block moves", () => {
   const storage = { getItem: () => null, setItem() {} };
-  appendComposerDraftPrompt(storage, "large-a", "x".repeat(8190)); appendComposerDraftPrompt(storage, "large-b", "kept");
-  expect(() => prepareDraftMove("large-a", "large-b")).toThrow("8192");
+  appendComposerDraftPrompt(storage, "large-a", "x".repeat(9998)); appendComposerDraftPrompt(storage, "large-b", "kept");
+  prepareDraftMove("large-a", "large-b")();
+  appendComposerDraftPrompt({ getItem: () => null, setItem: (_, text) => expect(text).toBe("kept\n\n" + "x".repeat(9998) + "\n\nmore") }, "large-b", "more");
   const from = conversationAttachments("pending-a", callbacks); from.pending = 1;
   expect(() => moveConversationAttachments("pending-a", "pending-b")).toThrow("finish loading");
 });
@@ -32,8 +33,8 @@ test("confirmed quotes move with their draft and only submitted quotes clear on 
   expect(composeQuotedMessage(readQuotes("quote-target"), "draft")).toBe("<!-- reply 1 -->\n> second\n\nwhy?\n\n\n<!-- attach -->\n> first\n> line\n\ndraft");
   removeQuotes("quote-target", ["1"]);
   expect(readQuotes("quote-target")).toEqual([two]);
-  writeQuotes("quote-source", [{ ...one, text: "x".repeat(8190) }]);
-  expect(() => prepareDraftMove("quote-source", "quote-target")).toThrow("8192");
-  expect(readQuotes("quote-source")).toHaveLength(1);
-  expect(readQuotes("quote-target")).toEqual([two]);
+  writeQuotes("quote-source", [{ ...one, text: "x".repeat(9998) }]);
+  prepareDraftMove("quote-source", "quote-target")();
+  expect(readQuotes("quote-source")).toHaveLength(0);
+  expect(readQuotes("quote-target")).toEqual([two, { ...one, text: "x".repeat(9998) }]);
 });

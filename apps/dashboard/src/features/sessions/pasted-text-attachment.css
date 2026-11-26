@@ -1,0 +1,22 @@
+.input-attachment-draft:has(.pasted-text-chip) { flex-wrap: wrap; }
+.input-attachment-draft > .pasted-text-chip {
+  height: 32px;
+  max-width: 100%;
+  align-items: center;
+  gap: 2px;
+}
+.pasted-text-chip .turn-file-chip {
+  min-width: 0;
+  padding: 4px 6px;
+  gap: 6px;
+  align-items: center;
+}
+.pasted-text-chip .turn-file-chip span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pasted-text-chip svg, .pasted-text-chip small { flex: none; }
+.pasted-text-chip small { color: var(--muted); white-space: nowrap; font-weight: normal; }
+.input-attachment-draft .pasted-text-chip .input-attachment-remove {
+  position: static;
+  flex: none;
+  margin-inline-end: 4px;
+}
+.pasted-text-preview pre { overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; margin: 0; }

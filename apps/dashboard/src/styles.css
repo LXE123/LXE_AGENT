@@ -10228,12 +10228,6 @@ pre {
 }
 
 .conversation-input-hint,
-.conversation-character-count {
-  color: var(--muted-light);
-  font-size: 0.625rem;
-  white-space: nowrap;
-}
-
 .conversation-compose-error {
   padding-inline: 5px;
 }

@@ -581,14 +581,15 @@ module.exports = async ({suite,win,url,js,step,load,waitFor,click,key,focus,sett
     await click('.composer-quotes .quote-icon');
     assert.equal(await js("!!document.querySelector('.composer-quotes')"), false);
     assert.equal(await js(draft), 'existing draft');
-    await win.webContents.insertText('x'.repeat(8192 - (await js(draft)).length));
+    await win.webContents.insertText('x'.repeat(10000 - (await js(draft)).length));
     await settle();
     const fullDraft = await js(draft);
-    assert.equal(fullDraft.length, 8192);
+    assert.equal(fullDraft.length, 10000);
     assert.ok(fullDraft.includes('existing draft'));
     await menu(body, 'quote-selection', true);
-    await waitFor("document.querySelector('.conversation-compose-error')?.textContent.includes('8192')", 'quote exceeds draft limit');
+    await waitFor("Boolean(document.querySelector('.composer-quotes'))", 'quote added to a long draft');
     assert.equal(await js(draft), fullDraft);
+    await click('.composer-quotes .quote-icon');
     await menu(body, 'fork');
     await waitFor("document.querySelector('.conversation-header h2')?.textContent === 'Default chat(1)'", 'fork from reply body');
     assert.deepEqual((await state()).calls.filter(c=>c.operation==='sessions.fork').at(-1).input, { session_id:'Default chat', turn_id:'one' });

@@ -97,6 +97,7 @@ export interface DesktopIpcApplication {
   installVietnamTemplate(sourcePath: string): Promise<DesktopVietnamSettingsState>;
   exportVietnamTemplate(path: string): Promise<DesktopVietnamTemplateExportResult>;
   registerConversationFiles(paths: string[]): DesktopInputAttachmentPayload[];
+  registerPastedConversationText(text: unknown, name: unknown): Promise<DesktopDraftAttachmentPayload>;
   registerPastedConversationFiles(input: unknown): DesktopDraftAttachmentPayload[];
   previewDraftConversationFile(attachmentId: string, variant?: "thumbnail" | "expanded"): Promise<{ data_url: string }>;
   discardConversationFiles(attachmentIds: string[]): void;
@@ -263,6 +264,10 @@ export function registerDesktopIpc(application: DesktopIpcApplication): () => vo
   });
   ipcMain.handle(IPC_CHANNELS.stageDroppedConversationFiles, (_event, paths: unknown) =>
     application.registerConversationFiles(stringArray(paths, "dropped file paths")));
+  ipcMain.handle(IPC_CHANNELS.stagePastedConversationText, (event, text: unknown, name: unknown) => {
+    if (!application.isTrustedFileSender(event)) throw new Error("Text attachments are only available to the desktop main frame");
+    return application.registerPastedConversationText(text, name);
+  });
   ipcMain.handle(IPC_CHANNELS.stagePastedConversationFiles, (_event, input: unknown) =>
     application.registerPastedConversationFiles(input));
   ipcMain.handle(IPC_CHANNELS.readClipboardConversationFiles, async () =>

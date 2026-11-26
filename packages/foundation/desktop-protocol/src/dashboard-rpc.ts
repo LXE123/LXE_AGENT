@@ -714,11 +714,11 @@ const exactKeys = (value: Record<string, unknown>, allowed: readonly string[], l
 const textValue = (
   value: unknown,
   label: string,
-  options: { optional?: boolean; allowEmpty?: boolean } = {},
+  options: { optional?: boolean; allowEmpty?: boolean; conversation?: boolean } = {},
 ): string | undefined => {
   if (value === undefined && options.optional) return undefined;
   if (typeof value !== "string") throw new DashboardRpcError("invalid_request", `${label} must be a string`);
-  if (value.length > MAX_TEXT_LENGTH) rpcError(`${label} is too long`);
+  if (!options.conversation && value.length > MAX_TEXT_LENGTH) rpcError(`${label} is too long`);
   const normalized = value.trim();
   if (!normalized && !options.allowEmpty) rpcError(`${label} must be a non-empty string`);
   return normalized;
@@ -820,7 +820,8 @@ export function parseDashboardRpcCall(value: unknown): DashboardRpcCall {
   const input = objectValue(call.input, `${operation}.input`);
   let encoded: string;
   try {
-    encoded = JSON.stringify(input);
+    // Bound metadata independently of the user-authored message body.
+    encoded = JSON.stringify(operation === "sessions.send" && typeof input.text === "string" ? { ...input, text: "" } : input);
   } catch {
     return rpcError("Dashboard RPC input must be JSON serializable");
   }
@@ -926,7 +927,7 @@ export function parseDashboardRpcCall(value: unknown): DashboardRpcCall {
     case "sessions.send": {
       exactKeys(input, ["session_id", "directory", "text", "attachment_ids", "client_message_id", "steer_turn_id"], `${operation}.input`);
       if (input.session_id !== undefined && input.directory !== undefined) rpcError("Existing sessions cannot change workspace");
-      const text = textValue(input.text, `${operation}.text`, { allowEmpty: true })!;
+      const text = textValue(input.text, `${operation}.text`, { allowEmpty: true, conversation: true })!;
       if (input.steer_turn_id !== undefined && !input.session_id) rpcError("Steering requires an existing session");
       const attachmentIds = attachmentIdsValue(input.attachment_ids, `${operation}.attachment_ids`);
       if (!text && !attachmentIds?.length) rpcError(`${operation} requires text or an attachment`);

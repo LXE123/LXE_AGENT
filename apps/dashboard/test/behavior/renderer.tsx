@@ -311,6 +311,10 @@ const desktop = {
   stageDroppedConversationFiles: async (files: File[]) => {
     calls.push({ operation: "dropFiles", input: files.map(file => file.name) }); return [];
   },
+  stagePastedConversationText: async (text, name) => {
+    calls.push({ operation: "pasteText", input: { name, size: text.length } });
+    return { attachment_id: crypto.randomUUID(), name, media_type: "text/plain", size_bytes: new Blob([text]).size };
+  },
   stagePastedConversationFiles: async () => { calls.push({ operation: "pasteFiles" }); return []; },
   discardConversationFiles: async () => {},
   ...(contractMode ? contractFixture.desktop : {}),

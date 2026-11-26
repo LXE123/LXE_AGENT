@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState, forwardRef, useImperativeHandle, type ReactNode } from "react";
 import { createPortal } from "react-dom";
-import { $createParagraphNode, $createTextNode, $createLineBreakNode, $getRoot, $getSelection, $getNodeByKey, $isRangeSelection, $isTextNode, createEditor, COMMAND_PRIORITY_HIGH, KEY_DOWN_COMMAND, PASTE_COMMAND, $getNearestNodeFromDOMNode, type LexicalEditor, type EditorState } from "lexical";
+import { $createParagraphNode, $createTextNode, $createLineBreakNode, $getRoot, $getSelection, $getNodeByKey, $isRangeSelection, $isTextNode, createEditor, COMMAND_PRIORITY_HIGH, KEY_DOWN_COMMAND, PASTE_COMMAND, $getNearestNodeFromDOMNode, type LexicalEditor } from "lexical";
 import { registerPlainText } from "@lexical/plain-text";
 import { registerHistory, createEmptyHistoryState } from "@lexical/history";
 import { registerLexicalTextEntity } from "@lexical/text";
@@ -16,6 +16,7 @@ import "./reference-composer.css";
 
 type Hit = { key: string; start: number; end: number; prefix: string; trigger: "@" | "/"; query: string; quoted: boolean };
 type Candidate = ComposerCandidate;
+const PASTED_TEXT_ATTACHMENT_THRESHOLD = 5_000;
 const entries = new Map<string, { editor: LexicalEditor; stop(): void }>();
 const forgotten = new Set<string>();
 export function forgetComposerEditor(session: string) {
@@ -60,7 +61,8 @@ function currentHit(): Hit | undefined {
 
 export const ReferenceComposer = forwardRef<HTMLDivElement, {
   session: string; value: string; onChange(text: string): void; onSubmit(): void;
-  onFiles(files: File[]): void; disabled: boolean; placeholder: string;
+  onFiles(files: File[]): void; onPasteText(text: string, characters: number): void;
+  disabled: boolean; placeholder: string;
 }>(function ReferenceComposer(props, forwarded) {
   const t = useUiText();
   const { skills: fetchSkills, files: fetchFiles } = useComposerDiscovery();
@@ -76,7 +78,7 @@ export const ReferenceComposer = forwardRef<HTMLDivElement, {
   const menu = useRef({ items, busy, selected }); menu.current = { items, busy, selected };
   const dismissed = useRef(""); const signature = (h?: Hit) => h ? JSON.stringify(h) : "";
   const drilled = useRef(false);
-  const generation = useRef(0), catalogGeneration = useRef(0), accepted = useRef<EditorState | undefined>(undefined);
+  const generation = useRef(0), catalogGeneration = useRef(0);
   useImperativeHandle(forwarded, () => element.current!, [editor]);
   const close = () => { dismissed.current = signature(hitNow.current); hitNow.current = undefined; drilled.current = false; setHit(undefined); generation.current++; };
   const choose = (item: Candidate, drill = false) => {
@@ -103,15 +105,13 @@ export const ReferenceComposer = forwardRef<HTMLDivElement, {
   const chooseNow = useRef(choose); chooseNow.current = choose;
   useLayoutEffect(() => {
     editor.setRootElement(element.current); editor.setEditable(!propsNow.current.disabled);
-    setDecorators(editor.getDecorators()); accepted.current = editor.getEditorState();
+    setDecorators(editor.getDecorators());
     return mergeRegister(
       () => { editor.setRootElement(null); if (forgotten.has(props.session)) forgetComposerEditor(props.session); },
       editor.registerDecoratorListener(setDecorators),
-      editor.registerUpdateListener(({ editorState, prevEditorState }) => {
+      editor.registerUpdateListener(({ editorState }) => {
         let text = "", next: Hit | undefined;
         editorState.read(() => { text = $getRoot().getTextContent(); next = currentHit(); });
-        if (text.length > 8192) { editor.setEditorState(accepted.current ?? prevEditorState); return; }
-        accepted.current = editorState;
         if (text !== propsNow.current.value) propsNow.current.onChange(text);
         if (editor.isComposing() || signature(next) === dismissed.current) next = undefined;
         if (next?.trigger !== "@") drilled.current = false;
@@ -131,11 +131,27 @@ export const ReferenceComposer = forwardRef<HTMLDivElement, {
         return false;
       }, COMMAND_PRIORITY_HIGH),
       editor.registerCommand(PASTE_COMMAND, event => {
-        if (!(event instanceof ClipboardEvent)) return false;
-        const files = Array.from(event.clipboardData?.files ?? []); if (!files.length && !Array.from(event.clipboardData?.types ?? []).some(type => type === "Files" || type === "text/uri-list")) return false;
-        event.preventDefault(); propsNow.current.onFiles(files);
-        const text = event.clipboardData?.getData("text/plain"); const selection = $getSelection();
-        if (text && $isRangeSelection(selection)) selection.insertRawText(text); return true;
+        if (!(event instanceof ClipboardEvent) || !event.clipboardData) return false;
+        const clipboard = event.clipboardData;
+        const files = Array.from(clipboard.files);
+        const hasFiles = files.length > 0 || Array.from(clipboard.types).some(type => type === "Files" || type === "text/uri-list");
+        const text = clipboard.getData("text/plain");
+        if (!files.length && text.length > PASTED_TEXT_ATTACHMENT_THRESHOLD) {
+          let characters = 0;
+          for (const _ of text) characters++;
+          if (characters > PASTED_TEXT_ATTACHMENT_THRESHOLD) {
+            event.preventDefault();
+            propsNow.current.onPasteText(text, characters);
+            return true;
+          }
+        }
+        // Normal text keeps Lexical's native paste and selection-replacement behavior.
+        if (!hasFiles) return false;
+        event.preventDefault();
+        propsNow.current.onFiles(files);
+        const selection = $getSelection();
+        if (text && $isRangeSelection(selection)) selection.insertRawText(text);
+        return true;
       }, COMMAND_PRIORITY_HIGH),
       ...registerLexicalTextEntity(editor, text => {
         const match = /(^|\s)\/([a-z0-9]+(?:-[a-z0-9]+)*)(?=\s|$)/g;
@@ -185,7 +201,7 @@ export const ReferenceComposer = forwardRef<HTMLDivElement, {
     });
   };
   return <div className="reference-composer" ref={box} onClick={activate}>
-    <div ref={element} className="reference-editor" role="textbox" data-session={props.session} data-maxlength="8192" aria-disabled={props.disabled} aria-label={props.placeholder} aria-multiline aria-autocomplete="list" aria-expanded={!!hit} aria-controls={hit ? "composer-candidates" : undefined} aria-activedescendant={hit && items[selected] ? "composer-candidate-" + selected : undefined} contentEditable={!props.disabled} onCompositionEnd={() => { composingUntil.current = Date.now() + 10; }} suppressContentEditableWarning data-placeholder={props.placeholder} data-empty={!props.value} onBlur={event => { if (!box.current?.contains(event.relatedTarget)) close(); }} />
+    <div ref={element} className="reference-editor" role="textbox" data-session={props.session} aria-disabled={props.disabled} aria-label={props.placeholder} aria-multiline aria-autocomplete="list" aria-expanded={!!hit} aria-controls={hit ? "composer-candidates" : undefined} aria-activedescendant={hit && items[selected] ? "composer-candidate-" + selected : undefined} contentEditable={!props.disabled} onCompositionEnd={() => { composingUntil.current = Date.now() + 10; }} suppressContentEditableWarning data-placeholder={props.placeholder} data-empty={!props.value} onBlur={event => { if (!box.current?.contains(event.relatedTarget)) close(); }} />
     {Object.entries(decorators).map(([key, value]) => { const element = editor.getElementByKey(key); return element ? createPortal(value, element, key) : null; })}
     {hit ? <ComposerCandidateMenu trigger={hit.trigger} query={hit.query} drilled={drilled.current} items={items} busy={busy} selected={selected} onSelect={setSelected} onChoose={choose} /> : null}
   </div>;
