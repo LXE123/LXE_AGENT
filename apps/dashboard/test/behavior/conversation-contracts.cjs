@@ -574,12 +574,12 @@ module.exports = async ({suite,win,url,js,step,load,waitFor,click,key,focus,sett
     const draft = "sessionStorage.getItem('lxe.composer-draft.' + document.querySelector('.reference-editor').dataset.session)";
     assert.equal(await js(draft), 'existing draft');
     assert.equal(await js("document.activeElement.matches('.reference-editor')"), true);
-    await click('.composer-quote-open');
+    await click('.composer-quotes .message-quote-open');
     await waitFor("document.querySelector('.quote-preview blockquote')?.textContent === 'assistant'", 'quote preview');
     await key('Escape');
-    assert.equal(await js("!!document.querySelector('.composer-quote')"), true);
-    await click('.composer-quote .quote-icon');
-    assert.equal(await js("!!document.querySelector('.composer-quote')"), false);
+    assert.equal(await js("!!document.querySelector('.composer-quotes')"), true);
+    await click('.composer-quotes .quote-icon');
+    assert.equal(await js("!!document.querySelector('.composer-quotes')"), false);
     assert.equal(await js(draft), 'existing draft');
     await win.webContents.insertText('x'.repeat(8192 - (await js(draft)).length));
     await settle();
@@ -595,7 +595,7 @@ module.exports = async ({suite,win,url,js,step,load,waitFor,click,key,focus,sett
     assert.equal(await js("document.querySelector('.reference-editor').textContent"), "");
   });
   await step('selection quotes keep comments separate from the draft until confirmed and sent', async () => {
-    await load('?app=1&workspaces=1&section=sessions&forkFixture=1');
+    await load('?app=1&workspaces=1&section=sessions&forkFixture=1&quoteHistory=1');
     const shopToggle = '[data-workspace-directory="/fixture/shop"] .workspace-group-toggle';
     const wasExpanded = await js(`document.querySelector('${shopToggle}').getAttribute('aria-expanded') === 'true'`);
     if (!wasExpanded) await click(shopToggle);
@@ -638,24 +638,43 @@ module.exports = async ({suite,win,url,js,step,load,waitFor,click,key,focus,sett
     assert.equal(await js(`document.querySelector('${field}').value`), 'why?');
     await click('.quote-confirm');
     await click('[data-session-id="Default chat"] .session-index-open');
-    await waitFor("!document.querySelector('.composer-quote')", 'quotes are scoped to their conversation');
-    await load('?app=1&workspaces=1&section=sessions&forkFixture=1');
+    await waitFor("!document.querySelector('.composer-quotes')", 'quotes are scoped to their conversation');
+    await load('?app=1&workspaces=1&section=sessions&forkFixture=1&quoteHistory=1');
     await waitFor(`!!document.querySelector('[data-session-id="Shop chat 2"] .session-index-open')`, 'shop chat restored');
     await click('[data-session-id="Shop chat 2"] .session-index-open');
-    await waitFor("document.querySelector('.reference-editor')?.textContent === 'my draft' && !!document.querySelector('.composer-quote-open')", 'draft and quote restored after reload');
-    await click('.composer-quote-open');
+    await waitFor("document.querySelector('.reference-editor')?.textContent === 'my draft' && !!document.querySelector('.composer-quotes .message-quote-open')", 'draft and quote restored after reload');
+    await click('.composer-quotes .message-quote-open');
     assert.equal(await js("document.querySelector('.quote-preview blockquote').textContent"), 'assistant one');
     assert.equal(await js("document.querySelector('.quote-preview p').textContent"), 'why?');
     await key('Escape');
+    await select();
+    await click('.quote-confirm'); // No comment stages an ordinary excerpt.
+    const bubble = '.message-card.role-user:has(.sent-message-quotes)';
+    const checkBubble = async () => {
+      await waitFor(`document.querySelector('${bubble} .user-reference-text')?.textContent === 'my draft'`, 'reader-facing message body');
+      assert.equal(await js(`document.querySelector('${bubble}').textContent.includes('<!--')`), false);
+      assert.equal(await js(`document.querySelectorAll('${bubble} .quote-icon').length`), 0);
+      for (const [index, comment] of [[1, 'why?'], [2, '']]) {
+        await click(`${bubble} .message-quote-row:nth-child(${index}) .message-quote-open`);
+        assert.equal(await js("document.querySelector('.quote-preview blockquote').textContent"), 'assistant one');
+        assert.equal(await js("document.querySelector('.quote-preview p')?.textContent ?? ''"), comment);
+        await key('Escape');
+      }
+    };
     await js("behavior.failWorkspaceSend(true)");
     await click('.conversation-send-button');
     await waitFor("document.querySelector('.conversation-compose-error')?.textContent.includes('EACCES')", 'send error');
     assert.equal(await js("document.querySelector('.reference-editor').textContent"), 'my draft');
-    assert.equal(await js("!!document.querySelector('.composer-quote')"), true);
-    await js("behavior.failWorkspaceSend(false)");
+    assert.equal(await js("!!document.querySelector('.composer-quotes')"), true);
+    await js("behavior.failWorkspaceSend(false);behavior.holdWorkspaceSend(true)");
     await click('.conversation-send-button');
-    await waitFor("!document.querySelector('.composer-quote') && !document.querySelector('.reference-editor').textContent", 'sent quotes clear');
-    assert.equal((await state()).calls.findLast(c=>c.operation==='sessions.send').input.text, '> assistant one\n\nwhy?\n\nmy draft');
+    await checkBubble();
+    await js("behavior.releaseWorkspaceSend()");
+    await waitFor("!document.querySelector('.composer-quotes') && !document.querySelector('.reference-editor').textContent", 'sent quotes clear');
+    assert.equal((await state()).calls.findLast(c=>c.operation==='sessions.send').input.text, '<!-- reply 1 -->\n> assistant one\n\nwhy?\n\n\n<!-- attach -->\n> assistant one\n\nmy draft');
+    await load('?app=1&workspaces=1&section=sessions&forkFixture=1&quoteHistory=1');
+    await click('[data-session-id="Shop chat 2"] .session-index-open');
+    await checkBubble();
     await click('[data-session-id="Default chat"] .session-index-open');
     if (!wasExpanded) await click(shopToggle);
   });

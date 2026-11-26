@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test";
 import { appendComposerDraftPrompt, prepareDraftMove } from "../../../src/features/sessions/composer-draft";
-import { composeQuotedMessage, readQuotes, removeQuotes, writeQuotes } from "../../../src/features/sessions/composer-quotes";
+import { composeQuotedMessage } from "../../../src/features/sessions/message-quotes";
+import { readQuotes, removeQuotes, writeQuotes } from "../../../src/features/sessions/composer-quotes";
 import { conversationAttachments, moveConversationAttachments } from "../../../src/features/sessions/attachment-draft";
 const callbacks = { changed() {}, error() {}, discard: async () => {}, tooMany: () => "Too many screenshots" };
 test("workspace switching merges text and attachments without overwriting or discarding registrations", () => {
@@ -28,7 +29,7 @@ test("confirmed quotes move with their draft and only submitted quotes clear on 
   writeQuotes("quote-source", [two]);
   prepareDraftMove("quote-source", "quote-target")();
   expect(readQuotes("quote-source")).toEqual([]);
-  expect(composeQuotedMessage(readQuotes("quote-target"), "draft")).toBe("> first\n> line\n\n> second\n\nwhy?\n\ndraft");
+  expect(composeQuotedMessage(readQuotes("quote-target"), "draft")).toBe("<!-- reply 1 -->\n> second\n\nwhy?\n\n\n<!-- attach -->\n> first\n> line\n\ndraft");
   removeQuotes("quote-target", ["1"]);
   expect(readQuotes("quote-target")).toEqual([two]);
   writeQuotes("quote-source", [{ ...one, text: "x".repeat(8190) }]);

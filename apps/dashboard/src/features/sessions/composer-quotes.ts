@@ -1,9 +1,9 @@
 import { useSyncExternalStore } from "react";
 
-export interface ComposerQuote {
+import type { MessageQuote } from "./message-quotes";
+
+export interface ComposerQuote extends MessageQuote {
   id: string;
-  text: string;
-  comment: string;
 }
 export type ComposerQuoteAction = ((text: string, comment?: string) => void) | null;
 
@@ -42,13 +42,4 @@ export function useComposerQuotes(session: string) {
 
 export function removeQuotes(session: string, ids: string[]) {
   if (ids.length) writeQuotes(session, readQuotes(session).filter(q => !ids.includes(q.id)));
-}
-
-export function composeQuotedMessage(quotes: ComposerQuote[], text: string) {
-  const parts = quotes.map(q => {
-    const excerpt = q.text.split("\n").map(line => "> " + line).join("\n");
-    return q.comment ? excerpt + "\n\n" + q.comment : excerpt;
-  });
-  if (text) parts.push(text);
-  return parts.join("\n\n");
 }

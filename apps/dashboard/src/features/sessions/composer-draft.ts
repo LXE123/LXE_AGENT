@@ -1,4 +1,5 @@
-import { composeQuotedMessage, readQuotes, writeQuotes } from "./composer-quotes";
+import { composeQuotedMessage } from "./message-quotes";
+import { readQuotes, writeQuotes } from "./composer-quotes";
 import { useSyncExternalStore, type Dispatch, type SetStateAction } from "react";
 
 const keyFor = (key: string) => `lxe.composer-draft.${key}`;

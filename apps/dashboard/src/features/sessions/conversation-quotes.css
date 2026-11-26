@@ -1,16 +1,19 @@
-.composer-quotes { display: grid; gap: 3px; max-height: 24vh; overflow: auto; min-width: 0; }
-.composer-quote, .selection-quote, .quote-preview { color: var(--text); }
-.composer-quote { display: flex; align-items: center; padding: 2px 4px; border-radius: 8px; background: var(--cds-alpha-1); }
-.composer-quote button, .selection-quote button, .quote-preview button {
+.composer-quotes, .sent-message-quotes { display: grid; gap: 3px; min-width: 0; max-width: 100%; }
+.composer-quotes { max-height: 24vh; overflow: auto; }
+.sent-message-quotes + .user-reference-text { margin-block-start: 6px; }
+.sent-message-quotes .message-quote-row { min-width: 0; }
+.message-quote-row, .selection-quote, .quote-preview { color: var(--text); }
+.message-quote-row { display: flex; align-items: center; padding: 2px 4px; border-radius: 8px; background: var(--cds-alpha-1); }
+.message-quote-row button, .selection-quote button, .quote-preview button {
   display: inline-flex; align-items: center; justify-content: center; gap: 6px;
   border: 0; background: transparent; color: var(--text-soft); font: inherit; cursor: pointer;
 }
-.composer-quote button:hover, .selection-quote button:hover, .quote-preview button:hover { color: var(--text); background: var(--cds-alpha-2); }
-.composer-quote button:focus-visible, .selection-quote button:focus-visible, .quote-preview button:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
-.composer-quote .composer-quote-open { flex: 1; min-width: 0; justify-content: flex-start; padding: 6px 8px; border-radius: 6px; text-align: left; font-size: .82rem; }
-.composer-quote-open > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.composer-quote-open > :is(svg, small) { flex: none; }
-.composer-quote-open small { margin-inline-start: auto; color: var(--muted); }
+.message-quote-row button:hover, .selection-quote button:hover, .quote-preview button:hover { color: var(--text); background: var(--cds-alpha-2); }
+.message-quote-row button:focus-visible, .selection-quote button:focus-visible, .quote-preview button:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.message-quote-row .message-quote-open { flex: 1; min-width: 0; justify-content: flex-start; padding: 6px 8px; border-radius: 6px; text-align: left; font-size: .82rem; }
+.message-quote-open > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.message-quote-open > :is(svg, small) { flex: none; }
+.message-quote-open small { margin-inline-start: auto; color: var(--muted); }
 .quote-icon { flex: none; width: 28px; height: 28px; border-radius: 6px; }
 .selection-quote, .quote-preview { background: var(--cds-surface-popover); border: 1px solid var(--border); box-shadow: var(--shadow-card); }
 .selection-quote { position: fixed; z-index: 50; border-radius: 10px; overflow: auto; max-height: 60vh; font-size: .82rem; }

@@ -46,6 +46,7 @@ const updateRelease: DesktopUpdateRelease = {version:"0.2.0",build_id:"renderer-
 let updateState: DesktopUpdateState = {phase:"unsupported"};
 let releaseUpdateDownload: (()=>void) | undefined;
 const forkFixture = new URLSearchParams(location.search).has("forkFixture");
+const quoteHistoryFixture = new URLSearchParams(location.search).has("quoteHistory");
 const fileLinksFixture = new URLSearchParams(location.search).has("fileLinks");
 const workspaceMode = new URLSearchParams(location.search).has("workspaces");
 let referenceMode = false;
@@ -180,6 +181,11 @@ function workspaceRpc(call: { operation: string; input: Record<string, unknown> 
           display_id: id + role, display_group_id: id + block, created_at: index + 1,
           turn: { turn_id: id, status: "completed", elapsed_ms: 1, forkable: block === 1 },
         })));
+        const sent = quoteHistoryFixture && sessionStorage.getItem("sent-quote-fixture." + session.session_id);
+        if (sent) messages.push({
+          role: "user", content: sent, display_id: "message", display_group_id: "sent-user", created_at: 3,
+          turn: { turn_id: "turn", status: "completed", elapsed_ms: 0, forkable: false },
+        });
         const groups = messages.map(m => m.display_group_id);
         return { session, has_forkable_turn: true, messages, messages_page: { group_cursors: groups, total: groups.length,
           raw_message_total: groups.length, limit: 10, fetched_at: 1, oldest_cursor: groups[0], newest_cursor: groups.at(-1),
@@ -201,6 +207,7 @@ function workspaceRpc(call: { operation: string; input: Record<string, unknown> 
       if (holdWorkspaceSend) await new Promise<void>(resolve => { releaseWorkspaceSend = resolve; });
       const row = workspaceSessions.find(row => row.session_id === input.session_id)!;
       if (!row) throw new Error("fixture session missing");
+      if (quoteHistoryFixture) sessionStorage.setItem("sent-quote-fixture." + row.session_id, String(input.text));
       row.blank = false; row.title = String(input.text);
       persistWorkspaces();
       return { session_id: row.session_id, turn_id: "turn", message_id: "message", created: false, state: "queued" };
