@@ -1,7 +1,17 @@
-.composer-quotes, .sent-message-quotes { display: grid; gap: 3px; min-width: 0; max-width: 100%; }
-.composer-quotes { max-height: 24vh; overflow: auto; }
+.composer-quotes { display: grid; gap: 3px; min-width: 0; max-width: 100%; max-height: 24vh; overflow: auto; }
+.sent-message-quotes { display: grid; gap: 6px; min-width: 0; max-width: 100%; }
 .sent-message-quotes + .user-reference-text { margin-block-start: 6px; }
-.sent-message-quotes .message-quote-row { min-width: 0; }
+.sent-message-quote { min-width: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+.sent-message-quote blockquote {
+  margin: 0; padding-inline-start: 8px; border-inline-start: 2px solid var(--border-strong);
+}
+.sent-message-quote p { margin: 4px 0 0; }
+.sent-quote-open {
+  display: block; max-width: 100%; padding: 0; border: 0; background: transparent;
+  color: var(--text-soft); font: inherit; text-align: start; white-space: inherit;
+  overflow-wrap: anywhere; user-select: text; cursor: pointer;
+}
+.sent-quote-open:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .message-quote-row, .selection-quote, .quote-preview { color: var(--text); }
 .message-quote-row { display: flex; align-items: center; padding: 2px 4px; border-radius: 8px; background: var(--cds-alpha-1); }
 .message-quote-row button, .selection-quote button, .quote-preview button {

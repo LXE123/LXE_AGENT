@@ -29,3 +29,16 @@ export function MessageQuoteRow({ quote, onRemove }: { quote: MessageQuote; onRe
     {open && <QuotePreview quote={quote} close={() => setOpen(false)} />}
   </div>;
 }
+
+export function SentMessageQuote({ quote }: { quote: MessageQuote }) {
+  const [open, setOpen] = useState(false);
+  return <div className="sent-message-quote">
+    <blockquote className="message-markdown">
+      <button className="sent-quote-open" type="button" aria-haspopup="dialog" onClick={event => {
+        if (event.detail === 0 || (event.detail === 1 && window.getSelection()?.isCollapsed !== false)) setOpen(true);
+      }}>{quote.text}</button>
+    </blockquote>
+    {quote.comment && <p className="message-markdown">{quote.comment}</p>}
+    {open && <QuotePreview quote={quote} close={() => setOpen(false)} />}
+  </div>;
+}

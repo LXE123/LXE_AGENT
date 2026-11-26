@@ -1,7 +1,7 @@
 // Sent-message projection adapted from DeepSeek Harness ui-primitives/user-text (MIT).
 import type { ReactNode } from "react";
 import { parseQuotedMessage } from "./message-quotes";
-import { MessageQuoteRow } from "./MessageQuoteRow";
+import { SentMessageQuote } from "./MessageQuoteRow";
 import { File, Folder } from "lucide-react";
 import { usePreviewSidebar } from "../file-preview/Sidebar";
 export function UserReferenceText({ text: source, skills = [] }: { text: string; skills?: string[] }) {
@@ -24,7 +24,7 @@ export function UserReferenceText({ text: source, skills = [] }: { text: string;
   parts.push(text.slice(cursor));
   return <>
     {quotes.length > 0 && <div className="sent-message-quotes">
-      {quotes.map((quote, index) => <MessageQuoteRow key={index} quote={quote} />)}
+      {quotes.map((quote, index) => <SentMessageQuote key={index} quote={quote} />)}
     </div>}
     {(text || !quotes.length) && <div className="message-markdown user-reference-text">{parts}</div>}
   </>;

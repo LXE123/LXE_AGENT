@@ -685,7 +685,10 @@ module.exports = async ({suite,win,url,js,step,load,waitFor,click,key,focus,sett
       assert.equal(await js(`document.querySelector('${bubble}').textContent.includes('<!--')`), false);
       assert.equal(await js(`document.querySelectorAll('${bubble} .quote-icon').length`), 0);
       for (const [index, comment] of [[1, multilineComment], [2, '']]) {
-        await click(`${bubble} .message-quote-row:nth-child(${index}) .message-quote-open`);
+        const group = `${bubble} .sent-message-quote:nth-child(${index})`;
+        assert.equal(await js(`document.querySelector('${group} blockquote').innerText`), 'assistant one');
+        assert.equal(await js(`document.querySelector('${group} blockquote + p')?.innerText ?? ''`), comment);
+        await click(`${group} .sent-quote-open`);
         assert.equal(await js("document.querySelector('.quote-preview blockquote').textContent"), 'assistant one');
         assert.equal(await js("document.querySelector('.quote-preview p')?.textContent ?? ''"), comment);
         await key('Escape');
@@ -705,6 +708,31 @@ module.exports = async ({suite,win,url,js,step,load,waitFor,click,key,focus,sett
     await load('?app=1&workspaces=1&section=sessions&forkFixture=1&quoteHistory=1');
     await click('[data-session-id="Shop chat 2"] .session-index-open');
     await checkBubble();
+    const longLine = 'unbroken'.repeat(18);
+    const history = '<!-- reply 1 -->\n> first line\n> ' + longLine + '\n\nmy comment\n\n\nfinal text';
+    await js(`sessionStorage.setItem('sent-quote-fixture.Shop chat 2', ${JSON.stringify(history)})`);
+    await load('?app=1&workspaces=1&section=sessions&forkFixture=1&quoteHistory=1');
+    await click('[data-session-id="Shop chat 2"] .session-index-open');
+    await waitFor(`document.querySelector('${bubble} .user-reference-text')?.textContent === 'final text'`, 'multiline quote from history');
+    for (const theme of ['dark', 'light']) {
+      const layout = await js(`(() => {
+        document.documentElement.dataset.theme = '${theme}';
+        const card = document.querySelector('${bubble}');
+        const excerpt = card.querySelector('.sent-quote-open');
+        const comment = card.querySelector('blockquote + p');
+        return {
+          excerpt: excerpt.innerText, wraps: excerpt.clientHeight > 2 * parseFloat(getComputedStyle(excerpt).lineHeight),
+          fits: excerpt.scrollWidth <= excerpt.clientWidth && excerpt.getBoundingClientRect().right <= card.getBoundingClientRect().right,
+          rail: parseFloat(getComputedStyle(excerpt.parentElement).borderInlineStartWidth),
+          quoteColor: getComputedStyle(excerpt).color, commentColor: getComputedStyle(comment).color,
+          bodyColor: getComputedStyle(card.querySelector('.user-reference-text')).color,
+        };
+      })()`);
+      assert.equal(layout.excerpt, 'first line\n' + longLine);
+      assert.ok(layout.wraps && layout.fits && layout.rail > 0, theme + ' inline excerpt wraps within the bubble beside its rule');
+      assert.notEqual(layout.quoteColor, layout.commentColor);
+      assert.equal(layout.commentColor, layout.bodyColor);
+    }
     await click('[data-session-id="Default chat"] .session-index-open');
     if (!wasExpanded) await click(shopToggle);
   });
