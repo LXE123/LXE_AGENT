@@ -280,7 +280,16 @@ describe("UsageStore", () => {
         tool_calls: 1, api_calls: 1, tools: [{ name: "exec", calls: 1, errors: 1, duration_ms: 3 }],
         activations: [{ skill: "demo", module: "amazon_fba" }],
         executions: [{ skill: "demo", module: "amazon_fba", command: "fba shipment prepare-upload", success: false, duration_ms: 3 }],
+        uses: [{ skill: "demo", module: "amazon_fba", source: "explicit" }],
       });
+      expect(database.query(`
+        SELECT kind, name, module, calls, errors, duration_ms, detail FROM turn_usage_items
+        WHERE turn_id = 'turn-1' AND kind != 'tool' ORDER BY item_id
+      `).all()).toEqual([
+        { kind: "skill_activation", name: "demo", module: "amazon_fba", calls: 1, errors: 0, duration_ms: 0, detail: "" },
+        { kind: "skill_execution", name: "demo", module: "amazon_fba", calls: 1, errors: 1, duration_ms: 3, detail: "fba shipment prepare-upload" },
+        { kind: "skill_use", name: "demo", module: "amazon_fba", calls: 1, errors: 0, duration_ms: 0, detail: "explicit" },
+      ]);
       const batch = store.exportTurnUsageBatch("https://cloud.example", startedAt - 1, 10);
       const serialized = JSON.stringify(batch);
       expect(serialized).not.toContain("secret-session");
@@ -291,8 +300,7 @@ describe("UsageStore", () => {
       });
       expect(batch.turns[0]!.items).toEqual([
         { kind: "tool", name: "exec", module: "", calls: 1, errors: 1, duration_ms: 3 },
-        { kind: "skill_activation", name: "demo", module: "amazon_fba", calls: 1 },
-        { kind: "skill_execution", name: "demo", module: "amazon_fba", calls: 1 },
+        { kind: "skill_use", name: "demo", module: "amazon_fba", calls: 1 },
       ]);
 
       expect(store.skillUsageDetail("demo", 30)).toMatchObject({
@@ -350,6 +358,25 @@ describe("UsageStore", () => {
       database.close(true);
     }
   });
+
+  test("applies the 500-item upload cap after filtering out local-only rows", () => {
+    const database = usageDatabase();
+    try {
+      const store = new UsageStore(database);
+      store.recordTurn("s1", {
+        turn_id: "full", started_at: startedAt, status: "completed", elapsed_ms: 1,
+        input_tokens: 0, output_tokens: 0, tool_calls: 500, api_calls: 1,
+        tools: [{ name: "read", calls: 500, errors: 0, duration_ms: 10 }],
+        activations: Array(500).fill({ skill: "demo", module: "default" }), executions: [],
+        uses: Array.from({ length: 500 }, (_, i) => ({ skill: `skill-${i}`, module: "default", source: "implicit" })),
+      });
+      const items = store.exportTurnUsageBatch("https://cloud.example", startedAt - 1).turns[0]!.items;
+      expect(items).toHaveLength(500);
+      expect(Array.isArray(items) && items.at(-1)).toEqual({ kind: "skill_use", name: "skill-498", module: "default", calls: 1 });
+    } finally {
+      database.close(true);
+    }
+  });
 });
 
 test("new call counts accumulate on historical usage without resetting its upload cursor", () => {
@@ -361,16 +388,16 @@ test("new call counts accumulate on historical usage without resetting its uploa
     store.recordTurn("s", { ...base, turn_id: "old", activations: [{ skill: "demo", module: "default" }],
       executions: [{ skill: "demo", module: "default", command: "demo run", success: false, duration_ms: 7 }] });
     const first = store.exportTurnUsageBatch("https://cloud.example", startedAt - 1, 10);
+    expect(first.turns[0]!.items).toEqual([]);
     store.acknowledgeTurnUsage("https://cloud.example", Number(first.turns[0]!.sequence));
     store.recordTurn("s", { ...base, turn_id: "new", activations: Array(2).fill({ skill: "demo", module: "default" }),
+      uses: [{ skill: "demo", module: "default", source: "implicit" }],
       executions: [{ skill: "demo", module: "default", command: "demo run" }] });
     expect(store.skillUsageStats(30, "demo")).toEqual([expect.objectContaining({ activations: 3, executions: 2, failures: 1, duration_ms: 7 })]);
     const batch = store.exportTurnUsageBatch("https://cloud.example", startedAt - 1, 10);
     expect(batch.turns.map(turn => turn.turn_id)).toEqual(["new"]);
     expect(batch.turns[0]!.items).toEqual([
-      { kind: "skill_activation", name: "demo", module: "default", calls: 1 },
-      { kind: "skill_activation", name: "demo", module: "default", calls: 1 },
-      { kind: "skill_execution", name: "demo", module: "default", calls: 1 },
+      { kind: "skill_use", name: "demo", module: "default", calls: 1 },
     ]);
   } finally { database.close(true); }
 });

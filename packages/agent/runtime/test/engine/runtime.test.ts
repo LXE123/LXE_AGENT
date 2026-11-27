@@ -922,6 +922,9 @@ describe("TypeScriptAgentRuntime", () => {
       module: "replenishment",
     }, { skill: "amazon-replenishment", module: "replenishment" }]);
     expect(store.metrics[0]?.executions).toEqual([]);
+    for (const metrics of store.metrics) expect(metrics.uses).toEqual([{
+      skill: "amazon-replenishment", module: "replenishment", source: "implicit",
+    }]);
     expect(store.metrics[1]?.tools).toContainEqual(expect.objectContaining({
       name: "exec",
       calls: 2,
@@ -3334,10 +3337,12 @@ describe("skill loading", () => {
       expect(looked).toEqual(["office-xlsx", "missing-skill"]);
       const user = store.messages.find(m => m.role === "user" && m.message_id === "m1");
       expect(user && "invoked_skills" in user && user.invoked_skills).toEqual(["office-xlsx"]);
+      expect(store.metrics[0]?.uses).toEqual([{ skill: "office-xlsx", module: "", source: "explicit" }]);
       expect(store.messageReasons.filter(r => r === "skill_invocation")).toHaveLength(1);
       expect(store.metrics[0]?.activations).toEqual([]);
       await runtime.runTurn(job({ job_id: "j2", user_input: "continue" }), handle());
       expect(looked).toEqual(["office-xlsx", "missing-skill"]);
+      expect(store.metrics[1]?.uses).toEqual([]);
     } finally { await runtime.stop(); }
   });
   test("real skill-load errors stop before provider and are not reported as success", async () => {
@@ -3361,16 +3366,17 @@ test("explicit skills deduplicate a steering batch and never scan tool output", 
   const store = new MemoryStore(), tools = new ToolRegistry(), looked: string[] = [];
   const queue: ReturnType<RuntimeHandle["drainSteering"]> = [];
   let round = 0, invalidations = 0;
-  tools.register({ name: "fixture", description: "fixture", input_schema: { type: "object" }, execute: async () => ({ content: [{ type: "text", text: "/tool-output-skill" }] }) });
+  tools.register({ name: "read", description: "fixture", input_schema: { type: "object" }, execute: async () => ({ content: [{ type: "text", text: "/tool-output-skill" }] }) });
   const runtime = new TypeScriptAgentRuntime({ permissionPolicy, store, tools, systemPrompt: "test",
     emitter: { emit: async () => {}, typing: async () => {} },
     onToolResult: () => { invalidations++; },
-    toolExposure: { allowedSkills: new Set(["one", "two"]) },
+    skillSnapshot: () => ({ names: ["one", "two"], prompt: "", modules: { one: "demo", two: "demo" },
+      locations: { [skillPathKey("/skills/one/SKILL.md")]: "one" } }),
     resolveInvokedSkill: async name => { looked.push(name); return { name, root: "/skills/" + name, content: "Instructions " + name }; },
     provider: { summarize, turn: async request => {
       if (round++ === 0) {
         queue.push({ text: "/one /two /blocked" }, { text: "/two continue" });
-        return messageFixture({ stopReason: "toolUse", content: [{ type: "tool_call", id: "c", name: "fixture", arguments: {} }] });
+        return messageFixture({ stopReason: "toolUse", content: [{ type: "tool_call", id: "c", name: "read", arguments: { path: "/skills/one/SKILL.md" } }] });
       }
       expect(request.messages.filter(m => m.role === "user" && typeof m.content === "string" && m.content.startsWith("<skill_content"))).toHaveLength(2);
       return messageFixture({ stopReason: "stop", content: [{ type: "text", text: "done" }] });
@@ -3380,6 +3386,11 @@ test("explicit skills deduplicate a steering batch and never scan tool output", 
   try {
     expect((await runtime.runTurn(job(), { ...handle(), drainSteering: () => queue.splice(0) })).status).toBe("completed");
     expect(looked).toEqual(["one", "two"]); expect(invalidations).toBeGreaterThan(0);
+    expect(store.metrics[0]?.activations).toEqual([{ skill: "one", module: "demo" }]);
+    expect(store.metrics[0]?.uses).toEqual([
+      { skill: "one", module: "demo", source: "explicit" },
+      { skill: "two", module: "demo", source: "explicit" },
+    ]);
     expect(store.messageReasons.filter(reason => reason === "skill_invocation")).toHaveLength(2);
   } finally { await runtime.stop(); }
 });

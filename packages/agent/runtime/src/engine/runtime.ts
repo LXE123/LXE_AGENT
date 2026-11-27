@@ -539,7 +539,7 @@ export class TypeScriptAgentRuntime implements AgentRuntime {
         userMessage.promptState = { mcpDirectory: directory };
       }
       const loadInvokedSkills = async (names: readonly string[], seen = new Set<string>()): Promise<RuntimeMessage[]> => {
-        const injected: RuntimeMessage[] = [];
+        const injected = new Map<string, RuntimeMessage>();
         for (const name of names) {
           if (seen.has(name) || !toolExposure.allowsSkill(name)) continue;
           const skill = await this.options.resolveInvokedSkill?.(name, workspace);
@@ -547,9 +547,10 @@ export class TypeScriptAgentRuntime implements AgentRuntime {
           if (!skill) continue;
           await toolExposure.activateSkill(name);
           seen.add(name);
-          injected.push({ role: "user", content: renderInvokedSkill(skill), invoked_skills: [name] });
+          injected.set(name, { role: "user", content: renderInvokedSkill(skill), invoked_skills: [name] });
         }
-        return injected;
+        for (const name of injected.keys()) statistics.recordUse(name, "explicit");
+        return [...injected.values()];
       };
       const instructions = await loadInvokedSkills(invokedSkillNames(job.user_input)).catch(async error => {
         // Keep the submitted input in history when skill selection or loading fails.

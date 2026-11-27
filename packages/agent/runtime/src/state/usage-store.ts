@@ -225,6 +225,13 @@ export class UsageStore {
           Number(execution.duration_ms ?? 0), text(execution.command),
         );
       }
+      for (const use of metrics.uses ?? []) {
+        this.database.query(`
+          INSERT INTO turn_usage_items
+            (turn_id, session_id, started_at, kind, name, module, calls, errors, duration_ms, detail)
+          VALUES (?, ?, ?, 'skill_use', ?, ?, 1, 0, 0, ?)
+        `).run(turnId, safeSessionId, startedAt, use.skill, use.module, use.source);
+      }
     })();
   }
 
@@ -471,7 +478,7 @@ export class UsageStore {
           WHERE sequence > ?
           ORDER BY sequence ASC LIMIT ?
         ) AS selected ON selected.turn_id = item.turn_id
-        WHERE item.kind IN ('tool', 'skill_activation', 'skill_execution')
+        WHERE item.kind IN ('tool', 'skill_use')
         ORDER BY item.item_id ASC
       `, acknowledgedSequence, safeLimit);
       const itemCounts = new Map<string, number>();

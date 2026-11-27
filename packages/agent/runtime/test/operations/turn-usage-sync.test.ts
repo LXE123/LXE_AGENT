@@ -111,6 +111,7 @@ const recordTurn = async (
       duration_ms: 3,
     })),
     activations: [{ skill: "inventory", module: "fba" }],
+    uses: [{ skill: "inventory", module: "fba", source: "explicit" }],
     executions: [{
       skill: "inventory",
       module: "fba",
@@ -264,8 +265,7 @@ describe("TurnUsageSyncService", () => {
     ]) expect(serialized).not.toContain(forbidden);
     expect(uploads[0]?.body.turns[0].items).toEqual([
       { kind: "tool", name: "tool-0", module: "", calls: 1, errors: 0, duration_ms: 3 },
-      { kind: "skill_activation", name: "inventory", module: "fba", calls: 1 },
-      { kind: "skill_execution", name: "inventory", module: "fba", calls: 1 },
+      { kind: "skill_use", name: "inventory", module: "fba", calls: 1 },
     ]);
     await store.stop();
   });

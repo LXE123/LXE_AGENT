@@ -82,7 +82,7 @@ bun run desktop:dev
 - **存储归属**：Electron 管理桌面配置、凭据、缓存及 Gateway 接入数据；agentcli 管理 Agent 会话和统计，消息及工具记录保存在 JSONL transcript；lxeskillCLI 管理业务数据和配置。
 - **数据位置**：源码开发和预览使用当前 checkout 的 `var/`；Windows 安装版默认使用 `%LOCALAPPDATA%\LXE Agent`。更换程序目录和卸载保留用户数据，迁移规则见 [程序与用户数据](docs/desktop/data-location.md)。
 - **凭据**：公司下发的模型密钥与桌面保存的业务集成凭证由 Electron 安全存储加密保存；用户自行配置的模型 Key 明文保存在数据目录的 `config/auth.json`，依靠当前用户的文件系统权限保护。
-- **统计同步**：按接入配置启用后，agentcli 独立上传回合、模型和工具用量，以及 Skill 读取与命令调用次数；通过公司网络按设备身份鉴权，不依赖 lxeskillCLI。详见 [统计上传](docs/harness/runtime/native-statistics-upload.md)。
+- **统计同步**按接入配置启用。agentcli 通过公司网络按设备身份鉴权，独立于 lxeskillCLI 上传回合、模型和工具用量，以及每个回合使用过的 Skill。每个 Skill 在同一回合只计一次。详见 [统计上传](docs/harness/runtime/native-statistics-upload.md)。
 - **安装包资源**：本地业务文件、认证信息、日志和 `.env` 不属于打包输入。
 
 ## 文档

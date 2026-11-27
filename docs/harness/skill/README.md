@@ -44,16 +44,21 @@ lxeskillCLI 的命令契约由其自身维护；调用方通过 `lxeskill list`�
 
 完整业务说明只维护在 [`skills/`](../../../skills) 中，可从 [FBA 采购](../../../skills/fba-purchase/SKILL.md)、[FBA 命令清单](../../lxeskill-cli/commands.md#fba)、[Amazon 补货工作流](../../../skills/amazon-replenishment/SKILL.md)、[东南亚备货工作流](../../../skills/southeast-asia-replenishment-workflow-map/SKILL.md)等入口查找，或使用桌面 Skill 列表查看当前可用项。项目不内置的外部 CLI 可从自身文档查询用法。外部平台原始资料保留在 [reference/](reference/README.md)，不代替当前运行指引。
 
-## 读取调用与命令统计
+## Skill 使用与本地调用统计
 
-统计组件观察工具调用请求：
+每个回合（同一个 `job_id`）按名称记录使用过的 Skill，每个名称只计一次。用户在初始输入或追加消息中点名且成功注入的 Skill 记为 `explicit`。以下工具请求记为 `implicit`，同一回合出现两种来源时取 `explicit`。
 
-- 每次原生 `read` 的目标匹配本轮发现的 Skill 文件，就计一次 **Skill 读取调用**，重复读取重复计数。
+- 原生 `read` 或已识别的 shell 读取命令读取该 Skill 的 `SKILL.md`，包括只读其中几行。
+- `exec` 运行该 Skill 的 `scripts/` 下的脚本，或调用能通过 `lxeskill list` 归属到该 Skill 的命令。每次 `exec` 只取第一个匹配的命令段。查询命令清单失败时记录实际错误。如果本进程之前查到过清单，就用上次的清单判断 Skill 使用。
+
+本地统计页另行展示两项调用次数：
+
+- 每次原生 `read` 的目标匹配本轮发现的 `SKILL.md`，就计一次 **Skill 读取调用**，重复读取重复计数。
 - 对直接以 `lxeskill` 或 `lxeskill.cmd` 开头的 `exec` 请求做简单识别；回合结束时通过公开 `lxeskill list` 查询命令归属，计入相应 Skill 的 **命令调用次数**。不解析所有 shell 包装形式，也不把任意命令猜成 Skill 调用。
 
 两者都是调用次数，不代表读取成功或业务成功。`/skill-name` 的直接注入不是一次原生 `read`；工具激活也不是独立的统计计数。归属查询失败保留诊断，不拦截工具执行。
 
-Skill 统计不上传 errors 和 duration_ms；通用工具仍保留自己的错误与耗时指标。实现见 [TurnStatistics](../../../packages/agent/runtime/src/statistics/turn-statistics.ts)，上传与恢复见 [统计上传](../runtime/native-statistics-upload.md)。
+上传使用按回合去重的 `skill_use`。实现见 [TurnStatistics](../../../packages/agent/runtime/src/statistics/turn-statistics.ts)，上传与恢复见 [统计上传](../runtime/native-statistics-upload.md)。
 
 ## UI 中文名称
 

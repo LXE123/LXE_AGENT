@@ -8,7 +8,7 @@ agentcli 的 `TurnUsageSyncService` 使用 Agent Store 和同步配置独立上�
 
 服务器按 WireGuard 来源设备鉴权。客户端通过原生 HTTP 携带 `X-LXE-Client: cli`，不发送 Authorization／Cookie，不走系统代理或重定向，不依赖旧业务 Token。
 
-上传包含回合、模型、Tool 用量，以及 Skill 读取和命令调用记录。Skill 项保留名称、分类、种类及 `calls`，不发送 `errors` 和 `duration_ms`；Tool 项继续发送这两个字段。旧本地明细保留，不因上传字段精简而删除；计数不等于业务执行成功。
+上传包含回合和模型用量，明细只有 `tool` 和 `skill_use`。每个回合中，每个用过的 Skill 上传一项，字段为 `kind`、`name`、`module` 和 `calls`（固定为 1）。显式或隐式来源只保存在本地。工具项还上传 `errors` 和 `duration_ms`。历史回合按已记录的明细导出，不从旧的读取或命令调用记录补算 Skill 使用。使用判定见 [Skill 使用与本地调用统计](../skill/README.md#skill-使用与本地调用统计)。
 
 ## 调度、确认与失败恢复
 
