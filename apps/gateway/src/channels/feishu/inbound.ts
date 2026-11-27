@@ -306,6 +306,19 @@ const convertPost = async (
     ? content
     : content.zh_cn ?? content.en_us ?? content.ja_jp ?? Object.values(content)[0]);
   const resources: FeishuInboundResource[] = [];
+  const filesByKey = new Map<string, FeishuInboundResource>();
+  function addFile(key: string, name: string, isFolder = false): void {
+    if (!key) return;
+    const existing = filesByKey.get(key);
+    if (existing) {
+      if (!existing.file_name) existing.file_name = name;
+      if (isFolder) existing.type = "folder";
+      return;
+    }
+    const file = resource(snapshot, isFolder ? "folder" : "file", key, name);
+    filesByKey.set(key, file);
+    resources.push(file);
+  }
   const lines: string[] = [];
   const title = text(locale.title);
   if (title) lines.push(`**${title}**`, "");
@@ -331,7 +344,7 @@ const convertPost = async (
         const key = text(item.file_key);
         const name = text(item.file_name) || text(item.title) || text(item.text);
         if (key) {
-          resources.push(resource(snapshot, "file", key, name));
+          addFile(key, name);
           parts.push(`<file key="${key}"${name ? ` name="${name}"` : ""}/>`);
         }
       } else if (tag === "code_block") {
@@ -341,6 +354,12 @@ const convertPost = async (
     }
     const line = parts.join("").trim();
     if (line) lines.push(line);
+  }
+  // Feishu sends attachments alongside the rich-text rows, sometimes also referenced inline.
+  const attached = locale === content ? array(content.files) : [...array(locale.files), ...array(content.files)];
+  for (const entry of attached) {
+    const file = record(entry);
+    addFile(text(file.file_key), text(file.file_name), file.is_folder === true);
   }
   return { message: lines.join("\n").trim() || (resources.length ? "" : "[rich text message]"), resources, diagnostics: [] };
 };
