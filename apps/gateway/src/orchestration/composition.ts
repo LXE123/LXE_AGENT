@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import type {
   AgentJob,
   JsonObject,
@@ -14,6 +14,7 @@ import type {
 import { ChannelRegistry, type ChannelAdapter } from "../channels/registry";
 import { GatewayEmitter } from "../channels/emitter";
 import { FeishuAdapter, type FeishuAdapterOptions } from "../channels/feishu/adapter";
+import { FeishuOwnerAccess, FeishuOwnerFile } from "../channels/feishu/owner";
 import { GatewayLifecycle } from "./lifecycle";
 import { SessionRouter } from "./router";
 import { DesktopConversationChannel, LocalConversationController } from "./local-conversation";
@@ -57,7 +58,7 @@ export interface DirectGatewayCompositionOptions {
   runtime: DirectAgentRuntime;
   bootId?: string;
   channels?: readonly ChannelAdapter[];
-  feishu?: Omit<FeishuAdapterOptions, "store" | "hasInflight">;
+  feishu?: Omit<FeishuAdapterOptions, "store" | "hasInflight" | "owner">;
   onRunFailure?: (handle: RunHandle, error: Error) => void;
   onObserverError?: (error: Error) => void;
   onConversationActivity?: (activity: DesktopConversationActivityPayload) => void;
@@ -77,6 +78,8 @@ export interface DirectGatewayComposition {
     channels: ChannelRegistry;
     lifecycle: GatewayLifecycle;
     emitter?: GatewayEmitter;
+    /** Present only when the Feishu channel is configured. */
+    feishuOwner?: FeishuOwnerAccess;
   };
   start(): Promise<void>;
   stop(): Promise<void>;
@@ -161,9 +164,16 @@ export function createDirectGatewayComposition(options: DirectGatewayComposition
     scheduler.setRuntimeReady(options.runtime.isReady);
   };
 
+  const feishuOwner = options.feishu
+    ? new FeishuOwnerAccess({
+        file: new FeishuOwnerFile(join(dirname(bindingsPath), "feishu-owner.json")),
+        appId: options.feishu.config.appId,
+      })
+    : undefined;
   if (options.feishu) {
     channels.register(new FeishuAdapter({
       ...options.feishu,
+      ...(feishuOwner ? { owner: feishuOwner } : {}),
       projectRoot: options.projectRoot,
       store: options.storage,
       hasInflight: () => scheduler.hasInflightJobs(),
@@ -226,6 +236,7 @@ export function createDirectGatewayComposition(options: DirectGatewayComposition
     channels,
     lifecycle,
     ...(emitter ? { emitter } : {}),
+    ...(feishuOwner ? { feishuOwner } : {}),
   };
   return {
     parts,

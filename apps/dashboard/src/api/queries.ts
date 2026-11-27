@@ -413,6 +413,26 @@ export function useToolStatsQuery(days: number, enabled = true) {
   });
 }
 
+const FEISHU_PAIRING_POLL_MS = 2_000;
+
+/** Refresh while the panel is open so a disconnect or completed pairing reaches Settings. */
+export function useFeishuOwnerQuery(appId: string) {
+  return useQuery({
+    queryKey: dashboardQueryKeys.channelHealth.feishuOwner(appId),
+    queryFn: () => callDashboard({ operation: "channels.feishu.owner", input: {} }),
+    refetchInterval: (query) => !query.state.data?.available || query.state.data.pairing ? FEISHU_PAIRING_POLL_MS : 10_000,
+    refetchIntervalInBackground: false,
+  });
+}
+
+export function useFeishuOwnerPairing(appId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: () => callDashboard({ operation: "channels.feishu.owner.pair", input: {} }),
+    onSuccess: (next) => queryClient.setQueryData(dashboardQueryKeys.channelHealth.feishuOwner(appId), next),
+  });
+}
+
 export function useChannelHealthQuery(enabled = true) {
   return useQuery({
     queryKey: dashboardQueryKeys.channelHealth.all,

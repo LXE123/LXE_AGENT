@@ -10,17 +10,17 @@ afterEach(() => {
 });
 
 describe("SessionSource", () => {
+  // Every chat on a channel shares the owner's one personal session.
   const keyCases: Array<[string, Record<string, string>, string]> = [
-    ["p2p", {}, "agent:main:feishu:dm:chat-1"],
-    ["private", {}, "agent:main:feishu:dm:chat-1"],
-    ["", {}, "agent:main:feishu:dm:chat-1"],
-    ["chat", { user_id: "open", user_id_alt: "union" }, "agent:main:feishu:group:chat-1:union"],
-    ["group", { user_id: "open" }, "agent:main:feishu:group:chat-1:open"],
-    ["group", { thread_id: "thread-1" }, "agent:main:feishu:group:chat-1:thread-1"],
-    ["channel", {}, "agent:main:feishu:channel:chat-1"],
-    ["thread", {}, "agent:main:feishu:thread:chat-1"],
+    ["p2p", {}, "agent:main:feishu:personal"],
+    ["private", {}, "agent:main:feishu:personal"],
+    ["", {}, "agent:main:feishu:personal"],
+    ["chat", { user_id: "open" }, "agent:main:feishu:personal"],
+    ["group", { user_id: "open" }, "agent:main:feishu:personal"],
+    ["channel", {}, "agent:main:feishu:personal"],
+    ["thread", {}, "agent:main:feishu:personal"],
   ];
-  test.each(keyCases)("normalizes %s and constructs its key", (
+  test.each(keyCases)("normalizes %s and keys it to the personal session", (
     chatType: string,
     fields: Record<string, string>,
     expected: string,
@@ -36,18 +36,12 @@ describe("SessionSource", () => {
     expect(source.toJSON().extra).toEqual({ bot_app_id: "bot" });
   });
 
-  test("rejects incomplete sources at the same key boundaries as Python", () => {
+  test("requires only the platform to key a session", () => {
     expect(() => SessionSource.from({ chat_id: "chat" }).sessionKey).toThrow(
       "session source platform required",
     );
-    expect(() => SessionSource.from({ platform: "feishu" }).sessionKey).toThrow(
-      "session source chat_id required",
-    );
-    expect(
-      () =>
-        SessionSource.from({ platform: "feishu", chat_id: "chat", chat_type: "group" })
-          .sessionKey,
-    ).toThrow("group session source user_id or user_id_alt required");
+    expect(SessionSource.from({ platform: "feishu", chat_type: "group" }).sessionKey)
+      .toBe("agent:main:feishu:personal");
   });
 });
 
@@ -64,7 +58,7 @@ describe("SessionBindingStore", () => {
     expect(() => store.ensureUsable()).toThrow("must be a JSON object");
   });
 
-  test("writes deterministic UTF-8 JSON atomically", () => {
+  test("writes deterministic JSON atomically", () => {
     const root = mkdtempSync(join(tmpdir(), "lxe-bindings-"));
     roots.push(root);
     const path = join(root, "nested", "sessions.json");
@@ -84,12 +78,18 @@ describe("SessionBindingStore", () => {
     const first = store.getOrCreate(source);
     expect(first.session_id).toBe("session-a");
     const raw = readFileSync(path, "utf8");
-    expect(raw).toContain("群聊");
     expect(raw.endsWith("\n")).toBe(true);
     expect(readdirSync(join(root, "nested"))).toEqual(["sessions.json"]);
 
-    const payload = JSON.parse(raw);
-    expect(payload[first.session_key].session_id).toBe("session-a");
+    // A binding only maps the key to a session; where each message came from travels with the message.
+    expect(JSON.parse(raw)).toEqual({
+      "agent:main:feishu:personal": {
+        session_key: "agent:main:feishu:personal",
+        session_id: "session-a",
+        created_at: "2026-01-01T00:00:00+00:00",
+        updated_at: "2026-01-01T00:00:00+00:00",
+      },
+    });
     const rebound = store.bind(source, "session-b");
     expect(rebound.created_at).toBe(first.created_at);
     expect(Object.keys(store.loadAll())).toEqual([first.session_key]);
@@ -101,7 +101,7 @@ describe("SessionBindingStore", () => {
     const store = new SessionBindingStore(join(root, "sessions.json"));
     const first = SessionSource.from({ platform: "feishu", chat_id: "chat-1", chat_type: "dm" });
     const second = SessionSource.from({
-      platform: "feishu", chat_id: "chat-2", chat_type: "group", user_id: "user-2",
+      platform: "other-channel", chat_id: "chat-2", chat_type: "group", user_id: "user-2",
     });
     store.bind(first, "shared-session");
     store.bind(second, "shared-session");
@@ -114,6 +114,34 @@ describe("SessionBindingStore", () => {
     store.restore(removed);
     expect(Object.values(store.loadAll()).map((entry) => entry.session_id))
       .toEqual(["shared-session", "shared-session"]);
+  });
+
+  test("loads entries written with the older origin fields and drops them on the next save", () => {
+    const root = mkdtempSync(join(tmpdir(), "lxe-bindings-legacy-"));
+    roots.push(root);
+    const path = join(root, "sessions.json");
+    writeFileSync(path, JSON.stringify({
+      "agent:main:feishu:personal": {
+        session_key: "agent:main:feishu:personal",
+        session_id: "session-old",
+        created_at: "2026-01-01T00:00:00+00:00",
+        updated_at: "2026-01-01T00:00:00+00:00",
+        origin: { platform: "feishu", chat_id: "oc_chat" },
+        platform: "feishu",
+        chat_type: "group",
+      },
+    }), "utf8");
+    const store = new SessionBindingStore(path, { now: () => "2026-01-02T00:00:00+00:00" });
+    const source = SessionSource.from({ platform: "feishu" });
+    expect(store.getOrCreate(source).session_id).toBe("session-old");
+
+    store.bind(source, "session-old");
+    expect(JSON.parse(readFileSync(path, "utf8"))["agent:main:feishu:personal"]).toEqual({
+      session_key: "agent:main:feishu:personal",
+      session_id: "session-old",
+      created_at: "2026-01-01T00:00:00+00:00",
+      updated_at: "2026-01-02T00:00:00+00:00",
+    });
   });
 
   test("rejects invalid sessions roots and ignores invalid entries", () => {

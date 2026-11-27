@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import type { AgentDiagnostic, InboundEvent, JsonObject } from "@lxe/protocol";
 import { createFeishuDiagnostic } from "./response";
+import type { FeishuAccessDecision } from "./owner";
 
 export interface FeishuMention {
   key: string;
@@ -55,13 +56,19 @@ export interface ResolvedResources {
 export interface FeishuInboundOptions {
   botOpenId?: string;
   botName?: string;
+  /**
+   * Looks the bot up again when a group message arrives before its open_id is
+   * known, so a failed lookup at startup heals once Feishu answers.
+   */
+  resolveBotIdentity?: () => Promise<{ openId: string; name: string }>;
   appId?: string;
-  botIdSource?: string;
   nowMs?: () => number;
   monotonicMs?: () => number;
   uuid?: () => string;
   resolveResources?: (resources: FeishuInboundResource[], snapshot: FeishuMessageSnapshot) => Promise<ResolvedResources>;
   converterContext?: FeishuMessageConverterContext;
+  /** Runs before any content is converted or downloaded, so refused senders cost no API calls. */
+  access?: (snapshot: FeishuMessageSnapshot) => FeishuAccessDecision;
   loadQuote?: (parentId: string, chatId: string) => Promise<{
     text: string;
     metadata: JsonObject;
@@ -78,11 +85,14 @@ export type FeishuInboundRejectReason =
   | "group_bot_identity_missing"
   | "group_without_bot_mention"
   | "missing_sender_open_id"
+  | "pairing_completed"
+  | "owner_unpaired"
+  | "not_owner"
   | "empty_content";
 
 export type FeishuNormalizeDecision =
   | { accepted: true; event: InboundEvent }
-  | { accepted: false; reason: FeishuInboundRejectReason; metadata: JsonObject };
+  | { accepted: false; reason: FeishuInboundRejectReason; metadata: JsonObject; reply?: string };
 
 const record = (value: unknown): Record<string, unknown> =>
   value !== null && typeof value === "object" && !Array.isArray(value)
@@ -296,6 +306,19 @@ const convertPost = async (
     ? content
     : content.zh_cn ?? content.en_us ?? content.ja_jp ?? Object.values(content)[0]);
   const resources: FeishuInboundResource[] = [];
+  const filesByKey = new Map<string, FeishuInboundResource>();
+  function addFile(key: string, name: string, isFolder = false): void {
+    if (!key) return;
+    const existing = filesByKey.get(key);
+    if (existing) {
+      if (!existing.file_name) existing.file_name = name;
+      if (isFolder) existing.type = "folder";
+      return;
+    }
+    const file = resource(snapshot, isFolder ? "folder" : "file", key, name);
+    filesByKey.set(key, file);
+    resources.push(file);
+  }
   const lines: string[] = [];
   const title = text(locale.title);
   if (title) lines.push(`**${title}**`, "");
@@ -321,7 +344,7 @@ const convertPost = async (
         const key = text(item.file_key);
         const name = text(item.file_name) || text(item.title) || text(item.text);
         if (key) {
-          resources.push(resource(snapshot, "file", key, name));
+          addFile(key, name);
           parts.push(`<file key="${key}"${name ? ` name="${name}"` : ""}/>`);
         }
       } else if (tag === "code_block") {
@@ -331,6 +354,12 @@ const convertPost = async (
     }
     const line = parts.join("").trim();
     if (line) lines.push(line);
+  }
+  // Feishu sends attachments alongside the rich-text rows, sometimes also referenced inline.
+  const attached = locale === content ? array(content.files) : [...array(locale.files), ...array(content.files)];
+  for (const entry of attached) {
+    const file = record(entry);
+    addFile(text(file.file_key), text(file.file_name), file.is_folder === true);
   }
   return { message: lines.join("\n").trim() || (resources.length ? "" : "[rich text message]"), resources, diagnostics: [] };
 };
@@ -642,6 +671,19 @@ const convertMerged = async (
   };
 };
 
+const convertVideo: FeishuMessageConverter = async (content, snapshot) => {
+  const fileKey = text(content.file_key);
+  const imageKey = text(content.image_key);
+  return {
+    message: "[Video message]",
+    resources: [
+      ...(fileKey ? [resource(snapshot, "video", fileKey, text(content.file_name))] : []),
+      ...(imageKey ? [resource(snapshot, "image", imageKey, "video-cover")] : []),
+    ],
+    diagnostics: [],
+  };
+};
+
 const converters: Readonly<Record<string, FeishuMessageConverter>> = {
   text: async (content) => none(text(content.text)),
   post: convertPost,
@@ -657,18 +699,8 @@ const converters: Readonly<Record<string, FeishuMessageConverter>> = {
     const key = text(content.file_key);
     return { message: "[Audio message]", resources: key ? [resource(snapshot, "audio", key, text(content.file_name))] : [], diagnostics: [] };
   },
-  video: async (content, snapshot) => {
-    const key = text(content.file_key);
-    const imageKey = text(content.image_key);
-    return {
-      message: "[Video message]",
-      resources: [
-        ...(key ? [resource(snapshot, "video", key, text(content.file_name))] : []),
-        ...(imageKey ? [resource(snapshot, "image", imageKey, "video-cover")] : []),
-      ],
-      diagnostics: [],
-    };
-  },
+  media: convertVideo,
+  video: convertVideo,
   location: async (content) => none([
     `[Location] ${text(content.name) || text(content.address) || "Shared location"}`,
     text(content.address),
@@ -753,11 +785,26 @@ export class FeishuInboundNormalizer {
   private readonly nowMs: () => number;
   private readonly monotonicMs: () => number;
   private readonly uuid: () => string;
+  private bot: { openId: string; name: string };
+  private botLookup: Promise<void> | undefined;
 
   constructor(private readonly options: FeishuInboundOptions = {}) {
     this.nowMs = options.nowMs ?? Date.now;
     this.monotonicMs = options.monotonicMs ?? (() => performance.now());
     this.uuid = options.uuid ?? (() => randomUUID().replaceAll("-", ""));
+    this.bot = { openId: text(options.botOpenId), name: text(options.botName) };
+  }
+
+  /** Concurrent group messages share one lookup; a failed lookup is retried by the next group message. */
+  private async ensureBotOpenId(): Promise<string> {
+    if (this.bot.openId || !this.options.resolveBotIdentity) return this.bot.openId;
+    this.botLookup ??= this.options.resolveBotIdentity()
+      .then((identity) => {
+        if (text(identity.openId)) this.bot = { openId: text(identity.openId), name: text(identity.name) };
+      })
+      .finally(() => { this.botLookup = undefined; });
+    await this.botLookup;
+    return this.bot.openId;
   }
 
   async normalize(snapshot: FeishuMessageSnapshot): Promise<FeishuNormalizeDecision> {
@@ -768,16 +815,18 @@ export class FeishuInboundNormalizer {
     }
     const rejected = this.rejectionReason(snapshot);
     if (rejected) return this.rejected(snapshot, rejected);
-    const botOpenId = text(this.options.botOpenId);
+    const botOpenId = snapshot.chat_type === "group" ? await this.ensureBotOpenId() : this.bot.openId;
     const mentions = snapshot.mentions;
-    let { message, resources, diagnostics } = await convertFeishuMessage(snapshot, this.options.converterContext);
     if (snapshot.chat_type === "group") {
       if (!botOpenId) return this.rejected(snapshot, "group_bot_identity_missing");
       if (!mentions.some((item) => mentionOpenId(item) === botOpenId)) return this.rejected(snapshot, "group_without_bot_mention");
-      message = stripBotMention(message, mentions, botOpenId);
     }
     const userId = text(snapshot.sender_open_id);
     if (!userId) return this.rejected(snapshot, "missing_sender_open_id");
+    const access = this.options.access?.(snapshot);
+    if (access && !access.allowed) return { ...this.rejected(snapshot, access.reason), reply: access.reply };
+    let { message, resources, diagnostics } = await convertFeishuMessage(snapshot, this.options.converterContext);
+    if (snapshot.chat_type === "group") message = stripBotMention(message, mentions, botOpenId);
     let blocks: JsonObject[] = [];
     let resourceMetadata: JsonObject[] = [];
     if (resources.length > 0) {
@@ -823,8 +872,7 @@ export class FeishuInboundNormalizer {
     const sourceExtra = this.nonEmpty({
       bot_app_id: appId,
       bot_id: botOpenId,
-      bot_name: text(this.options.botName),
-      bot_id_source: text(this.options.botIdSource, "configured") || "configured",
+      bot_name: this.bot.name,
       message_type: snapshot.message_type,
       sender_type: snapshot.sender_type,
     });
@@ -833,12 +881,8 @@ export class FeishuInboundNormalizer {
       chat_id: snapshot.chat_id,
       chat_type: snapshot.chat_type,
       user_id: userId,
-      user_id_alt: unionId,
       user_name: senderNick,
-      thread_id: snapshot.thread_id,
       message_id: snapshot.message_id,
-      root_id: snapshot.root_id,
-      parent_id: snapshot.parent_id,
       extra: sourceExtra,
     };
     const rawData: JsonObject = {
@@ -899,7 +943,7 @@ export class FeishuInboundNormalizer {
     snapshot: FeishuMessageSnapshot,
     reason: FeishuInboundRejectReason,
     resourceCount = 0,
-  ): FeishuNormalizeDecision {
+  ): Extract<FeishuNormalizeDecision, { accepted: false }> {
     return {
       accepted: false,
       reason,

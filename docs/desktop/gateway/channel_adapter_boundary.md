@@ -30,7 +30,7 @@ Lark event callback
   -> registered inbound sink
 ```
 
-Normalizer 支持 text、post、image、file、audio、video，以及 location、sticker、calendar、share、folder、todo、vote、video chat、merge-forward、interactive、system 和 unknown。unknown 消息保留可读描述，不能因为 converter 未识别而静默丢失。
+Normalizer 支持 text、post、image、file、audio 和单发视频（飞书推送 `media`，同时兼容 `video`），以及 location、sticker、calendar、share、folder、todo、vote、video chat、merge-forward、interactive、system 和 unknown。unknown 消息保留可读描述，不能因为 converter 未识别而静默丢失。
 
 Interactive Card 是单独的结构化文本边界。直接收到卡片、读取被引用卡片或展开合并转发时，adapter 都以 `card_msg_content_type=raw_card_content` 获取原始 CardKit JSON，再提取标题、Markdown、代码块、折叠面板、操作和 footer。引用查询先请求 `/im/v1/messages/{id}`；查询、快照、转换、资源处理或组装任一阶段失败，都会带着该阶段的实际异常继续尝试 `/im/v1/messages/mget`。只有整条尝试成功才算引用可用；两条路径均失败时，用户正文保持原样，脱敏后的真实异常通过 `AgentDiagnostic` 传递，不再写“引用不可用”等自造错误文本。飞书的内部 icon、image key 和默认升级客户端降级文案不会进入 Agent 输入。
 
@@ -40,7 +40,9 @@ Interactive Card 是单独的结构化文本边界。直接收到卡片、读取
 
 [`feishu/resources.ts`](/apps/gateway/src/channels/feishu/resources.ts) 下载 image/file 等资源到受控本地路径。单个资源失败不会制造替代正文；其它文本和成功资源仍进入同一消息，脱敏后的实际下载、解码或落盘异常进入 `diagnostics`。平台下载失败不能使整条用户消息消失。
 
-只有普通 image/file/audio/video、富文本和合并转发子消息中的普通资源进入下载链路。Interactive Card converter 始终返回空资源列表；卡片图片只保留 alt 等文本语义，因为飞书的 message-resource API 不支持卡片消息资源。引用普通图片仍会下载并作为模型 image block 传入。
+对于文件夹，Gateway 用原消息 ID 和文件夹 key 逐层列出目录，再用每个子文件的 key 下载，在本地保留目录层级，并把已保存的文件路径交给模型。富文本附件区里的文件夹也走同一条链路。
+
+普通 image/file/audio/video、富文本和合并转发子消息中的普通资源进入下载链路。Interactive Card converter 始终返回空资源列表；卡片图片只保留 alt 等文本语义，因为飞书的 message-resource API 不支持卡片消息资源。引用普通图片仍会下载并作为模型 image block 传入。
 
 Agent 进程中的 `feishu_im_bot_fetch_resource` 还会在下载前回读目标消息，确认 key 与类型确实由普通消息正文声明。CardKit key 被确定性拒绝为 `interactive_card_not_downloadable_resource`，不属于目标消息的 key/type 被拒绝为 `resource_not_declared_by_message`；验证查询失败时 fail closed，不盲目调用资源接口。
 

@@ -244,6 +244,9 @@ export class DesktopSetupService {
     } else if (input.feishu?.action === "save") {
       const appId = text(input.feishu.app_id);
       const inputSecret = text(input.feishu.app_secret);
+      if (appId && config.integrations.feishu.app_id && config.integrations.feishu.app_id !== appId && !inputSecret) {
+        throw new Error("切换飞书应用时，请填写新应用的 App Secret");
+      }
       const appSecret = inputSecret || effectiveSecrets.feishu_app_secret;
       if (!appId || !appSecret) throw new Error("飞书 App ID 和 App Secret 必须同时填写");
       config.integrations.feishu = { managed: true, app_id: appId };

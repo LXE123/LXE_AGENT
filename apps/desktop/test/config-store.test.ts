@@ -41,6 +41,23 @@ const legacyPermission = (
 });
 
 describe("DesktopConfigStore", () => {
+  test("switching Feishu apps requires the matching secret and preserves the saved bot on validation failure", () => {
+    const root = createRoot();
+    const workspace_root = join(root, "workspace");
+    const store = new DesktopConfigStore(root, workspace_root, safeStorage, {
+      platform: "darwin", secretEnvironment: { FEISHU_APP_SECRET: "other-dev-bot-secret" },
+    });
+    const saveBot = (app_id: string, app_secret?: string) => store.save({
+      workspace_root, feishu: { action: "save", app_id, ...(app_secret ? { app_secret } : {}) },
+    });
+    saveBot("cli_first", "first-secret");
+    saveBot("cli_first");
+    expect(() => saveBot("cli_second")).toThrow("App Secret");
+    expect(store.environment()).toMatchObject({ FEISHU_APP_ID: "cli_first", FEISHU_APP_SECRET: "first-secret" });
+    saveBot("cli_second", "second-secret");
+    expect(store.environment()).toMatchObject({ FEISHU_APP_ID: "cli_second", FEISHU_APP_SECRET: "second-secret" });
+  });
+
   test("balance credentials follow the selected source and respect revocation and cloud switches", () => {
     const root = createRoot();
     const store = new DesktopConfigStore(root, join(root, "workspace"), safeStorage, { platform: "win32" });

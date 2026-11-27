@@ -11,7 +11,7 @@
   },
   "dependencies": {
     "@js-temporal/polyfill": "0.5.1",
-    "@larksuiteoapi/node-sdk": "1.70.0",
+    "@larksuiteoapi/node-sdk": "1.77.0",
     "@lxe/core": "workspace:*",
     "@lxe/desktop-protocol": "workspace:*",
     "@lxe/protocol": "workspace:*",

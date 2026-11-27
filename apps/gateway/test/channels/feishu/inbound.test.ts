@@ -126,17 +126,12 @@ describe("Feishu inbound normalization", () => {
         chat_id: "oc_chat",
         chat_type: "p2p",
         user_id: "ou_user",
-        user_id_alt: "on_union",
         user_name: "u_user",
-        thread_id: "omt_thread",
         message_id: "om_1",
-        root_id: "om_root",
-        parent_id: "om_parent",
         extra: {
           bot_app_id: "cli_test",
           bot_id: "ou_bot",
           bot_name: "LXE",
-          bot_id_source: "configured",
           message_type: "text",
           sender_type: "user",
         },
@@ -245,6 +240,19 @@ describe("Feishu inbound normalization", () => {
     ]);
   });
 
+  test.each(["media", "video"])("extracts the MP4 and cover from a standalone %s message", async (messageType) => {
+    const snapshot = snapshotMessageEvent(baseEvent({
+      message_id: "om_video",
+      message_type: messageType,
+      content: JSON.stringify({ file_key: "file_clip", file_name: "clip.mp4", image_key: "img_cover", duration: 1000 }),
+    }))!;
+    const converted = await convertFeishuMessage(snapshot);
+    expect(converted.resources).toEqual([
+      { type: "video", file_key: "file_clip", file_name: "clip.mp4", message_id: "om_video" },
+      { type: "image", file_key: "img_cover", file_name: "video-cover", message_id: "om_video" },
+    ]);
+  });
+
   test("preserves rich post Markdown, mentions, images and media resources", async () => {
     const snapshot = snapshotMessageEvent(baseEvent({
       message_id: "om_rich",
@@ -272,6 +280,40 @@ describe("Feishu inbound normalization", () => {
     const event = await normalizeEvent(normalizer(), snapshot);
     expect(event?.user_content_blocks[0]).toMatchObject({ type: "text", text: expect.stringContaining("Ready") });
     expect(event?.user_content_blocks[1]).toMatchObject({ type: "image", file_key: "img-inline" });
+  });
+
+  test("receives a rich post's inline video and separately attached files in the same turn", async () => {
+    const rows = [[{ tag: "media", file_key: "video", image_key: "cover" }], [{ tag: "text", text: "Can you see these files?" }]];
+    const names = ["update.log", "材质表.xlsx", "empty.larkcache", "report.html"];
+    const files = names.map((file_name, index) => ({ file_name, file_key: `file-${index}`, is_folder: false }));
+    const snapshot = snapshotMessageEvent(baseEvent({
+      message_type: "post", message_id: "om_mixed",
+      content: JSON.stringify({ title: "", content: rows, content_v2: rows, files }),
+    }))!;
+    const event = await normalizeEvent(normalizer(), snapshot);
+    expect(event?.raw_data.resources).toEqual([
+      { type: "file", file_key: "video", file_name: "", message_id: "om_mixed" },
+      ...files.map(({ file_key, file_name }) => ({ type: "file", file_key, file_name, message_id: "om_mixed" })),
+    ]);
+    for (const name of names) expect(event?.user_input).toContain(name);
+    expect(event?.user_content_blocks[0]).toMatchObject({ type: "text", text: event?.user_input });
+  });
+
+  test("merges inline and listed copies by key while preserving equally named files with different keys", async () => {
+    const files = [
+      { file_key: "inline", file_name: "a.xlsx" }, { file_key: "another", file_name: "a.xlsx" },
+      { file_key: "folder", file_name: "Reports", is_folder: true },
+    ];
+    const snapshot = snapshotMessageEvent(baseEvent({
+      message_type: "post",
+      content: JSON.stringify({ zh_cn: { content: [[{ tag: "file", file_key: "inline" }]], files }, files }),
+    }))!;
+    const converted = await convertFeishuMessage(snapshot);
+    expect(converted.resources).toEqual([
+      { type: "file", file_key: "inline", file_name: "a.xlsx", message_id: "om_1" },
+      { type: "file", file_key: "another", file_name: "a.xlsx", message_id: "om_1" },
+      { type: "folder", file_key: "folder", file_name: "Reports", message_id: "om_1" },
+    ]);
   });
 
   test("expands merged forwards through the API while retaining hierarchy, sender and resources", async () => {
@@ -545,6 +587,30 @@ describe("Feishu inbound normalization", () => {
     const missing = baseEvent({ message_id: "om_missing" });
     (missing.event.sender.sender_id as Record<string, string>).open_id = "";
     expect(await normalizeEvent(normalizer(), snapshotMessageEvent(missing)!)).toBeNull();
+  });
+
+  test("shares one bot lookup across concurrent group messages and skips it for private chats", async () => {
+    let lookups = 0;
+    let finish!: (identity: { openId: string; name: string }) => void;
+    const instance = new FeishuInboundNormalizer({
+      nowMs: () => 1_000_000,
+      monotonicMs: () => 100,
+      resolveBotIdentity: () => {
+        lookups += 1;
+        return new Promise((resolve) => { finish = resolve; });
+      },
+    });
+    const mention = [{ key: "@_user_1", id: { open_id: "ou_bot" }, name: "LXE" }];
+    expect((await instance.normalize(snapshotMessageEvent(baseEvent({ message_id: "om_p2p" }))!)).accepted).toBe(true);
+    expect(lookups).toBe(0);
+
+    const first = instance.normalize(snapshotMessageEvent(baseEvent({ message_id: "om_g1", chat_type: "group", mentions: mention }))!);
+    const second = instance.normalize(snapshotMessageEvent(baseEvent({ message_id: "om_g2", chat_type: "group", mentions: mention }))!);
+    await Bun.sleep(0);
+    expect(lookups).toBe(1);
+    finish({ openId: "ou_bot", name: "LXE" });
+    expect((await first).accepted).toBe(true);
+    expect((await second).accepted).toBe(true);
   });
 
   test("returns stable rejection reasons instead of an unexplained null", async () => {

@@ -24,31 +24,20 @@ export interface SessionSourceData {
   chat_id?: unknown;
   chat_type?: unknown;
   user_id?: unknown;
-  user_id_alt?: unknown;
   user_name?: unknown;
-  chat_name?: unknown;
-  thread_id?: unknown;
   message_id?: unknown;
-  root_id?: unknown;
-  parent_id?: unknown;
-  is_bot?: unknown;
   extra?: unknown;
 }
 
+/** Where one message came from; every message on a channel lands in the same personal session. */
 export class SessionSource {
   private constructor(
     readonly platform: string,
     readonly chat_id: string,
     readonly chat_type: string,
     readonly user_id: string,
-    readonly user_id_alt: string,
     readonly user_name: string,
-    readonly chat_name: string,
-    readonly thread_id: string,
     readonly message_id: string,
-    readonly root_id: string,
-    readonly parent_id: string,
-    readonly is_bot: boolean,
     readonly extra: JsonRecord,
   ) {}
 
@@ -59,35 +48,22 @@ export class SessionSource {
       clean(raw.chat_id),
       normalizeChatType(raw.chat_type),
       clean(raw.user_id),
-      clean(raw.user_id_alt),
       clean(raw.user_name),
-      clean(raw.chat_name),
-      clean(raw.thread_id),
       clean(raw.message_id),
-      clean(raw.root_id),
-      clean(raw.parent_id),
-      Boolean(raw.is_bot),
       raw.extra !== null && typeof raw.extra === "object" && !Array.isArray(raw.extra)
         ? { ...(raw.extra as JsonRecord) }
         : {},
     );
   }
 
-  get userKey(): string {
-    return this.user_id_alt || this.user_id;
-  }
-
+  /**
+   * A channel is one person's remote entry to the Agent, so every chat on it
+   * shares one session. Replies still go back to each message's own chat
+   * through its response route.
+   */
   get sessionKey(): string {
     if (!this.platform) throw new Error("session source platform required");
-    if (!this.chat_id) throw new Error("session source chat_id required");
-    const prefix = `agent:main:${this.platform}`;
-    if (this.chat_type === "dm") return `${prefix}:dm:${this.chat_id}`;
-    if (this.chat_type === "group") {
-      if (this.thread_id) return `${prefix}:group:${this.chat_id}:${this.thread_id}`;
-      if (!this.userKey) throw new Error("group session source user_id or user_id_alt required");
-      return `${prefix}:group:${this.chat_id}:${this.userKey}`;
-    }
-    return `${prefix}:${this.chat_type}:${this.chat_id}`;
+    return `agent:main:${this.platform}:personal`;
   }
 
   toJSON(): JsonRecord {
@@ -96,32 +72,24 @@ export class SessionSource {
       chat_id: this.chat_id,
       chat_type: this.chat_type,
       user_id: this.user_id,
-      user_id_alt: this.user_id_alt,
       user_name: this.user_name,
-      chat_name: this.chat_name,
-      thread_id: this.thread_id,
       message_id: this.message_id,
-      root_id: this.root_id,
-      parent_id: this.parent_id,
-      is_bot: this.is_bot,
       extra: { ...this.extra },
     };
     return Object.fromEntries(
       Object.entries(data).filter(
-        ([key, value]) => value !== null && value !== "" && !(key === "extra" && Object.keys(value as object).length === 0),
+        ([key, value]) => value !== "" && !(key === "extra" && Object.keys(value as object).length === 0),
       ),
     );
   }
 }
 
+/** Maps a channel's session key to the Agent session it currently uses. */
 export interface SessionBindingEntry {
   session_key: string;
   session_id: string;
   created_at: string;
   updated_at: string;
-  origin: JsonRecord;
-  platform: string;
-  chat_type: string;
 }
 
 interface StoreOptions {
@@ -129,21 +97,12 @@ interface StoreOptions {
   id?: () => string;
 }
 
-const parseEntry = (value: JsonRecord): SessionBindingEntry => {
-  const origin =
-    value.origin !== null && typeof value.origin === "object" && !Array.isArray(value.origin)
-      ? { ...(value.origin as JsonRecord) }
-      : {};
-  return {
-    session_key: clean(value.session_key),
-    session_id: clean(value.session_id),
-    created_at: clean(value.created_at),
-    updated_at: clean(value.updated_at),
-    origin,
-    platform: clean(value.platform ?? origin.platform),
-    chat_type: normalizeChatType(value.chat_type ?? origin.chat_type),
-  };
-};
+const parseEntry = (value: JsonRecord): SessionBindingEntry => ({
+  session_key: clean(value.session_key),
+  session_id: clean(value.session_id),
+  created_at: clean(value.created_at),
+  updated_at: clean(value.updated_at),
+});
 
 export class SessionBindingStore {
   private readonly now: () => string;
@@ -227,9 +186,6 @@ export class SessionBindingStore {
       session_id: clean(sessionId),
       created_at: existing?.created_at || now,
       updated_at: now,
-      origin: source.toJSON(),
-      platform: source.platform,
-      chat_type: source.chat_type,
     };
     entries[sessionKey] = entry;
     this.saveAll(entries);

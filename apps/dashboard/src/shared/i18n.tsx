@@ -930,9 +930,36 @@ export const ZH_TEXT = {
       passwordPlaceholder: "输入马帮密码"
     },
     feishu: {
-      description: "App ID 与 App Secret 必须成对填写；整组留空即可跳过。",
+      description: "绑定后，机器人只回复你的消息。私聊和群里的 @ 消息共用一个会话。",
+      setupHint: "先保存机器人凭据，再用配对码绑定你的飞书账号。",
+      credentials: "机器人凭据",
+      saved: "已保存",
+      savedSecretHint: "已保存，留空保留原密钥",
+      saveAndConnect: "保存并连接机器人",
+      connecting: "正在连接…",
+      newSecret: "请输入新机器人的 App Secret。",
       appSecret: "App Secret",
-      appSecretPlaceholder: "输入 App Secret"
+      appSecretPlaceholder: "输入 App Secret",
+      owner: {
+        title: "账号绑定",
+        loading: "正在读取绑定状态…",
+        unavailable: "正在等待飞书连接。连接就绪后即可绑定账号。",
+        unpaired: "未绑定",
+        waiting: "等待配对",
+        paired: "已绑定",
+        pairHint: "生成配对码，然后用你的飞书账号私聊机器人完成绑定。",
+        pairedAt: (date: Date) => `绑定于 ${date.toLocaleString("zh-CN", { dateStyle: "short", timeStyle: "short" })}`,
+        codeHint: "在机器人私聊中发送这个配对码。",
+        expiresAt: (date: Date) => `有效至 ${date.toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false })}`,
+        copy: "复制",
+        copyCode: "复制配对码",
+        copied: "已复制",
+        openChat: "打开机器人私聊",
+        pair: "生成配对码",
+        rebind: "重新绑定",
+        newCode: "更换配对码",
+        starting: "生成中…"
+      }
     },
     logging: {
       description: "标准日志适合长期运行，排障日志仅建议在复现问题时开启。",
@@ -1910,9 +1937,36 @@ export const UI_TEXT: Record<Language, UiText> = {
         passwordPlaceholder: "Enter the Mabang password"
       },
       feishu: {
-        description: "App ID and App Secret must be filled in together; leave the whole group blank to skip.",
+        description: "Once paired, the bot responds only to you. Direct messages and group mentions share one conversation.",
+        setupHint: "Save your bot credentials, then use a pairing code to link your Feishu account.",
+        credentials: "Bot credentials",
+        saved: "Saved",
+        savedSecretHint: "Leave blank to keep secret",
+        saveAndConnect: "Save and connect bot",
+        connecting: "Connecting…",
+        newSecret: "Enter the new bot’s App Secret.",
         appSecret: "App Secret",
-        appSecretPlaceholder: "Enter the App Secret"
+        appSecretPlaceholder: "Enter the App Secret",
+        owner: {
+          title: "Account pairing",
+          loading: "Checking pairing status…",
+          unavailable: "Waiting for the Feishu connection. You can pair your account once it’s ready.",
+          unpaired: "Unpaired",
+          waiting: "Awaiting code",
+          paired: "Paired",
+          pairHint: "Generate a code, then send it to the bot from your Feishu account.",
+          pairedAt: (date: Date) => `Paired on ${date.toLocaleString("en", { dateStyle: "short", timeStyle: "short" })}`,
+          codeHint: "Send this code in a direct message to the bot.",
+          expiresAt: (date: Date) => `Expires at ${date.toLocaleTimeString("en", { timeStyle: "medium" })}`,
+          copy: "Copy",
+          copyCode: "Copy pairing code",
+          copied: "Copied",
+          openChat: "Open bot chat",
+          pair: "Generate pairing code",
+          rebind: "Pair again",
+          newCode: "New code",
+          starting: "Generating…"
+        }
       },
       logging: {
         description: "Standard logs suit long-term use; enable diagnostic logs only while reproducing an issue.",

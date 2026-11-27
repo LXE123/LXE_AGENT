@@ -36,7 +36,6 @@ const event = (overrides: Partial<InboundEvent> = {}): InboundEvent => ({
     chat_id: "chat-1",
     chat_type: "p2p",
     user_id: "open-alice",
-    user_id_alt: "union-alice",
     user_name: "Alice",
     extra: { bot_name: "Allowed" },
   },
@@ -69,6 +68,7 @@ class FakeScheduler implements RouterSchedulerPort {
   readonly stopped: string[] = [];
   readonly steered: Array<{ sessionId: string; message: SteeringMessage }> = [];
   readonly active = new Set<string>();
+  readonly activeConversation = new Map<string, string>();
   readonly pending = new Map<string, number>();
   readonly deletingSessions = new Set<string>();
   readonly deletingSessionKeys = new Set<string>();
@@ -80,7 +80,8 @@ class FakeScheduler implements RouterSchedulerPort {
     this.jobs.push({ job: value, front: Boolean(options.front) });
   }
   activeRun(sessionId: string): RunHandle | undefined {
-    return this.active.has(sessionId) ? ({} as RunHandle) : undefined;
+    const conversationId = this.activeConversation.get(sessionId) ?? "chat-1";
+    return this.active.has(sessionId) ? ({ originJob: { conversation_id: conversationId } } as unknown as RunHandle) : undefined;
   }
   hasInflightWork(sessionId: string): boolean {
     return this.active.has(sessionId) || (this.pending.get(sessionId) ?? 0) > 0;
@@ -139,7 +140,7 @@ const setup = (defaultWorkspace: () => WorkspaceContext = () => testWorkspace) =
 describe("SessionRouter normal routes", () => {
   test("does not recreate a binding while its previous session is being deleted", async () => {
     const { router, storage, scheduler } = setup();
-    scheduler.deletingSessionKeys.add("agent:main:feishu:dm:chat-1");
+    scheduler.deletingSessionKeys.add("agent:main:feishu:personal");
     await expect(router.routeMessage(event())).rejects.toThrow("session binding is being deleted");
     expect(storage.ensured).toEqual([]);
     expect(scheduler.jobs).toEqual([]);
@@ -165,7 +166,7 @@ describe("SessionRouter normal routes", () => {
           response_route_id: "route-1",
           conversation_id: "chat-1",
           message_id: "message-1",
-          source: expect.objectContaining({ user_id_alt: "union-alice" }),
+          source: expect.objectContaining({ user_id: "open-alice" }),
         }),
       ]);
     };
@@ -181,13 +182,13 @@ describe("SessionRouter normal routes", () => {
     expect(scheduler.jobs[0]?.job).toEqual({
       job_id: "job-1",
       session_id: "session-1",
-      session_key: "agent:main:feishu:dm:chat-1",
+      session_key: "agent:main:feishu:personal",
       response_route_id: "route-1",
-      user_id: "union-alice",
+      user_id: "open-alice",
       conversation_id: "chat-1",
       is_group: false,
       message_id: "message-1",
-      user_input: "hello",
+      user_input: "[来自飞书私聊]\nhello",
       job_kind: "turn",
       sender_nick: "Alice",
       source: {
@@ -195,26 +196,20 @@ describe("SessionRouter normal routes", () => {
         chat_id: "chat-1",
         chat_type: "dm",
         user_id: "open-alice",
-        user_id_alt: "union-alice",
         user_name: "Alice",
-        message_id: "message-1",
-        is_bot: false,
         extra: { bot_name: "Allowed" },
       },
       raw_data: {
         app_id: "app-allowed",
         union_id: "union-alice",
         opaque: "keep",
-        session_key: "agent:main:feishu:dm:chat-1",
+        session_key: "agent:main:feishu:personal",
         source: {
           platform: "feishu",
           chat_id: "chat-1",
           chat_type: "dm",
           user_id: "open-alice",
-          user_id_alt: "union-alice",
           user_name: "Alice",
-          message_id: "message-1",
-          is_bot: false,
           extra: { bot_name: "Allowed" },
         },
       },
@@ -227,7 +222,7 @@ describe("SessionRouter normal routes", () => {
   test("queues behind inflight work without injecting system events into the job", async () => {
     const { router, bindings, scheduler } = setup();
     await router.routeMessage(event());
-    const sessionId = bindings.get("agent:main:feishu:dm:chat-1")!.session_id;
+    const sessionId = bindings.get("agent:main:feishu:personal")!.session_id;
     scheduler.jobs.length = 0;
     scheduler.active.add(sessionId);
     scheduler.acceptSteering = false;
@@ -249,7 +244,7 @@ describe("SessionRouter normal routes", () => {
     let currentWorkspace: WorkspaceContext = testWorkspace;
     const setupValue = setup(() => currentWorkspace);
     await setupValue.router.routeMessage(event());
-    const firstSession = setupValue.bindings.get("agent:main:feishu:dm:chat-1")!.session_id;
+    const firstSession = setupValue.bindings.get("agent:main:feishu:personal")!.session_id;
     expect(setupValue.scheduler.jobs.at(-1)?.job.workspace).toEqual(testWorkspace);
 
     currentWorkspace = {
@@ -260,7 +255,7 @@ describe("SessionRouter normal routes", () => {
     expect(setupValue.scheduler.jobs.at(-1)?.job.workspace).toEqual(testWorkspace);
 
     await setupValue.router.routeMessage(event({ user_input: "/clear", message_id: "clear-message" }));
-    const secondSession = setupValue.bindings.get("agent:main:feishu:dm:chat-1")!.session_id;
+    const secondSession = setupValue.bindings.get("agent:main:feishu:personal")!.session_id;
     expect(secondSession).not.toBe(firstSession);
     expect(setupValue.storage.ensured.at(-1)?.workspace).toEqual(currentWorkspace);
     await setupValue.router.routeMessage(event({ message_id: "message-3", response_route_id: "route-3" }));
@@ -270,7 +265,7 @@ describe("SessionRouter normal routes", () => {
   test("recreates a missing persisted session when a binding still exists", async () => {
     const { router, bindings, storage } = setup();
     await router.routeMessage(event());
-    const sessionId = bindings.get("agent:main:feishu:dm:chat-1")!.session_id;
+    const sessionId = bindings.get("agent:main:feishu:personal")!.session_id;
     storage.sessions.delete(sessionId);
     await router.routeMessage(event({ message_id: "message-2", response_route_id: "route-2" }));
     expect(storage.ensured).toHaveLength(2);
@@ -284,7 +279,7 @@ describe("SessionRouter controls and steering", () => {
   ])("treats a stale binding as no session for %s", async (command: string, feedback: string) => {
     const setupValue = setup();
     await setupValue.router.routeMessage(event());
-    const sessionId = setupValue.bindings.get("agent:main:feishu:dm:chat-1")!.session_id;
+    const sessionId = setupValue.bindings.get("agent:main:feishu:personal")!.session_id;
     setupValue.storage.sessions.delete(sessionId);
     setupValue.scheduler.active.add(sessionId);
 
@@ -297,12 +292,12 @@ describe("SessionRouter controls and steering", () => {
   test("rotates a stale binding on clear", async () => {
     const setupValue = setup();
     await setupValue.router.routeMessage(event());
-    const sessionId = setupValue.bindings.get("agent:main:feishu:dm:chat-1")!.session_id;
+    const sessionId = setupValue.bindings.get("agent:main:feishu:personal")!.session_id;
     setupValue.storage.sessions.delete(sessionId);
     setupValue.scheduler.active.add(sessionId);
 
     await setupValue.router.routeMessage(event({ user_input: "/clear" }));
-    const rotated = setupValue.bindings.get("agent:main:feishu:dm:chat-1")!.session_id;
+    const rotated = setupValue.bindings.get("agent:main:feishu:personal")!.session_id;
     expect(rotated).not.toBe(sessionId);
     expect(setupValue.storage.ensured).toHaveLength(2);
     expect(setupValue.channel.outbound.at(-1)?.payload.markdown).toBe("已创建新会话。");
@@ -318,7 +313,7 @@ describe("SessionRouter controls and steering", () => {
   test("stop clears queued work and cancels the active run", async () => {
     const { router, bindings, scheduler, channel } = setup();
     await router.routeMessage(event());
-    const sessionId = bindings.get("agent:main:feishu:dm:chat-1")!.session_id;
+    const sessionId = bindings.get("agent:main:feishu:personal")!.session_id;
     scheduler.active.add(sessionId);
     scheduler.pending.set(sessionId, 2);
 
@@ -333,7 +328,7 @@ describe("SessionRouter controls and steering", () => {
   test("stop clears queued work when there is no active run", async () => {
     const setupValue = setup();
     await setupValue.router.routeMessage(event());
-    const sessionId = setupValue.bindings.get("agent:main:feishu:dm:chat-1")!.session_id;
+    const sessionId = setupValue.bindings.get("agent:main:feishu:personal")!.session_id;
     setupValue.scheduler.pending.set(sessionId, 2);
     await expect(setupValue.router.routeMessage(event({ user_input: "/stop" }))).resolves.toBeDefined();
     expect(setupValue.channel.outbound.at(-1)?.payload.markdown).toContain("已停止当前回复");
@@ -344,7 +339,7 @@ describe("SessionRouter controls and steering", () => {
   test("clear refuses inflight work then rotates and ensures a new session", async () => {
     const setupValue = setup();
     await setupValue.router.routeMessage(event());
-    const sessionId = setupValue.bindings.get("agent:main:feishu:dm:chat-1")!.session_id;
+    const sessionId = setupValue.bindings.get("agent:main:feishu:personal")!.session_id;
     setupValue.scheduler.active.add(sessionId);
     await setupValue.router.routeMessage(event({ user_input: "/clear" }));
     expect(setupValue.channel.outbound.at(-1)?.payload).toEqual({
@@ -355,14 +350,14 @@ describe("SessionRouter controls and steering", () => {
     setupValue.scheduler.active.clear();
     await setupValue.router.routeMessage(event({ user_input: "/clear" }));
     expect(setupValue.storage.ensured).toHaveLength(2);
-    expect(setupValue.bindings.get("agent:main:feishu:dm:chat-1")!.session_id).not.toBe(sessionId);
+    expect(setupValue.bindings.get("agent:main:feishu:personal")!.session_id).not.toBe(sessionId);
     expect(setupValue.channel.outbound.at(-1)?.payload).toEqual({ markdown: "已创建新会话。" });
   });
 
   test("toggles steering, injects plain text into active runtime, and queues attachments", async () => {
     const setupValue = setup();
     await setupValue.router.routeMessage(event());
-    const sessionId = setupValue.bindings.get("agent:main:feishu:dm:chat-1")!.session_id;
+    const sessionId = setupValue.bindings.get("agent:main:feishu:personal")!.session_id;
     await setupValue.router.routeMessage(event({ user_input: "/steer" }));
     expect(setupValue.state.isSteeringEnabled(sessionId)).toBe(true);
     setupValue.scheduler.active.add(sessionId);
@@ -375,7 +370,7 @@ describe("SessionRouter controls and steering", () => {
       {
         sessionId,
         message: {
-          text: "new direction",
+          text: "[来自飞书私聊]\nnew direction",
           response_route_id: "route-1",
           message_id: "steer-message",
         },
@@ -394,6 +389,7 @@ describe("SessionRouter controls and steering", () => {
     );
     expect(queued.route_kind).toBe("agent_message");
     expect(setupValue.scheduler.jobs.at(-1)?.job.user_content_blocks).toEqual([
+      { type: "text", text: "[来自飞书私聊]" },
       { type: "image", file_key: "file-1" },
     ]);
 
@@ -416,7 +412,7 @@ describe("SessionRouter controls and steering", () => {
     expect(diagnosed.route_kind).toBe("agent_message");
     expect(setupValue.scheduler.steered).toHaveLength(1);
     expect(setupValue.scheduler.jobs.at(-1)?.job).toMatchObject({
-      user_input: "keep this body",
+      user_input: "[来自飞书私聊]\nkeep this body",
       diagnostics: [diagnostic],
     });
   });
@@ -424,7 +420,7 @@ describe("SessionRouter controls and steering", () => {
   test("queues plain text when an active run closes before steering is accepted", async () => {
     const setupValue = setup();
     await setupValue.router.routeMessage(event());
-    const sessionId = setupValue.bindings.get("agent:main:feishu:dm:chat-1")!.session_id;
+    const sessionId = setupValue.bindings.get("agent:main:feishu:personal")!.session_id;
     await setupValue.router.routeMessage(event({ user_input: "/steer" }));
     setupValue.scheduler.active.add(sessionId);
     setupValue.scheduler.acceptSteering = false;
@@ -433,6 +429,51 @@ describe("SessionRouter controls and steering", () => {
       event({ user_input: "queue instead", message_id: "closing-message" }),
     );
     expect(result.route_kind).toBe("agent_message");
-    expect(setupValue.scheduler.jobs.at(-1)?.job.user_input).toBe("queue instead");
+    expect(setupValue.scheduler.jobs.at(-1)?.job.user_input).toBe("[来自飞书私聊]\nqueue instead");
+  });
+
+  test("never steers a run that is answering in another chat", async () => {
+    const setupValue = setup();
+    await setupValue.router.routeMessage(event());
+    const sessionId = setupValue.bindings.get("agent:main:feishu:personal")!.session_id;
+    await setupValue.router.routeMessage(event({ user_input: "/steer" }));
+    setupValue.scheduler.active.add(sessionId);
+    setupValue.scheduler.activeConversation.set(sessionId, "group-1");
+
+    const result = await setupValue.router.routeMessage(
+      event({ user_input: "from my private chat", message_id: "other-chat-message" }),
+    );
+    expect(result.route_kind).toBe("agent_message");
+    expect(setupValue.scheduler.steered).toEqual([]);
+    expect(setupValue.scheduler.jobs.at(-1)?.job.user_input).toBe("[来自飞书私聊]\nfrom my private chat");
+  });
+});
+
+describe("SessionRouter personal session", () => {
+  test("puts private chats, groups and threads into one session and labels each source", async () => {
+    const setupValue = setup();
+    await setupValue.router.routeMessage(event());
+    await setupValue.router.routeMessage(event({
+      conversation_id: "group-1",
+      is_group: true,
+      message_id: "group-message",
+      response_route_id: "route-2",
+      user_input: "in the group",
+      user_content_blocks: [{ type: "text", text: "in the group" }, { type: "image", file_key: "file-2" }],
+      source: { platform: "feishu", chat_id: "group-1", chat_type: "group", user_id: "open-alice", thread_id: "thread-1" },
+    }));
+
+    expect(Object.keys(setupValue.bindings.loadAll())).toEqual(["agent:main:feishu:personal"]);
+    const [first, second] = setupValue.scheduler.jobs.map(({ job }) => job);
+    expect(second?.session_id).toBe(first?.session_id);
+    expect(second?.response_route_id).toBe("route-2");
+    const groupLabel = "[来自飞书群聊 chat_id=group-1：群成员都能看到回复，不要透露私聊或其他聊天中的内容]";
+    expect(second?.user_input).toBe(`${groupLabel}\nin the group`);
+    expect(second?.user_content_blocks).toEqual([
+      { type: "text", text: `${groupLabel}\nin the group` },
+      { type: "image", file_key: "file-2" },
+    ]);
+    expect(setupValue.storage.ensured).toHaveLength(2);
+    expect(setupValue.storage.ensured[1]).toMatchObject({ session_id: first?.session_id });
   });
 });

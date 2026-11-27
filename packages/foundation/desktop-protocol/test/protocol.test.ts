@@ -476,10 +476,13 @@ describe("desktop agent protocol", () => {
       "sessions.attachment.open": { session_id: "session-1", attachment_id: "attachment-1" },
       "sessions.attachment.preview": { session_id: "session-1", attachment_id: "attachment-1" },
       "sessions.image_view.preview": { session_id: "session-1", view_id: "view-1" },
+      "channels.feishu.owner": {},
+      "channels.feishu.owner.pair": {},
     };
     for (const operation of [
       "sessions.send", "sessions.stop", "sessions.activity", "sessions.file.open",
       "sessions.file.reveal", "sessions.attachment.open", "sessions.attachment.preview", "sessions.image_view.preview",
+      "channels.feishu.owner", "channels.feishu.owner.pair",
     ]) {
       expect(() => parseAgentWireMessage(JSON.stringify({
         jsonrpc: "2.0",

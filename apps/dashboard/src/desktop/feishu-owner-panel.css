@@ -1,0 +1,121 @@
+.desktop-settings-theme .desktop-feishu-settings {
+  gap: 22px;
+  min-width: 0;
+}
+
+.desktop-settings-theme .desktop-feishu-settings .desktop-section-heading { margin-bottom: 0; }
+
+.desktop-feishu-credentials,
+.desktop-feishu-owner {
+  display: grid;
+  min-width: 0;
+  gap: 10px;
+}
+
+.desktop-feishu-heading,
+.desktop-feishu-bound-account,
+.desktop-feishu-owner-code,
+.desktop-feishu-actions,
+.desktop-feishu-connect {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+}
+
+.desktop-feishu-heading h4 {
+  margin: 0;
+  color: var(--text);
+  font-size: .9375rem;
+  font-weight: 600;
+}
+
+.desktop-settings-theme .desktop-feishu-settings .desktop-field-grid > label {
+  min-height: 54px;
+  padding-block: 8px;
+}
+
+@media (min-width: 801px) {
+  .desktop-settings-theme .desktop-feishu-settings .desktop-field-grid > label {
+    grid-template-columns: minmax(7rem, .45fr) minmax(0, 1fr);
+  }
+}
+
+.desktop-feishu-owner,
+.desktop-feishu-maintenance {
+  padding-top: 20px;
+  border-top: 1px solid var(--border);
+}
+
+.desktop-feishu-owner p,
+.desktop-feishu-connect span,
+.desktop-feishu-owner time {
+  margin: 0;
+  color: var(--text-soft);
+  font-size: .8125rem;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.desktop-feishu-bound-account strong { color: var(--text); font-weight: 500; }
+.desktop-feishu-owner time { font-size: .75rem; }
+.desktop-feishu-owner-code { margin-block: 2px; }
+
+.desktop-feishu-code-control {
+  display: inline-flex;
+  align-items: center;
+  max-width: 100%;
+  padding: 4px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--cds-field, var(--surface-muted));
+}
+
+.desktop-feishu-code-control code {
+  padding: 0 10px;
+  color: var(--text);
+  background: transparent;
+  font-family: ui-monospace, monospace;
+  font-size: 1.125rem;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: .12em;
+  user-select: all;
+}
+
+.desktop-feishu-secondary,
+.desktop-feishu-code-control button,
+.desktop-feishu-settings .desktop-clear-integration {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 32px;
+  padding: 4px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-soft);
+  cursor: pointer;
+  font: inherit;
+  font-size: .75rem;
+  font-weight: 500;
+}
+
+.desktop-feishu-code-control button,
+.desktop-feishu-settings .desktop-clear-integration { border-color: transparent; }
+
+.desktop-feishu-code-control button { border-radius: 5px; }
+.desktop-feishu-secondary:hover:not(:disabled),
+.desktop-feishu-code-control button:hover { background: var(--row-hover); color: var(--text); }
+
+.desktop-feishu-settings .desktop-primary-button {
+  min-height: 32px;
+  padding: 5px 12px;
+  border-radius: 8px;
+  font-weight: 500;
+  text-decoration: none;
+}
+
+.desktop-feishu-settings .desktop-clear-integration { padding-inline: 6px; color: var(--danger); }
+.desktop-feishu-settings .desktop-clear-integration:hover { background: var(--danger-soft); }
+.desktop-feishu-owner .desktop-feishu-error { color: var(--danger); }

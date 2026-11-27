@@ -9,6 +9,7 @@ import { FeishuAdapter } from "../../../src/channels/feishu/adapter";
 import { buildFinalCard } from "../../../src/channels/feishu/card-builder";
 import type { InboundImageProcessorPort } from "../../../src/channels/feishu/image-contract";
 import type { FeishuSdkCallbacks, FeishuSdkServices } from "../../../src/channels/feishu/sdk";
+import { FEISHU_OWNER_REPLIES, FeishuOwnerAccess, FeishuOwnerFile } from "../../../src/channels/feishu/owner";
 
 const roots: string[] = [];
 afterEach(async () => Promise.all(roots.splice(0).map((path) => rm(path, { recursive: true, force: true }))));
@@ -85,6 +86,7 @@ const finalCard = (
 
 interface SetupOptions {
   failStart?: boolean;
+  pendingHandshake?: boolean;
   hangStart?: boolean;
   hangStop?: boolean;
   projectRoot?: string;
@@ -92,6 +94,8 @@ interface SetupOptions {
   apiRequest?: FeishuSdkServices["api"]["request"];
   resourceDownload?: NonNullable<FeishuSdkServices["resources"]>["download"];
   imageProcessor?: InboundImageProcessorPort;
+  owner?: FeishuOwnerAccess;
+  probeBotIdentity?: FeishuSdkServices["probeBotIdentity"];
 }
 
 const setup = (options: SetupOptions = {}) => {
@@ -109,13 +113,13 @@ const setup = (options: SetupOptions = {}) => {
         calls.push("start");
         if (options.failStart) throw new Error("connect failed");
         if (options.hangStart) await new Promise(() => undefined);
-        callbacks.onReady();
+        if (!options.pendingHandshake) callbacks.onReady();
       },
       stop: async (force) => {
         calls.push(`stop:${Boolean(force)}`);
         if (options.hangStop && !force) await new Promise(() => undefined);
       },
-      status: () => ({ state: "connected", reconnectAttempts: 0 }),
+      status: () => ({ state: options.pendingHandshake ? "connecting" : "connected", reconnectAttempts: 0 }),
     },
     api: {
       request: async (method, path, requestOptions) => {
@@ -152,8 +156,10 @@ const setup = (options: SetupOptions = {}) => {
       add: async () => "reaction-1",
       remove: async () => undefined,
     },
-    probeBotIdentity: async () => ({ openId: "ou_bot", name: "LXE" }),
-    ...(options.resourceDownload ? { resources: { download: options.resourceDownload } } : {}),
+    probeBotIdentity: options.probeBotIdentity ?? (async () => ({ openId: "ou_bot", name: "LXE" })),
+    ...(options.resourceDownload ? { resources: {
+      download: options.resourceDownload, listFolder: async () => ({ items: [], total: 0 }),
+    } } : {}),
   };
   const store = {
     getResponseRoute: async (id: string) => id === "route-1" ? route : undefined,
@@ -171,11 +177,22 @@ const setup = (options: SetupOptions = {}) => {
     sdkFactory: (value) => { callbacks = value; return services; },
     stopTimeoutMs: 5,
     ...(options.projectRoot ? { projectRoot: options.projectRoot } : {}),
+    ...(options.owner ? { owner: options.owner } : {}),
   });
   return { adapter, calls, apiCalls, apiRequests, get callbacks() { return callbacks; } };
 };
 
 describe("FeishuAdapter lifecycle and delivery", () => {
+  test("a resolved SDK start does not mark a pending handshake as connected", async () => {
+    const state = setup({ pendingHandshake: true });
+    state.adapter.setInboundSink(async () => {});
+    await state.adapter.start();
+    expect(await state.adapter.health()).toMatchObject({ ready: false, connection_state: "starting" });
+    state.callbacks.onError(new Error("app_id or app_secret is invalid"));
+    expect(await state.adapter.health()).toMatchObject({ ready: false, connection_state: "failed", last_error: "app_id or app_secret is invalid" });
+    await state.adapter.stop();
+  });
+
   test("registers inbound sink, starts idempotently, handles reconnect health and stops idempotently", async () => {
     const state = setup();
     const inbound: unknown[] = [];
@@ -725,6 +742,93 @@ describe("FeishuAdapter lifecycle and delivery", () => {
       },
     })).resolves.toBeUndefined();
     expect(await state.adapter.health()).toEqual(expect.objectContaining({ last_error: "sink offline" }));
+    await state.adapter.stop();
+  });
+
+  test("starts when the bot lookup fails and looks the bot up again on the next group message", async () => {
+    let lookups = 0;
+    const state = setup({
+      probeBotIdentity: async () => {
+        lookups += 1;
+        if (lookups <= 2) throw new Error("bot info timed out");
+        return { openId: "ou_bot", name: "LXE" };
+      },
+    });
+    const inbound: InboundEvent[] = [];
+    state.adapter.setInboundSink(async (event) => { inbound.push(event); });
+    await state.adapter.start();
+    expect(await state.adapter.health()).toEqual(expect.objectContaining({ connection_state: "connected", ready: true }));
+    const message = (messageId: string, chatType: "p2p" | "group") => state.callbacks.onMessage({
+      app_id: "cli_test",
+      sender: { sender_type: "user", sender_id: { open_id: "ou_user" } },
+      message: {
+        message_type: "text",
+        content: JSON.stringify({ text: chatType === "group" ? "@_user_1 hello" : "hello" }),
+        chat_type: chatType,
+        chat_id: chatType === "group" ? "oc_group" : "oc_chat",
+        create_time: String(Date.now()),
+        message_id: messageId,
+        mentions: chatType === "group" ? [{ key: "@_user_1", id: { open_id: "ou_bot" }, name: "LXE" }] : [],
+      },
+    });
+
+    await message("om_private", "p2p");
+    expect(lookups).toBe(1);
+    await message("om_group_still_down", "group");
+    await message("om_group_recovered", "group");
+    await message("om_group_known", "group");
+
+    expect(lookups).toBe(3);
+    expect(inbound.map((event) => event.message_id)).toEqual(["om_private", "om_group_recovered", "om_group_known"]);
+    expect(inbound[1]?.source.extra).toEqual(expect.objectContaining({ bot_id: "ou_bot", bot_name: "LXE" }));
+  });
+
+  test("answers refused senders directly and lets only the paired owner reach the Agent", async () => {
+    const root = await mkdtemp(join(tmpdir(), "lxe-feishu-owner-adapter-"));
+    roots.push(root);
+    const owner = new FeishuOwnerAccess({
+      file: new FeishuOwnerFile(join(root, "feishu-owner.json")),
+      appId: "cli_test",
+      code: () => "482915",
+    });
+    const state = setup({ owner });
+    const inbound: InboundEvent[] = [];
+    state.adapter.setInboundSink(async (event) => { inbound.push(event); });
+    await state.adapter.start();
+    const message = (messageId: string, text: string, openId = "ou_user") => state.callbacks.onMessage({
+      app_id: "cli_test",
+      sender: { sender_type: "user", sender_id: { open_id: openId } },
+      message: {
+        message_type: "text",
+        content: JSON.stringify({ text }),
+        chat_type: "p2p",
+        chat_id: "oc_chat",
+        create_time: String(Date.now()),
+        message_id: messageId,
+      },
+    });
+    const replyText = (index: number): string => {
+      const request = state.apiRequests[index]!;
+      return JSON.parse(String(request.options?.body?.content)).elements[0].content;
+    };
+
+    await message("om_before", "hello");
+    owner.startPairing();
+    await message("om_pair", "482915");
+    await message("om_owner", "hello");
+    await message("om_colleague", "hello", "ou_colleague");
+
+    expect(inbound.map((event) => event.message_id)).toEqual(["om_owner"]);
+    expect(state.apiRequests.map((request) => request.path)).toEqual([
+      "/im/v1/messages/om_before/reply",
+      "/im/v1/messages/om_pair/reply",
+      "/im/v1/messages/om_colleague/reply",
+    ]);
+    expect([replyText(0), replyText(1), replyText(2)]).toEqual([
+      FEISHU_OWNER_REPLIES.unpaired,
+      FEISHU_OWNER_REPLIES.paired,
+      FEISHU_OWNER_REPLIES.notOwner,
+    ]);
     await state.adapter.stop();
   });
 });

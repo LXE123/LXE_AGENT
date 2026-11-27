@@ -1,7 +1,7 @@
 import { createLogger } from "@lxe/core";
-import { DESKTOP_MCP_NAME, type AgentDashboardRpcCall, type CredentialSource } from "@lxe/desktop-protocol";
+import { DESKTOP_MCP_NAME, type AgentDashboardRpcCall, type CredentialSource, type FeishuOwnerPayload } from "@lxe/desktop-protocol";
 import { publicDashboardChannelHealth } from "../dashboard-channel-health";
-import type { DashboardHandler, DashboardHandlers } from "./context";
+import type { DashboardHandler, DashboardHandlerContext, DashboardHandlers } from "./context";
 
 interface RuntimeModelChoice {
   provider: string;
@@ -28,6 +28,25 @@ function rememberModelChoice<O extends "models.update" | "models.thinking.update
   };
 }
 
+const UNAVAILABLE_FEISHU_OWNER: FeishuOwnerPayload = {
+  available: false, paired: false, owner_open_id_masked: "", paired_at: "", pairing: null,
+};
+
+async function feishuOwnerPayload({ feishuOwner, channels }: DashboardHandlerContext["parts"], startPairing = false): Promise<FeishuOwnerPayload> {
+  if (!feishuOwner) {
+    if (startPairing) throw new Error("飞书渠道未配置，无法绑定所有者");
+    return UNAVAILABLE_FEISHU_OWNER;
+  }
+  const health = await channels.get("feishu").health?.();
+  if (health?.ready !== true) {
+    const error = health?.connection_state === "failed" && typeof health.last_error === "string" ? health.last_error : "";
+    if (startPairing) throw new Error(error || "飞书长连接尚未就绪，无法生成配对码");
+    return { ...feishuOwner.status(), available: false, pairing: null, ...(error ? { connection_error: error } : {}) };
+  }
+  if (startPairing) feishuOwner.startPairing();
+  return { ...feishuOwner.status(), available: true };
+}
+
 export const settingsHandlers: DashboardHandlers = {
   "mcp.servers.update": async (call, { runtime, automations }) => {
     if (call.input.name !== DESKTOP_MCP_NAME) return runtime.dashboardCall(call);
@@ -39,6 +58,10 @@ export const settingsHandlers: DashboardHandlers = {
     const items = publicDashboardChannelHealth(await parts.channels.healthSnapshot());
     return { items, total: Object.keys(items).length };
   },
+
+  "channels.feishu.owner": (_call, { parts }) => feishuOwnerPayload(parts),
+
+  "channels.feishu.owner.pair": (_call, { parts }) => feishuOwnerPayload(parts, true),
 
   "models.update": rememberModelChoice<"models.update">(),
   "models.thinking.update": rememberModelChoice<"models.thinking.update">(),

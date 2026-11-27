@@ -2,12 +2,14 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
 import { SessionStatusStore } from "../../../../packages/agent/runtime/src/state/session-status-store";
 import type { SessionStatusRequest } from "@lxe/protocol/session-status";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import type { AgentJob, InboundEvent, JsonObject } from "@lxe/protocol";
 import { FakeChannelAdapter } from "../fake-channel";
 import { createDirectGatewayComposition } from "../../src/orchestration/composition";
+import { loadFeishuConfig } from "../../src/channels/feishu/config";
+import { snapshotMessageEvent } from "../../src/channels/feishu/inbound";
 import { IngressClosedError } from "../../src/orchestration/lifecycle";
 import { ProcessAgentRuntime } from "../../src/orchestration/process-runtime";
 import { testWorkspace, workspaceFor } from "../workspace";
@@ -65,6 +67,43 @@ const resourcePaths = (root: string) => ({
 });
 
 describe("direct Gateway composition", () => {
+  test("a configured Feishu channel gets an owner check stored beside the session bindings", () => {
+    const root = mkdtempSync(join(tmpdir(), "lxe-feishu-owner-composition-"));
+    roots.push(root);
+    const runtime = {
+      isReady: false,
+      start: async () => undefined,
+      stop: async () => undefined,
+      runTurn: async () => { throw new Error("unused"); },
+    };
+    const withoutFeishu = createDirectGatewayComposition({
+      projectRoot: root, defaultWorkspace: () => testWorkspace,
+      bindingsPath: join(root, "db", "sessions.json"), storage: storage(), runtime,
+    });
+    expect(withoutFeishu.parts.feishuOwner).toBeUndefined();
+
+    const composition = createDirectGatewayComposition({
+      projectRoot: root, defaultWorkspace: () => testWorkspace,
+      bindingsPath: join(root, "db", "sessions.json"), storage: storage(), runtime,
+      feishu: {
+        config: loadFeishuConfig({ FEISHU_APP_ID: "cli_test", FEISHU_APP_SECRET: "secret" }),
+        imageProcessor: { process: async () => { throw new Error("unused"); } },
+      },
+    });
+    const owner = composition.parts.feishuOwner!;
+    const { code } = owner.startPairing();
+    const pairing = snapshotMessageEvent({
+      event: {
+        sender: { sender_id: { open_id: "ou_owner_0001" } },
+        message: { message_type: "text", content: JSON.stringify({ text: code }), chat_type: "p2p", chat_id: "oc_chat", message_id: "om_pair" },
+      },
+    })!;
+    expect(owner.decide(pairing)).toMatchObject({ reason: "pairing_completed" });
+    expect(JSON.parse(readFileSync(join(root, "db", "feishu-owner.json"), "utf8"))).toMatchObject({
+      app_id: "cli_test", open_id: "ou_owner_0001",
+    });
+  });
+
   test("execution rejection becomes one authoritative failed turn for non-desktop sources", async () => {
     const root = mkdtempSync(join(tmpdir(), "lxe-status-composition-"));
     roots.push(root);

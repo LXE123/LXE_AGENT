@@ -15,6 +15,7 @@ import {
   type FeishuMessageConverterContext,
 } from "./inbound";
 import { FeishuMedia } from "./media";
+import type { FeishuOwnerAccess } from "./owner";
 import { createFeishuInboundResourceResolver } from "./resources";
 import type { InboundImageProcessorPort } from "./image-contract";
 import {
@@ -37,6 +38,8 @@ export interface FeishuAdapterOptions {
   config: FeishuConfig;
   store: FeishuRouteStatePort;
   imageProcessor: InboundImageProcessorPort;
+  /** Only the paired owner reaches the Agent; without it every sender is accepted (tests only). */
+  owner?: FeishuOwnerAccess;
   sdkFactory?: FeishuSdkFactory;
   hasInflight?: () => boolean | Promise<boolean>;
   restartClock?: RestartClock;
@@ -213,17 +216,22 @@ export class FeishuAdapter implements ChannelAdapter {
     });
     this.typing = new FeishuTyping({ reactions: sdk.reactions, store: this.options.store });
     this.media = new FeishuMedia({ api: sdk.api });
-    let identity = { openId: "", name: "" };
-    try {
-      identity = await sdk.probeBotIdentity();
-      this.logger.info("feishu_bot_identity_ready", {
-        bot_open_id_available: Boolean(identity.openId),
-        bot_name_available: Boolean(identity.name),
-      });
-    } catch (error) {
-      // Direct messages remain available when the optional identity probe fails.
-      this.logger.warn("feishu_bot_identity_failed", { error });
-    }
+    // Group messages count only when they @ the bot, which needs the bot's own open_id.
+    // A failed lookup leaves private chats working; the next group message looks it up again.
+    const lookupBotIdentity = async (): Promise<{ openId: string; name: string }> => {
+      try {
+        const identity = await sdk.probeBotIdentity();
+        this.logger.info("feishu_bot_identity_ready", {
+          bot_open_id_available: Boolean(identity.openId),
+          bot_name_available: Boolean(identity.name),
+        });
+        return identity;
+      } catch (error) {
+        this.logger.warn("feishu_bot_identity_failed", { error });
+        return { openId: "", name: "" };
+      }
+    };
+    const identity = await lookupBotIdentity();
     const resourceResolver = sdk.resources && this.options.projectRoot
       ? createFeishuInboundResourceResolver({
           projectRoot: this.options.projectRoot,
@@ -272,7 +280,8 @@ export class FeishuAdapter implements ChannelAdapter {
       botOpenId: identity.openId,
       botName: identity.name,
       appId: this.options.config.appId,
-      botIdSource: identity.openId ? "probe" : "",
+      resolveBotIdentity: lookupBotIdentity,
+      ...(this.options.owner ? { access: (snapshot) => this.options.owner!.decide(snapshot) } : {}),
       ...(resourceResolver ? { resolveResources: resourceResolver } : {}),
       converterContext,
       loadQuote: async (parentId, chatId) => {
@@ -404,15 +413,8 @@ export class FeishuAdapter implements ChannelAdapter {
       ...(this.options.uuid ? { uuid: this.options.uuid } : {}),
     });
     try {
-      await sdk.connection.start();
+      await this.startConnection(sdk);
       if (!this.desiredStarted) throw new Error("Feishu adapter startup aborted");
-      // Some injectable/older SDKs do not expose an onReady callback.
-      if (!this.ready) {
-        this.ready = true;
-        this.connectionState = "connected";
-        this.lastConnectedAt = new Date().toISOString();
-        this.logger.info("feishu_connected", { connection_state: this.connectionState, source: "start_returned" });
-      }
       if (this.options.config.autoRestartEnabled) {
         this.restart = new FeishuIdleRestart({
           ...(this.options.restartClock ? { clock: this.options.restartClock } : {}),
@@ -485,11 +487,18 @@ export class FeishuAdapter implements ChannelAdapter {
     this.connectionState = "restarting";
     await sdk.connection.stop(false);
     if (!this.desiredStarted) return;
+    await this.startConnection(sdk);
+  }
+
+  private async startConnection(sdk: FeishuSdkServices): Promise<void> {
     await sdk.connection.start();
-    if (!this.desiredStarted) return;
-    this.ready = true;
-    this.connectionState = "connected";
-    this.lastConnectedAt = new Date().toISOString();
+    // start() may resolve while authenticating. SDKs without a ready callback can confirm via status.
+    if (this.desiredStarted && !this.ready && this.connectionState !== "failed" && sdk.connection.status().state === "connected") {
+      this.ready = true;
+      this.connectionState = "connected";
+      this.lastConnectedAt = new Date().toISOString();
+      this.logger.info("feishu_connected", { connection_state: this.connectionState, source: "sdk_status" });
+    }
   }
 
   private async handleMessage(data: unknown): Promise<void> {
@@ -512,9 +521,12 @@ export class FeishuAdapter implements ChannelAdapter {
         const fields = { reason: decision.reason, ...decision.metadata };
         if (["missing_sender_open_id", "empty_content", "group_bot_identity_missing", "bot_app_id_mismatch"].includes(decision.reason)) {
           this.logger.warn("feishu_inbound_discarded", fields);
+        } else if (decision.reply) {
+          this.logger.info("feishu_inbound_discarded", fields);
         } else {
           this.logger.debug("feishu_inbound_discarded", fields);
         }
+        if (decision.reply) await this.replyDirectly(snapshot, decision.reply);
         return;
       }
       const event = decision.event;
@@ -537,6 +549,24 @@ export class FeishuAdapter implements ChannelAdapter {
         error,
       });
     }
+  }
+
+  /** Answers a message that never becomes an Agent turn, so it has no stored response route. */
+  private async replyDirectly(
+    snapshot: NonNullable<ReturnType<typeof snapshotMessageEvent>>,
+    markdown: string,
+  ): Promise<void> {
+    if (!this.media) throw new Error("Feishu adapter is not ready");
+    await this.media.sendMarkdown({
+      response_route_id: "",
+      platform_message_id: "",
+      owner_user_id: snapshot.sender_open_id,
+      conversation_id: snapshot.chat_id,
+      conversation_type: snapshot.chat_type,
+      sender_nick: "",
+      message_id: snapshot.message_id,
+      extra_data: { source_message_id: snapshot.message_id },
+    }, markdown);
   }
 
   private dumpRawEvent(data: unknown): void {

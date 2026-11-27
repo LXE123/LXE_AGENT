@@ -3,6 +3,7 @@ import { WindowsTitlebar } from "./windows-titlebar";
 import { UsagePanel } from "./usage-panel";
 import { ErpSettingsTabs } from "./erp-settings-tabs";
 import { DeviceContextPanel } from "./device-context-panel";
+import { FeishuOwnerPanel } from "./feishu-owner-panel";
 import "./settings-theme.css";
 import { useEffect, useRef, useState, type FormEvent, type ReactNode, type RefObject } from "react";
 import { useQueryClient } from "@tanstack/react-query";
@@ -58,7 +59,7 @@ import {
 } from "./onboarding-preference";
 import {
   desktopSettingsForm,
-  desktopSettingsFormAfterClear,
+  desktopSettingsFormAfterIntegrationChange,
   desktopYacangCredentialsChanged,
   type DesktopIntegrationName,
   type ErpIntegrationName,
@@ -618,6 +619,7 @@ function DesktopSettingsForm({
   onChange,
   onDeleteLocalCredential,
   onSaveLocalCredential,
+  onSaveFeishu,
   onSelectWorkspace,
   onSelectZiniaoApp,
   onSelectZiniaoWebDriverDirectory,
@@ -635,6 +637,7 @@ function DesktopSettingsForm({
   onChange: (patch: Partial<SetupForm>) => void;
   onDeleteLocalCredential: (provider: Provider) => void;
   onSaveLocalCredential: () => void;
+  onSaveFeishu: () => void;
   onSelectWorkspace: () => void;
   onSelectZiniaoApp: () => void;
   onSelectZiniaoWebDriverDirectory: () => void;
@@ -933,17 +936,27 @@ function DesktopSettingsForm({
   }
 
   if (activeSection === "feishu") {
-    const status = desktopSettingsSectionStatus(t.desktop, "feishu", setup);
+    const dirty = desktopSettingsSectionIsDirty("feishu", form, setupForm(setup));
+    const switchingApp = Boolean(setup.feishu.app_id) && form.feishuAppId.trim() !== setup.feishu.app_id;
+    const keepSecret = setup.feishu.app_secret_configured && !switchingApp;
+    const retryConnection = setup.feishu.configured && health.gateway === "error";
+    const feishu = t.desktop.feishu;
     return (
-      <section className="desktop-settings-section">
+      <section className="desktop-settings-section desktop-feishu-settings">
         <DesktopSectionHeading
-          badge={status}
-          badgeClassName={integrationStatusClass(setup.feishu.managed, setup.feishu.configured)}
-          description={t.desktop.feishu.description}
+          description={dirty || !setup.feishu.configured ? feishu.setupHint : feishu.description}
           headingRef={headingRef}
           title={t.desktop.sectionTitles.feishu}
         />
-        <div className="desktop-integration-fields">
+        <section className="desktop-feishu-credentials" aria-labelledby="feishu-credentials">
+          <div className="desktop-feishu-heading">
+            <h4 id="feishu-credentials">{feishu.credentials}</h4>
+            {dirty || setup.feishu.configured || setup.feishu.managed ? (
+              <span className={`desktop-integration-status ${dirty || !setup.feishu.configured ? "incomplete" : "optional"}`}>
+                {dirty ? t.desktop.unsavedChanges : setup.feishu.configured ? feishu.saved : t.desktop.sectionStatus.incomplete}
+              </span>
+            ) : null}
+          </div>
           <IntegrationIssues issues={setup.feishu.issues} />
           <div className="desktop-field-grid">
             <label>
@@ -951,26 +964,43 @@ function DesktopSettingsForm({
               <input
                 autoComplete="off"
                 onChange={(event) => onChange({ feishuAppId: event.target.value })}
+                placeholder="cli_…"
+                spellCheck={false}
                 value={form.feishuAppId}
               />
             </label>
             <label>
-              <span>{t.desktop.feishu.appSecret}{setup.feishu.app_secret_configured ? t.desktop.keepBlankSuffix : ""}</span>
+              <span>{feishu.appSecret}</span>
               <input
                 autoComplete="new-password"
                 onChange={(event) => onChange({ feishuAppSecret: event.target.value })}
-                placeholder={setup.feishu.app_secret_configured ? t.desktop.storedPlaceholder : t.desktop.feishu.appSecretPlaceholder}
+                placeholder={keepSecret ? feishu.savedSecretHint : feishu.appSecretPlaceholder}
                 type="password"
                 value={form.feishuAppSecret}
               />
             </label>
           </div>
-          {setup.feishu.managed ? (
-            <button className="desktop-clear-integration" onClick={() => onClearIntegration("feishu")} type="button">
-              <Trash2 size={14} />{t.desktop.clearIntegration}
-            </button>
+          {dirty || retryConnection || !setup.feishu.configured ? (
+            <div className="desktop-feishu-connect">
+              <button className="desktop-primary-button" type="button" onClick={onSaveFeishu}
+                disabled={saving || !form.feishuAppId.trim() || (!keepSecret && !form.feishuAppSecret.trim())}>
+                {saving ? feishu.connecting : feishu.saveAndConnect}
+              </button>
+              {switchingApp && !form.feishuAppSecret.trim() ? <span>{feishu.newSecret}</span> : null}
+              {retryConnection && !dirty ? <span role="status">{health.message}</span> : null}
+            </div>
           ) : null}
-        </div>
+        </section>
+        {!dirty && setup.feishu.configured && health.gateway === "ready" ? (
+          <FeishuOwnerPanel key={setup.feishu.app_id} appId={setup.feishu.app_id} />
+        ) : null}
+        {setup.feishu.managed ? (
+          <div className="desktop-feishu-maintenance">
+            <button className="desktop-clear-integration" onClick={() => onClearIntegration("feishu")} type="button">
+              <Trash2 aria-hidden="true" size={14} />{t.desktop.clearIntegration}
+            </button>
+          </div>
+        ) : null}
       </section>
     );
   }
@@ -1323,12 +1353,12 @@ export function DesktopShell({
   }
 
   const updateForm = (patch: Partial<SetupForm>): void => setForm((current) => current ? { ...current, ...patch } : current);
-  const refreshSetup = async (next: DesktopSetupState, clearedIntegration?: IntegrationName): Promise<void> => {
+  const refreshSetup = async (next: DesktopSetupState, changedIntegration?: IntegrationName): Promise<void> => {
     queryClient.clear();
     setupComplete.current = next.complete;
     setSetup(next);
-    setForm((current) => current && clearedIntegration
-      ? desktopSettingsFormAfterClear(current, next, clearedIntegration)
+    setForm((current) => current && changedIntegration
+      ? desktopSettingsFormAfterIntegrationChange(current, next, changedIntegration)
       : setupForm(next));
     setHealth(await desktop.getHealth());
     setAppGeneration((value) => value + 1);
@@ -1449,6 +1479,24 @@ export function DesktopShell({
     workspace_root: form.workspaceRoot,
     logging: { profile: form.logProfile, retention_days: form.logRetentionDays },
   });
+  const feishuInput = (): NonNullable<DesktopSetupInput["feishu"]> => ({
+    action: "save",
+    app_id: form.feishuAppId,
+    ...(form.feishuAppSecret ? { app_secret: form.feishuAppSecret } : {}),
+  });
+  const saveFeishu = async (): Promise<void> => {
+    if (saving) return;
+    setSaving(true);
+    setError("");
+    try {
+      const next = await desktop.saveSetup({ workspace_root: setup.workspace_root, feishu: feishuInput() });
+      await refreshSetup(next, "feishu");
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : String(cause));
+    } finally {
+      setSaving(false);
+    }
+  };
   const formInput = (): DesktopSetupInput => {
     const ziniaoTouched = hasText(
       form.ziniaoCompany,
@@ -1495,13 +1543,7 @@ export function DesktopShell({
           ...(form.mabangPassword ? { password: form.mabangPassword } : {}),
         },
       } : {}),
-      ...(feishuTouched ? {
-        feishu: {
-          action: "save" as const,
-          app_id: form.feishuAppId,
-          ...(form.feishuAppSecret ? { app_secret: form.feishuAppSecret } : {}),
-        },
-      } : {}),
+      ...(feishuTouched ? { feishu: feishuInput() } : {}),
     };
   };
   const saveLocalCredential = async (): Promise<void> => {
@@ -1550,6 +1592,10 @@ export function DesktopShell({
   };
   const save = (event: FormEvent): void => {
     event.preventDefault();
+    if (settingsOpen && activeSettingsSection === "feishu") {
+      if (desktopSettingsSectionIsDirty("feishu", form, setupForm(setup)) || health.gateway === "error") void saveFeishu();
+      return;
+    }
     if (activeSettingsSection === "appearance"
       || activeSettingsSection === "cloud"
       || activeSettingsSection === "status" || activeSettingsSection === "usage") return;
@@ -1645,6 +1691,7 @@ export function DesktopShell({
       onSelectZiniaoApp={() => { void selectZiniaoApp(); }}
       onSelectZiniaoWebDriverDirectory={() => { void selectZiniaoWebDriverDirectory(); }}
       onSaveLocalCredential={() => { void saveLocalCredential(); }}
+      onSaveFeishu={() => { void saveFeishu(); }}
       platform={desktop.platform}
       setup={setup}
     />
@@ -1849,7 +1896,8 @@ export function DesktopShell({
               </div>
               {activeSettingsSection !== "status"
                 && activeSettingsSection !== "appearance"
-                && activeSettingsSection !== "cloud" && activeSettingsSection !== "usage" ? (
+                && activeSettingsSection !== "cloud" && activeSettingsSection !== "usage"
+                && activeSettingsSection !== "feishu" ? (
                 <button className="desktop-primary-button" disabled={saving || credentialBusy} type="submit">
                   {saving ? t.desktop.settings.saving : t.desktop.settings.submit}
                 </button>
