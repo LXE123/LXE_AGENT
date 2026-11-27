@@ -48,6 +48,17 @@ SOURCE = "mabang_stock_sku_export"
 WHITESPACE_PATTERN = re.compile(r"\s+")
 
 
+@dataclass(frozen=True)
+class StockSkuExportOptions:
+    warehouse_id: str = STOCK_SKU_WAREHOUSE_ID
+    field_mappings: tuple[tuple[str, str], ...] = STOCK_SKU_EXPORT_FIELDS
+    field_labels: tuple[str, ...] | None = None
+    hidden_page: str = ""
+
+
+DEFAULT_STOCK_SKU_EXPORT_OPTIONS = StockSkuExportOptions()
+
+
 class StockSkuExportError(MabangBusinessError):
     pass
 
@@ -183,15 +194,23 @@ async def _resolve_private_auth() -> tuple[str, str]:
     return cookie_header, memcache_key
 
 
-def _step1_form_data(skus: list[str], *, memcache_key: str) -> list[tuple[str, str]]:
+def _step1_form_data(
+    skus: list[str],
+    *,
+    memcache_key: str,
+    options: StockSkuExportOptions = DEFAULT_STOCK_SKU_EXPORT_OPTIONS,
+) -> list[tuple[str, str]]:
     order_ids = "\r\n".join(skus) + "\r\n"
     form: list[tuple[str, str]] = [
         ("backUrl", ""),
         ("orderIds", order_ids),
     ]
-    form.extend(("fieldlabel", uq) for _, uq in STOCK_SKU_EXPORT_FIELDS)
-    form.append(("warehouseIds[]", STOCK_SKU_WAREHOUSE_ID))
-    for name, uq in STOCK_SKU_EXPORT_FIELDS:
+    field_labels = options.field_labels
+    if field_labels is None:
+        field_labels = tuple(code for _, code in options.field_mappings)
+    form.extend(("fieldlabel", code) for code in field_labels)
+    form.append(("warehouseIds[]", options.warehouse_id))
+    for name, uq in options.field_mappings:
         form.extend(
             [
                 ("map-name[]", name),
@@ -211,7 +230,7 @@ def _step1_form_data(skus: list[str], *, memcache_key: str) -> list[tuple[str, s
             ("params", ""),
             ("InterfaceUrl", ""),
             ("mainMenu", ""),
-            ("hiddenPage", ""),
+            ("hiddenPage", options.hidden_page),
             ("hiddenPageSize", ""),
             ("tableBase", ""),
             ("isMerage", "1"),
@@ -410,6 +429,7 @@ async def export_stock_sku_batch(
     timeout_sec: float = 180,
     poll_interval_sec: float = 3,
     output_dir: str | Path | None = None,
+    options: StockSkuExportOptions = DEFAULT_STOCK_SKU_EXPORT_OPTIONS,
 ) -> StockSkuBatchExport:
     unique = _unique_skus(skus)
     if not unique:
@@ -418,7 +438,7 @@ async def export_stock_sku_batch(
         raise ValueError(f"库存SKU单批最多支持 {MAX_SKUS_PER_BATCH} 个")
 
     step1 = await _post_stock_export(
-        _step1_form_data(unique, memcache_key=""),
+        _step1_form_data(unique, memcache_key="", options=options),
         action="库存SKU导出 Step 1",
     )
     sn, subtask_num, chunk_num = _normalize_step1_response(step1)
@@ -466,6 +486,7 @@ async def _export_stock_sku_names_once(
     timeout_sec: float = 180,
     poll_interval_sec: float = 3,
     output_dir: str | Path | None = None,
+    options: StockSkuExportOptions = DEFAULT_STOCK_SKU_EXPORT_OPTIONS,
 ) -> StockSkuNameExportResult:
     unique = _unique_skus(skus)
     if not unique:
@@ -487,6 +508,7 @@ async def _export_stock_sku_names_once(
             timeout_sec=timeout_sec,
             poll_interval_sec=poll_interval_sec,
             output_dir=output_dir,
+            options=options,
         )
         batches.append(batch)
         for key, name in load_stock_sku_names(batch.xlsx_path).items():
@@ -508,6 +530,7 @@ async def export_stock_sku_names(
     timeout_sec: float = 180,
     poll_interval_sec: float = 3,
     output_dir: str | Path | None = None,
+    options: StockSkuExportOptions = DEFAULT_STOCK_SKU_EXPORT_OPTIONS,
 ) -> StockSkuNameExportResult:
     async def run_once() -> StockSkuNameExportResult:
         return await _export_stock_sku_names_once(
@@ -516,6 +539,7 @@ async def export_stock_sku_names(
             timeout_sec=timeout_sec,
             poll_interval_sec=poll_interval_sec,
             output_dir=output_dir,
+            options=options,
         )
 
     try:
@@ -534,6 +558,7 @@ __all__ = [
     "StockSkuBatchExport",
     "StockSkuExportAuthError",
     "StockSkuExportError",
+    "StockSkuExportOptions",
     "StockSkuExportTimeoutError",
     "StockSkuNameExportResult",
     "download_stock_sku_xlsx_from_url",
