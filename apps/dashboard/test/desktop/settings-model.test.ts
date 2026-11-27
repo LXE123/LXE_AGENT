@@ -4,7 +4,7 @@ import {
   desktopCloudBindingSwitchAvailable,
   desktopCloudShortcutAvailable,
   desktopSettingsForm,
-  desktopSettingsFormAfterClear,
+  desktopSettingsFormAfterIntegrationChange,
   desktopYacangCredentialsChanged,
   ERP_INTEGRATIONS,
   desktopLoggingSinkView,
@@ -150,7 +150,7 @@ test("clearing one platform preserves all other unsaved credentials and settings
   const current = { ...desktopSettingsForm(next), mabangTmsAccount: "draft-tms", mabangTmsPassword: "secret-tms",
     yacangPassword: "secret-yacang", shangmanTenantId: "draft-id", mabangPassword: "secret-mabang",
     localApiKey: "draft-key", workspaceRoot: "/draft-workspace" };
-  const result = desktopSettingsFormAfterClear(current, next, "mabangTms");
+  const result = desktopSettingsFormAfterIntegrationChange(current, next, "mabangTms");
   expect(result).toEqual({ ...current, mabangTmsAccount: "", mabangTmsPassword: "" });
   expect(current.mabangTmsPassword).toBe("secret-tms");
 });

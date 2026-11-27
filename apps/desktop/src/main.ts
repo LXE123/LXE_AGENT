@@ -597,7 +597,8 @@ async function bootstrap(): Promise<void> {
       logging.configure();
       const nextEnvironment = config.environment();
       const runtimeConfigurationChanged = JSON.stringify(previousEnvironment) !== JSON.stringify(nextEnvironment);
-      if (!wasComplete || runtimeConfigurationChanged) await gateway.restart();
+      const retryFeishu = input.feishu?.action === "save" && gateway.health().gateway === "error";
+      if (!wasComplete || runtimeConfigurationChanged || retryFeishu) await gateway.restart();
       else if (state.workspace_root !== previousSetup.workspace_root) {
         await gateway.dashboardCall({ operation: "workspaces.register", input: { directory: state.workspace_root } });
       }

@@ -416,20 +416,20 @@ export function useToolStatsQuery(days: number, enabled = true) {
 const FEISHU_PAIRING_POLL_MS = 2_000;
 
 /** Polls only while a pairing code is live, so Settings notices the owner pairing from Feishu. */
-export function useFeishuOwnerQuery() {
+export function useFeishuOwnerQuery(appId: string) {
   return useQuery({
-    queryKey: dashboardQueryKeys.channelHealth.feishuOwner,
+    queryKey: dashboardQueryKeys.channelHealth.feishuOwner(appId),
     queryFn: () => callDashboard({ operation: "channels.feishu.owner", input: {} }),
     refetchInterval: (query) => query.state.data?.pairing ? FEISHU_PAIRING_POLL_MS : false,
     refetchIntervalInBackground: false,
   });
 }
 
-export function useFeishuOwnerPairing() {
+export function useFeishuOwnerPairing(appId: string) {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: () => callDashboard({ operation: "channels.feishu.owner.pair", input: {} }),
-    onSuccess: (next) => queryClient.setQueryData(dashboardQueryKeys.channelHealth.feishuOwner, next),
+    onSuccess: (next) => queryClient.setQueryData(dashboardQueryKeys.channelHealth.feishuOwner(appId), next),
   });
 }
 

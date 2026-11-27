@@ -1,3 +1,15 @@
+.desktop-feishu-connect {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.desktop-feishu-connect span {
+  color: var(--muted);
+  font-size: 0.8125rem;
+}
+
 .desktop-feishu-owner {
   display: grid;
   gap: 10px;

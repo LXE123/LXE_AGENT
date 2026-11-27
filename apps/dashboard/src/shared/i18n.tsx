@@ -930,7 +930,10 @@ export const ZH_TEXT = {
       passwordPlaceholder: "输入马帮密码"
     },
     feishu: {
-      description: "App ID 与 App Secret 必须成对填写；整组留空即可跳过。",
+      description: "先保存并连接机器人，再绑定你的飞书账号。",
+      saveAndConnect: "保存并连接机器人",
+      connecting: "正在连接…",
+      newSecret: "请输入新机器人的 App Secret。",
       appSecret: "App Secret",
       appSecretPlaceholder: "输入 App Secret",
       owner: {
@@ -941,6 +944,7 @@ export const ZH_TEXT = {
         unpaired: "还没有绑定所有者，飞书里的所有消息都会被拒绝。",
         paired: (openId: string, time: string) => `已绑定 ${openId}（${time}）`,
         codeHint: (time: string) => `在飞书里私聊机器人并发送这个配对码，${time} 前有效。`,
+        openChat: "打开这个机器人的私聊",
         pair: "绑定所有者",
         rebind: "重新绑定",
         newCode: "换一个配对码",
@@ -1923,7 +1927,10 @@ export const UI_TEXT: Record<Language, UiText> = {
         passwordPlaceholder: "Enter the Mabang password"
       },
       feishu: {
-        description: "App ID and App Secret must be filled in together; leave the whole group blank to skip.",
+        description: "Save and connect your bot, then pair your Feishu account.",
+        saveAndConnect: "Save and connect bot",
+        connecting: "Connecting…",
+        newSecret: "Enter the new bot’s App Secret.",
         appSecret: "App Secret",
         appSecretPlaceholder: "Enter the App Secret",
         owner: {
@@ -1934,6 +1941,7 @@ export const UI_TEXT: Record<Language, UiText> = {
           unpaired: "No owner is paired yet, so every Feishu message is refused.",
           paired: (openId: string, time: string) => `Paired with ${openId} (${time})`,
           codeHint: (time: string) => `Send this code to the bot in a private Feishu chat before ${time}.`,
+          openChat: "Open this bot’s private chat",
           pair: "Pair owner",
           rebind: "Pair again",
           newCode: "New code",

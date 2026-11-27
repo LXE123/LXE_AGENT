@@ -157,8 +157,8 @@ export const desktopSettingsSectionStatus = (
       : text.sectionStatus.optional;
 };
 
-// Clearing a platform must leave every other draft (including secrets) untouched.
-export const desktopSettingsFormAfterClear = (
+// A section-specific save or clear preserves the other sections' drafts.
+export const desktopSettingsFormAfterIntegrationChange = (
   current: DesktopSettingsFormValue,
   next: DesktopSetupState,
   integration: DesktopIntegrationName,

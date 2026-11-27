@@ -4,10 +4,10 @@ import { useUiText } from "../shared/i18n";
 import "./feishu-owner-panel.css";
 
 /** Shows who owns the Feishu channel and hands out the pairing code the owner sends to the bot. */
-export function FeishuOwnerPanel() {
+export function FeishuOwnerPanel({ appId }: { appId: string }) {
   const t = useUiText().desktop.feishu.owner;
-  const status = useFeishuOwnerQuery();
-  const pair = useFeishuOwnerPairing();
+  const status = useFeishuOwnerQuery(appId);
+  const pair = useFeishuOwnerPairing(appId);
 
   const owner = status.data;
   const error = pair.error ? queryError(pair.error) : status.error ? queryError(status.error) : "";
@@ -30,6 +30,8 @@ export function FeishuOwnerPanel() {
             <div className="desktop-feishu-owner-code">
               <code>{owner.pairing.code}</code>
               <span>{t.codeHint(new Date(owner.pairing.expires_at).toLocaleTimeString())}</span>
+              <a href={`https://applink.feishu.cn/client/bot/open?appId=${encodeURIComponent(appId)}`}
+                target="_blank" rel="noreferrer">{t.openChat}</a>
             </div>
           ) : null}
           <button

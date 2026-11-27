@@ -10,12 +10,12 @@ const owner: FeishuOwnerPayload = {
   available: true, paired: false, owner_open_id_masked: "", paired_at: "", pairing: null,
 };
 
-const render = (payload: FeishuOwnerPayload, language: "zh" | "en" = "zh") => {
+const render = (payload: FeishuOwnerPayload, language: "zh" | "en" = "zh", appId = "cli_current") => {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: Infinity } } });
-  client.setQueryData(dashboardQueryKeys.channelHealth.feishuOwner, payload);
+  client.setQueryData(dashboardQueryKeys.channelHealth.feishuOwner("cli_current"), payload);
   return renderToStaticMarkup(
     <QueryClientProvider client={client}>
-      <I18nContext.Provider value={UI_TEXT[language]}><FeishuOwnerPanel /></I18nContext.Provider>
+      <I18nContext.Provider value={UI_TEXT[language]}><FeishuOwnerPanel appId={appId} /></I18nContext.Provider>
     </QueryClientProvider>,
   );
 };
@@ -31,8 +31,16 @@ test.each(["zh", "en"] as const)("an unpaired channel says every message is refu
 test("a live pairing code is shown with how to use it", () => {
   const html = render({ ...owner, pairing: { code: "482915", expires_at: "2026-01-01T00:10:00.000Z" } });
   expect(html).toContain("<code>482915</code>");
+  expect(html).toContain("https://applink.feishu.cn/client/bot/open?appId=cli_current");
   expect(html).toContain("私聊机器人并发送这个配对码");
   expect(html).toContain(UI_TEXT.zh.desktop.feishu.owner.newCode);
+});
+
+test("a newly saved app never displays the previous app’s cached pairing code or chat link", () => {
+  const html = render({ ...owner, pairing: { code: "482915", expires_at: "2026-01-01T00:10:00.000Z" } }, "zh", "cli_new");
+  expect(html).not.toContain("482915");
+  expect(html).not.toContain("appId=cli_current");
+  expect(html).toContain(UI_TEXT.zh.desktop.feishu.owner.loading);
 });
 
 test("a paired channel shows the masked owner and offers pairing again", () => {
