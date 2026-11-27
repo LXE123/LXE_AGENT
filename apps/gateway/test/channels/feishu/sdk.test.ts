@@ -153,6 +153,22 @@ describe("official Feishu SDK factory", () => {
         },
       },
     ]);
+    apiResponse = { code: 0, data: { all_count: "2", items: [
+      { file_key: "file_child", name: "probe.txt", is_folder: false },
+      { file_key: "file_nested", name: "nested", is_folder: true },
+    ] } };
+    expect(await sdk.resources!.listFolder("om-source", "folder-key")).toEqual({ total: 2, items: [
+      { fileKey: "file_child", name: "probe.txt", isFolder: false },
+      { fileKey: "file_nested", name: "nested", isFolder: true },
+    ] });
+    expect(rawRequests.at(-1)).toEqual({
+      method: "GET", url: "/open-apis/im/v1/files/folder-key/folder",
+      params: { srctype: "message", srcid: "om-source", recursive: false },
+    });
+    apiResponse = { code: 234040, msg: "The message is invisible to the operator.", log_id: "folder-error" };
+    await expect(sdk.resources!.listFolder("om-source", "folder-key")).rejects.toMatchObject({
+      api_code: 234040, log_id: "folder-error", operation: "list_folder",
+    });
     apiResponse = { data: { message_id: "missing-code" } };
     await expect(sdk.api.request("POST", "/im/v1/messages/om-source/reply", {})).rejects.toThrow("malformed Feishu response");
     apiError = Object.assign(new Error("Request failed with status code 400"), {

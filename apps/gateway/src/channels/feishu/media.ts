@@ -8,7 +8,7 @@ export interface FeishuMediaApi {
   request(
     method: string,
     path: string,
-    options?: { body?: JsonObject; query?: JsonObject },
+    options?: { body?: JsonObject; query?: JsonObject; signal?: AbortSignal },
   ): Promise<JsonObject>;
   upload(path: string, kind: "image" | "file"): Promise<string>;
 }

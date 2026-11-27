@@ -40,7 +40,9 @@ Interactive Card 是单独的结构化文本边界。直接收到卡片、读取
 
 [`feishu/resources.ts`](/apps/gateway/src/channels/feishu/resources.ts) 下载 image/file 等资源到受控本地路径。单个资源失败不会制造替代正文；其它文本和成功资源仍进入同一消息，脱敏后的实际下载、解码或落盘异常进入 `diagnostics`。平台下载失败不能使整条用户消息消失。
 
-只有普通 image/file/audio/video、富文本和合并转发子消息中的普通资源进入下载链路。Interactive Card converter 始终返回空资源列表；卡片图片只保留 alt 等文本语义，因为飞书的 message-resource API 不支持卡片消息资源。引用普通图片仍会下载并作为模型 image block 传入。
+对于文件夹，Gateway 用原消息 ID 和文件夹 key 逐层列出目录，再用每个子文件的 key 下载，在本地保留目录层级，并把已保存的文件路径交给模型。富文本附件区里的文件夹也走同一条链路。
+
+普通 image/file/audio/video、富文本和合并转发子消息中的普通资源进入下载链路。Interactive Card converter 始终返回空资源列表；卡片图片只保留 alt 等文本语义，因为飞书的 message-resource API 不支持卡片消息资源。引用普通图片仍会下载并作为模型 image block 传入。
 
 Agent 进程中的 `feishu_im_bot_fetch_resource` 还会在下载前回读目标消息，确认 key 与类型确实由普通消息正文声明。CardKit key 被确定性拒绝为 `interactive_card_not_downloadable_resource`，不属于目标消息的 key/type 被拒绝为 `resource_not_declared_by_message`；验证查询失败时 fail closed，不盲目调用资源接口。
 

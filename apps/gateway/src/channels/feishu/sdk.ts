@@ -171,6 +171,7 @@ export function createOfficialFeishuSdk(
           url: `/open-apis${path}`,
           ...(options.body ? { data: options.body } : {}),
           ...(options.query ? { params: options.query } : {}),
+          ...(options.signal ? { signal: options.signal } : {}),
         });
         return apiResponse(response);
       } catch (cause) {
@@ -210,6 +211,25 @@ export function createOfficialFeishuSdk(
     },
   };
   const resources: FeishuInboundResourceApi = {
+    listFolder: async (messageId, folderKey, signal) => {
+      const response = await api.request("GET", `/im/v1/files/${encodeURIComponent(folderKey)}/folder`, {
+        query: { srctype: "message", srcid: messageId, recursive: false },
+        ...(signal ? { signal } : {}),
+      });
+      const { code, msg, data, logId } = parseFeishuEnvelope(response, "list_folder");
+      if (code !== 0) throw new FeishuApiResponseError({
+        apiCode: code, logId, operation: "list_folder", message: `Feishu list_folder failed with code ${code}: ${msg}`,
+      });
+      const total = Number(data.all_count);
+      const rows = data.items ?? (total === 0 ? [] : undefined);
+      if (!Array.isArray(rows)) throw new Error("malformed Feishu folder listing: missing items");
+      const items = rows.map((row) => {
+        const item = object(row);
+        if (typeof item.file_key !== "string" || !item.file_key.trim()) throw new Error("malformed Feishu folder entry: missing file_key");
+        return { fileKey: item.file_key, name: String(item.name ?? ""), isFolder: item.is_folder === true };
+      });
+      return { items, total: Number.isFinite(total) ? total : items.length };
+    },
     download: async (messageId, fileKey, type, signal) => {
       try {
         const response = object(await client.request({

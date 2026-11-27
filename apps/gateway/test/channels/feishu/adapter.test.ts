@@ -157,7 +157,9 @@ const setup = (options: SetupOptions = {}) => {
       remove: async () => undefined,
     },
     probeBotIdentity: options.probeBotIdentity ?? (async () => ({ openId: "ou_bot", name: "LXE" })),
-    ...(options.resourceDownload ? { resources: { download: options.resourceDownload } } : {}),
+    ...(options.resourceDownload ? { resources: {
+      download: options.resourceDownload, listFolder: async () => ({ items: [], total: 0 }),
+    } } : {}),
   };
   const store = {
     getResponseRoute: async (id: string) => id === "route-1" ? route : undefined,

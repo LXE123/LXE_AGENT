@@ -9,6 +9,10 @@ import {
 import { createFeishuDiagnostic, feishuErrorFields } from "./response";
 
 export interface FeishuInboundResourceApi {
+  listFolder(messageId: string, folderKey: string, signal?: AbortSignal): Promise<{
+    items: { fileKey: string; name: string; isFolder: boolean }[];
+    total: number;
+  }>;
   download(
     messageId: string,
     fileKey: string,
@@ -45,11 +49,37 @@ export function createFeishuInboundResourceResolver(options: {
     const userContentBlocks: JsonObject[] = [];
     const resourceMetadata: JsonObject[] = [];
     const diagnostics: AgentDiagnostic[] = [];
-    for (const resource of resources) {
+    async function receive(resource: FeishuInboundResource, directory: string, ancestors: ReadonlySet<string>) {
       const requestedType = resource.type === "image" ? "image" : "file";
       const sourceMessageId = String(resource.message_id ?? snapshot.message_id).trim() || snapshot.message_id;
+      const folder = resource.type === "folder";
       let stage = "resource_download";
       try {
+        options.signal?.throwIfAborted();
+        if (folder) {
+          stage = "folder_list";
+          if (ancestors.has(resource.file_key)) throw new Error("Feishu folder listing contains an ancestor folder key");
+          const { items, total } = await options.api.listFolder(sourceMessageId, resource.file_key, options.signal);
+          stage = "resource_store";
+          mkdirSync(directory, { recursive: true });
+          const name = safePart(resource.file_name, "folder");
+          const path = collisionSafePath(directory, name);
+          mkdirSync(path);
+          const description = `[Folder: ${name}] ${path}`;
+          userInput.push(description);
+          userContentBlocks.push({ type: "text", text: description });
+          const parents = new Set(ancestors).add(resource.file_key);
+          for (const item of items) {
+            await receive({
+              type: item.isFolder ? "folder" : "file", file_name: safePart(item.name, "resource"),
+              file_key: item.fileKey, message_id: sourceMessageId,
+            }, path, parents);
+          }
+          stage = "folder_list";
+          if (items.length < total) throw new Error(`Feishu listed ${items.length} of ${total} entries for folder ${name}`);
+          resourceMetadata.push({ ...resource, saved_path: path, listing_status: "success" });
+          return;
+        }
         const downloaded = await options.api.download(
           sourceMessageId,
           resource.file_key,
@@ -57,13 +87,6 @@ export function createFeishuInboundResourceResolver(options: {
           options.signal,
         );
         stage = "resource_store";
-        const directory = resolve(
-          options.projectRoot,
-          "artifacts",
-          "feishu",
-          "inbound",
-          safePart(sourceMessageId, "message"),
-        );
         mkdirSync(directory, { recursive: true });
         const mime = normalizedMime(downloaded.contentType);
         const fallbackName = `${safePart(resource.type, "resource")}_${safePart(resource.file_key, "file")}`;
@@ -113,7 +136,7 @@ export function createFeishuInboundResourceResolver(options: {
             size_bytes: downloaded.data.byteLength,
             download_status: "success",
           });
-          const label = resource.type === "audio" ? "Audio" : resource.type === "video" ? "Video" : resource.type === "folder" ? "Folder" : "File";
+          const label = resource.type === "audio" ? "Audio" : resource.type === "video" ? "Video" : "File";
           const description = `[${label}: ${fileName}] Saved to ${path}`;
           userInput.push(description);
           userContentBlocks.push({ type: "text", text: description });
@@ -123,7 +146,7 @@ export function createFeishuInboundResourceResolver(options: {
         diagnostics.push(createFeishuDiagnostic(cause, {
           operation: "inbound_resource_read",
           stage,
-          endpoint: `/im/v1/messages/${sourceMessageId}/resources/${resource.file_key}`,
+          endpoint: folder ? `/im/v1/files/${resource.file_key}/folder` : `/im/v1/messages/${sourceMessageId}/resources/${resource.file_key}`,
         }));
         resourceMetadata.push({
           ...resource,
@@ -131,6 +154,11 @@ export function createFeishuInboundResourceResolver(options: {
           error: { ...feishuErrorFields(cause), cause_known: false },
         });
       }
+    }
+    for (const resource of resources) {
+      const messageId = resource.message_id?.trim() || snapshot.message_id;
+      const directory = resolve(options.projectRoot, "artifacts", "feishu", "inbound", safePart(messageId, "message"));
+      await receive(resource, directory, new Set());
     }
     return {
       userInput: userInput.join("\n"),
