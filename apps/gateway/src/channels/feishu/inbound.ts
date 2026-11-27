@@ -56,8 +56,12 @@ export interface ResolvedResources {
 export interface FeishuInboundOptions {
   botOpenId?: string;
   botName?: string;
+  /**
+   * Looks the bot up again when a group message arrives before its open_id is
+   * known, so a failed lookup at startup heals once Feishu answers.
+   */
+  resolveBotIdentity?: () => Promise<{ openId: string; name: string }>;
   appId?: string;
-  botIdSource?: string;
   nowMs?: () => number;
   monotonicMs?: () => number;
   uuid?: () => string;
@@ -759,11 +763,26 @@ export class FeishuInboundNormalizer {
   private readonly nowMs: () => number;
   private readonly monotonicMs: () => number;
   private readonly uuid: () => string;
+  private bot: { openId: string; name: string };
+  private botLookup: Promise<void> | undefined;
 
   constructor(private readonly options: FeishuInboundOptions = {}) {
     this.nowMs = options.nowMs ?? Date.now;
     this.monotonicMs = options.monotonicMs ?? (() => performance.now());
     this.uuid = options.uuid ?? (() => randomUUID().replaceAll("-", ""));
+    this.bot = { openId: text(options.botOpenId), name: text(options.botName) };
+  }
+
+  /** Concurrent group messages share one lookup; a failed lookup is retried by the next group message. */
+  private async ensureBotOpenId(): Promise<string> {
+    if (this.bot.openId || !this.options.resolveBotIdentity) return this.bot.openId;
+    this.botLookup ??= this.options.resolveBotIdentity()
+      .then((identity) => {
+        if (text(identity.openId)) this.bot = { openId: text(identity.openId), name: text(identity.name) };
+      })
+      .finally(() => { this.botLookup = undefined; });
+    await this.botLookup;
+    return this.bot.openId;
   }
 
   async normalize(snapshot: FeishuMessageSnapshot): Promise<FeishuNormalizeDecision> {
@@ -774,7 +793,7 @@ export class FeishuInboundNormalizer {
     }
     const rejected = this.rejectionReason(snapshot);
     if (rejected) return this.rejected(snapshot, rejected);
-    const botOpenId = text(this.options.botOpenId);
+    const botOpenId = snapshot.chat_type === "group" ? await this.ensureBotOpenId() : this.bot.openId;
     const mentions = snapshot.mentions;
     if (snapshot.chat_type === "group") {
       if (!botOpenId) return this.rejected(snapshot, "group_bot_identity_missing");
@@ -831,8 +850,7 @@ export class FeishuInboundNormalizer {
     const sourceExtra = this.nonEmpty({
       bot_app_id: appId,
       bot_id: botOpenId,
-      bot_name: text(this.options.botName),
-      bot_id_source: text(this.options.botIdSource, "configured") || "configured",
+      bot_name: this.bot.name,
       message_type: snapshot.message_type,
       sender_type: snapshot.sender_type,
     });

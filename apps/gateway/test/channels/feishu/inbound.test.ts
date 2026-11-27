@@ -132,7 +132,6 @@ describe("Feishu inbound normalization", () => {
           bot_app_id: "cli_test",
           bot_id: "ou_bot",
           bot_name: "LXE",
-          bot_id_source: "configured",
           message_type: "text",
           sender_type: "user",
         },
@@ -541,6 +540,30 @@ describe("Feishu inbound normalization", () => {
     const missing = baseEvent({ message_id: "om_missing" });
     (missing.event.sender.sender_id as Record<string, string>).open_id = "";
     expect(await normalizeEvent(normalizer(), snapshotMessageEvent(missing)!)).toBeNull();
+  });
+
+  test("shares one bot lookup across concurrent group messages and skips it for private chats", async () => {
+    let lookups = 0;
+    let finish!: (identity: { openId: string; name: string }) => void;
+    const instance = new FeishuInboundNormalizer({
+      nowMs: () => 1_000_000,
+      monotonicMs: () => 100,
+      resolveBotIdentity: () => {
+        lookups += 1;
+        return new Promise((resolve) => { finish = resolve; });
+      },
+    });
+    const mention = [{ key: "@_user_1", id: { open_id: "ou_bot" }, name: "LXE" }];
+    expect((await instance.normalize(snapshotMessageEvent(baseEvent({ message_id: "om_p2p" }))!)).accepted).toBe(true);
+    expect(lookups).toBe(0);
+
+    const first = instance.normalize(snapshotMessageEvent(baseEvent({ message_id: "om_g1", chat_type: "group", mentions: mention }))!);
+    const second = instance.normalize(snapshotMessageEvent(baseEvent({ message_id: "om_g2", chat_type: "group", mentions: mention }))!);
+    await Bun.sleep(0);
+    expect(lookups).toBe(1);
+    finish({ openId: "ou_bot", name: "LXE" });
+    expect((await first).accepted).toBe(true);
+    expect((await second).accepted).toBe(true);
   });
 
   test("returns stable rejection reasons instead of an unexplained null", async () => {

@@ -216,17 +216,22 @@ export class FeishuAdapter implements ChannelAdapter {
     });
     this.typing = new FeishuTyping({ reactions: sdk.reactions, store: this.options.store });
     this.media = new FeishuMedia({ api: sdk.api });
-    let identity = { openId: "", name: "" };
-    try {
-      identity = await sdk.probeBotIdentity();
-      this.logger.info("feishu_bot_identity_ready", {
-        bot_open_id_available: Boolean(identity.openId),
-        bot_name_available: Boolean(identity.name),
-      });
-    } catch (error) {
-      // Direct messages remain available when the optional identity probe fails.
-      this.logger.warn("feishu_bot_identity_failed", { error });
-    }
+    // Group messages count only when they @ the bot, which needs the bot's own open_id.
+    // A failed lookup leaves private chats working; the next group message looks it up again.
+    const lookupBotIdentity = async (): Promise<{ openId: string; name: string }> => {
+      try {
+        const identity = await sdk.probeBotIdentity();
+        this.logger.info("feishu_bot_identity_ready", {
+          bot_open_id_available: Boolean(identity.openId),
+          bot_name_available: Boolean(identity.name),
+        });
+        return identity;
+      } catch (error) {
+        this.logger.warn("feishu_bot_identity_failed", { error });
+        return { openId: "", name: "" };
+      }
+    };
+    const identity = await lookupBotIdentity();
     const resourceResolver = sdk.resources && this.options.projectRoot
       ? createFeishuInboundResourceResolver({
           projectRoot: this.options.projectRoot,
@@ -275,7 +280,7 @@ export class FeishuAdapter implements ChannelAdapter {
       botOpenId: identity.openId,
       botName: identity.name,
       appId: this.options.config.appId,
-      botIdSource: identity.openId ? "probe" : "",
+      resolveBotIdentity: lookupBotIdentity,
       ...(this.options.owner ? { access: (snapshot) => this.options.owner!.decide(snapshot) } : {}),
       ...(resourceResolver ? { resolveResources: resourceResolver } : {}),
       converterContext,

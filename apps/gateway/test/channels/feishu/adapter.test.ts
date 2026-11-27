@@ -94,6 +94,7 @@ interface SetupOptions {
   resourceDownload?: NonNullable<FeishuSdkServices["resources"]>["download"];
   imageProcessor?: InboundImageProcessorPort;
   owner?: FeishuOwnerAccess;
+  probeBotIdentity?: FeishuSdkServices["probeBotIdentity"];
 }
 
 const setup = (options: SetupOptions = {}) => {
@@ -154,7 +155,7 @@ const setup = (options: SetupOptions = {}) => {
       add: async () => "reaction-1",
       remove: async () => undefined,
     },
-    probeBotIdentity: async () => ({ openId: "ou_bot", name: "LXE" }),
+    probeBotIdentity: options.probeBotIdentity ?? (async () => ({ openId: "ou_bot", name: "LXE" })),
     ...(options.resourceDownload ? { resources: { download: options.resourceDownload } } : {}),
   };
   const store = {
@@ -729,6 +730,44 @@ describe("FeishuAdapter lifecycle and delivery", () => {
     })).resolves.toBeUndefined();
     expect(await state.adapter.health()).toEqual(expect.objectContaining({ last_error: "sink offline" }));
     await state.adapter.stop();
+  });
+
+  test("starts when the bot lookup fails and looks the bot up again on the next group message", async () => {
+    let lookups = 0;
+    const state = setup({
+      probeBotIdentity: async () => {
+        lookups += 1;
+        if (lookups <= 2) throw new Error("bot info timed out");
+        return { openId: "ou_bot", name: "LXE" };
+      },
+    });
+    const inbound: InboundEvent[] = [];
+    state.adapter.setInboundSink(async (event) => { inbound.push(event); });
+    await state.adapter.start();
+    expect(await state.adapter.health()).toEqual(expect.objectContaining({ connection_state: "connected", ready: true }));
+    const message = (messageId: string, chatType: "p2p" | "group") => state.callbacks.onMessage({
+      app_id: "cli_test",
+      sender: { sender_type: "user", sender_id: { open_id: "ou_user" } },
+      message: {
+        message_type: "text",
+        content: JSON.stringify({ text: chatType === "group" ? "@_user_1 hello" : "hello" }),
+        chat_type: chatType,
+        chat_id: chatType === "group" ? "oc_group" : "oc_chat",
+        create_time: String(Date.now()),
+        message_id: messageId,
+        mentions: chatType === "group" ? [{ key: "@_user_1", id: { open_id: "ou_bot" }, name: "LXE" }] : [],
+      },
+    });
+
+    await message("om_private", "p2p");
+    expect(lookups).toBe(1);
+    await message("om_group_still_down", "group");
+    await message("om_group_recovered", "group");
+    await message("om_group_known", "group");
+
+    expect(lookups).toBe(3);
+    expect(inbound.map((event) => event.message_id)).toEqual(["om_private", "om_group_recovered", "om_group_known"]);
+    expect(inbound[1]?.source.extra).toEqual(expect.objectContaining({ bot_id: "ou_bot", bot_name: "LXE" }));
   });
 
   test("answers refused senders directly and lets only the paired owner reach the Agent", async () => {
