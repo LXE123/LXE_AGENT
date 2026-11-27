@@ -922,9 +922,11 @@ describe("TypeScriptAgentRuntime", () => {
       module: "replenishment",
     }, { skill: "amazon-replenishment", module: "replenishment" }]);
     expect(store.metrics[0]?.executions).toEqual([]);
-    for (const metrics of store.metrics) expect(metrics.uses).toEqual([{
+    expect(store.metrics[0]?.uses).toEqual([{
       skill: "amazon-replenishment", module: "replenishment", source: "implicit",
     }]);
+    // lxeskill commands stay in local command counts; the CLI owns their skill attribution.
+    expect(store.metrics[1]?.uses).toEqual([]);
     expect(store.metrics[1]?.tools).toContainEqual(expect.objectContaining({
       name: "exec",
       calls: 2,

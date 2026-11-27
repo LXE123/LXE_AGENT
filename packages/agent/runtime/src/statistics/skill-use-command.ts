@@ -3,7 +3,7 @@ import { basename, dirname, join, resolve } from "node:path";
 import { skillPathKey } from "../tooling/skill-files";
 
 export type StatisticsShell = "posix" | "powershell";
-type SkillMatch = { skill: string } | { command: string[] };
+type Connector = "" | ";" | "|" | "&&" | "||";
 
 const posixShells = new Set(["bash", "sh", "zsh"]);
 const powerShells = new Set(["pwsh", "powershell"]);
@@ -19,11 +19,12 @@ function resolvePath(directory: string, operand: string, shell: StatisticsShell)
 }
 
 // Tokenize words and connectors together so a quoted or escaped "|" stays an argument.
-// Stop at unsupported shell constructs rather than inspecting their bodies as commands.
-function* segments(command: string, shell: StatisticsShell): Generator<string[]> {
+// Each segment carries the connector before it. Stop at unsupported shell constructs
+// rather than inspecting their bodies as commands.
+function* segments(command: string, shell: StatisticsShell): Generator<{ args: string[]; after: Connector }> {
   const powershell = shell === "powershell";
   let args: string[] = [], word = "", quote = "", started = false;
-  let groupDepth = 0;
+  let groupDepth = 0, after: Connector = "";
   const endWord = () => {
     if (started) args.push(word);
     word = "";
@@ -58,9 +59,12 @@ function* segments(command: string, shell: StatisticsShell): Generator<string[]>
       if (ch === ")") groupDepth--;
     } else if (ch === ";" || ch === "|" || ch === "\n" || (ch === "&" && next === "&")) {
       endWord();
-      if (args.length) yield args;
+      const connector: Connector = ch === "\n" ? ";" : (ch === "|" || ch === "&") && next === ch ? `${ch}${ch}` as Connector : ch as Connector;
+      if (connector.length === 2) i++;
+      if (args.length) yield { args, after };
+      // A newline right after `&&`, `||` or `|` continues that list instead of ending it.
+      if (args.length || ch !== "\n") after = connector;
       args = [];
-      if ((ch === "|" || ch === "&") && next === ch) i++;
     } else if (/\s/u.test(ch)) {
       endWord();
     } else if (ch === "&" && !started && !args.length) {
@@ -77,7 +81,7 @@ function* segments(command: string, shell: StatisticsShell): Generator<string[]>
   }
   if (quote || groupDepth) return;
   endWord();
-  if (args.length) yield args;
+  if (args.length) yield { args, after };
 }
 
 const batOptionsWithValues = ["--theme", "--language", "--style", "--terminal-width", "--tabs", "--line-range", "--map-syntax"];
@@ -197,7 +201,7 @@ export class SkillCommandMatcher {
 
   constructor(private readonly locations: Readonly<Record<string, string>>) {}
 
-  match(command: string, cwd: string, workspace: string, shell: StatisticsShell): SkillMatch | undefined {
+  match(command: string, cwd: string, workspace: string, shell: StatisticsShell): string | undefined {
     return this.matchSegments(command, resolvePath(workspace, cwd.trim(), shell), shell, true);
   }
 
@@ -212,9 +216,14 @@ export class SkillCommandMatcher {
     }
   }
 
-  private matchSegments(command: string, directory: string, shell: StatisticsShell, unwrap: boolean): SkillMatch | undefined {
-    for (const [token, ...words] of segments(command, shell)) {
-      if (!token) continue;
+  private matchSegments(command: string, directory: string, shell: StatisticsShell, unwrap: boolean): string | undefined {
+    // The right side of `||` is a fallback that usually does not run; skip it, including
+    // its pipeline, until `&&`, `;` or a newline starts a command that normally runs.
+    let fallback = false;
+    for (const { args: [token, ...words], after } of segments(command, shell)) {
+      if (after === "||") fallback = true;
+      else if (after !== "|") fallback = false;
+      if (fallback || !token) continue;
       const args = withoutRedirections(words);
       const name = executable(token, shell);
       if (["cd", "set-location", "sl", "pushd"].includes(name)) {
@@ -234,16 +243,15 @@ export class SkillCommandMatcher {
           continue;
         }
       }
-      if (/^lxeskill(?:\.cmd)?$/iu.test(token)) return { command: ["lxeskill", ...args] };
       const read = readPath(name, args);
       if (read) {
         const skill = this.locations[skillPathKey(resolvePath(directory, read, shell))];
-        if (skill) return { skill };
+        if (skill) return skill;
       }
       const script = scriptPath(name, token, args, shell);
       if (script) {
         const skill = this.scriptSkill(resolvePath(directory, script, shell));
-        if (skill) return { skill };
+        if (skill) return skill;
       }
     }
   }

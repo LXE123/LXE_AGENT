@@ -17,16 +17,12 @@ export interface TurnStatisticsOptions {
   onError?: (error: unknown) => void;
 }
 
-// The host supplies one provider for its lifetime. Independent providers can have different catalogs.
-const lastCatalog = new WeakMap<NonNullable<TurnStatisticsOptions["commandSkills"]>, readonly CommandSkill[]>();
-
 /** Observes calls; never validates, authorizes, or changes tool execution. */
 export class TurnStatistics {
   private readonly tools = new Map<string, ToolTurnUsage>();
   private readonly reads: SkillActivationUsage[] = [];
   private readonly commands: string[] = [];
   private readonly uses = new Map<string, SkillUse>();
-  private readonly useCommands: string[][] = [];
   private locations: Readonly<Record<string, string>> = {};
   private modules: Readonly<Record<string, string>> = {};
   private commandMatcher = new SkillCommandMatcher(this.locations);
@@ -67,10 +63,8 @@ export class TurnStatistics {
         }
         const shell = this.options.shell ?? (process.platform === "win32" ? "powershell" : "posix");
         const cwd = typeof input.cwd === "string" ? input.cwd : ".";
-        const match = this.commandMatcher.match(input.command, cwd, this.options.directory, shell);
-        if (!match) return;
-        if ("skill" in match) this.recordUse(match.skill, "implicit");
-        else this.useCommands.push(match.command);
+        const skill = this.commandMatcher.match(input.command, cwd, this.options.directory, shell);
+        if (skill) this.recordUse(skill, "implicit");
       }
     } catch (error) { this.options.onError?.(error); }
   }
@@ -82,32 +76,22 @@ export class TurnStatistics {
     if (failed) tool.errors += 1;
   }
 
-  async snapshot() {
+  async snapshot(): Promise<{
+    tools: ToolTurnUsage[]; activations: SkillActivationUsage[]; executions: SkillExecutionUsage[]; uses: SkillUse[];
+  }> {
     const executions: SkillExecutionUsage[] = [];
-    const uses = new Map(this.uses);
-    const provider = this.options.commandSkills;
-    if (provider && (this.commands.length || this.useCommands.length)) {
-      let entries: readonly CommandSkill[];
+    // lxeskill command calls feed only the local stats page; `uses` covers generic skill signals.
+    if (this.commands.length && this.options.commandSkills) {
       try {
-        entries = [...await provider()].sort((a, b) => b.command.length - a.command.length);
-        lastCatalog.set(provider, entries);
+        const entries = [...await this.options.commandSkills()].sort((a, b) => b.command.length - a.command.length);
         for (const invocation of this.commands) {
           const entry = entries.find(item => invocation === item.command || invocation.startsWith(`${item.command} `));
           if (entry) executions.push({
             skill: entry.skill, module: this.modules[entry.skill] ?? "", command: entry.command.slice("lxeskill ".length),
           });
         }
-      } catch (error) {
-        this.options.onError?.(error);
-        entries = lastCatalog.get(provider) ?? [];
-      }
-      for (const args of this.useCommands) {
-        const entry = entries.find(item => item.command.split(" ").every((word, i) => word === args[i]));
-        if (entry && !uses.has(entry.skill)) {
-          uses.set(entry.skill, { skill: entry.skill, module: this.modules[entry.skill] ?? "", source: "implicit" });
-        }
-      }
+      } catch (error) { this.options.onError?.(error); }
     }
-    return { tools: [...this.tools.values()], activations: [...this.reads], executions, uses: [...uses.values()] };
+    return { tools: [...this.tools.values()], activations: [...this.reads], executions, uses: [...this.uses.values()] };
   }
 }

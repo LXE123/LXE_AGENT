@@ -49,7 +49,9 @@ lxeskillCLI 的命令契约由其自身维护；调用方通过 `lxeskill list`�
 每个回合（同一个 `job_id`）按名称记录使用过的 Skill，每个名称只计一次。用户在初始输入或追加消息中点名且成功注入的 Skill 记为 `explicit`。以下工具请求记为 `implicit`，同一回合出现两种来源时取 `explicit`。
 
 - 原生 `read` 或已识别的 shell 读取命令读取该 Skill 的 `SKILL.md`，包括只读其中几行。
-- `exec` 运行该 Skill 的 `scripts/` 下的脚本，或调用能通过 `lxeskill list` 归属到该 Skill 的命令。每次 `exec` 只取第一个匹配的命令段。查询命令清单失败时记录实际错误。如果本进程之前查到过清单，就用上次的清单判断 Skill 使用。
+- `exec` 运行该 Skill 的 `scripts/` 下的脚本。每次 `exec` 只取第一个匹配的命令段；`||` 右边的备用命令通常不会执行，不计入，直到遇到 `&&`、`;` 或换行。
+
+这里只识别对任何 Skill 都通用的信号。lxeskill 等业务 CLI 的命令调用不计入使用次数；CLI 自己最清楚命令属于哪个 Skill，应由 CLI 自己记录。
 
 本地统计页另行展示两项调用次数：
 

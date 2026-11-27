@@ -103,7 +103,7 @@ Model-visible result、用户展示和运行日志是三个不同输出，不能
 
 Runtime 在工具执行前观察调用，并记录工具名称、次数、错误数和耗时。本地统计页分别累计原生 `read` 读取 `SKILL.md` 的次数，以及直接以 `lxeskill` 开头且能归属到 Skill 的命令调用次数。
 
-上传时，每个 Skill 在同一回合只计一次。显式注入、读取 `SKILL.md`、运行 Skill 脚本或调用关联的 CLI 命令都可以计入。判定规则见 [Skill 使用与本地调用统计](../../skill/README.md#skill-使用与本地调用统计)。
+上传时，每个 Skill 在同一回合只计一次。显式注入、读取 `SKILL.md` 或运行 Skill 脚本都可以计入；lxeskill 命令调用只进入本地统计页。判定规则见 [Skill 使用与本地调用统计](../../skill/README.md#skill-使用与本地调用统计)。
 
 ## Failure 语义
 

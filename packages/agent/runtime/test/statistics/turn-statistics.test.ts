@@ -100,9 +100,10 @@ for (const shell of ["posix", "powershell"] as const) {
       ["cd skills && cd repo && cat SKILL.md", repoUse],
       ["cat missing | cat alias/SKILL.md", userUse],
       ['pushd "../user skills" ; cat external/SKILL.md', userUse],
-      ["echo 'a && b' || lxeskill.cmd demo inspect --arg", repoUse],
+      ["echo 'a || b' && cat " + doc, repoUse],
       ["echo $(echo ignored; cat alias/SKILL.md) && cat " + doc, repoUse],
-      ["lxeskill demo | cat " + doc, userUse],
+      ["lxeskill demo | cat " + doc, repoUse],
+      ["lxeskill list; cat " + doc, repoUse],
       ["cat alias/SKILL.md ; lxeskill demo inspect", userUse],
       ["echo first; ./" + script + ".cmd && cat alias/SKILL.md", repoUse],
       ["bash -lc 'cd skills/repo && cat SKILL.md'", repoUse],
@@ -117,10 +118,26 @@ for (const shell of ["posix", "powershell"] as const) {
       expect((await stats.snapshot()).uses).toEqual([expected]);
     });
 
-    test("an unmapped CLI command consumes this call", async () => {
+    test.each([
+      "cat README.md >/dev/null || cat " + doc,
+      "test -f x.md || cat " + doc + " | head -n 5",
+      "cat missing ||\n  cat " + doc,
+      "false || cd skills/repo; cat SKILL.md",
+      "lxeskill demo inspect",
+    ])("does not count %s", async command => {
       const stats = turn({ shell });
-      stats.observe("exec", { command: "echo start; lxeskill unknown | cat " + doc });
+      stats.observe("exec", { command });
       expect((await stats.snapshot()).uses).toEqual([]);
+    });
+
+    test.each([
+      ["false || echo fallback; cat " + doc, repoUse],
+      ["cat missing || echo fallback && cat alias/SKILL.md", userUse],
+      ["echo start\ncat missing || true\ncat " + doc, repoUse],
+    ] as const)("counts commands after a fallback ends in %s", async (command, expected) => {
+      const stats = turn({ shell });
+      stats.observe("exec", { command });
+      expect((await stats.snapshot()).uses).toEqual([expected]);
     });
   });
 }
@@ -162,29 +179,21 @@ test("resolves an absolute path and a home-relative cwd outside the workspace", 
   expect((await stats.snapshot()).uses).toEqual([repoUse, userUse]);
 });
 
-test("deduplicates manifest reads, scripts and catalog attribution, keeping explicit precedence", async () => {
+test("deduplicates manifest reads and scripts, keeping explicit precedence", async () => {
   const stats = turn();
   stats.observe("read", { path: doc, offset: 10, limit: 3 });
   stats.observe("exec", { command: "node " + script + ".js" });
-  stats.observe("exec", { command: "true; lxeskill demo inspect" });
-  expect(await stats.snapshot()).toMatchObject({ uses: [repoUse], activations: [{ skill: "repo" }], executions: [] });
+  stats.observe("exec", { command: "lxeskill demo" });
+  expect(await stats.snapshot()).toMatchObject({
+    uses: [repoUse], activations: [{ skill: "repo" }], executions: [{ skill: "external", command: "demo" }],
+  });
   stats.recordUse("repo", "explicit");
   stats.observe("read", { path: doc });
   expect((await stats.snapshot()).uses).toEqual([{ ...repoUse, source: "explicit" }]);
 });
 
-test("a later turn can use the provider's last successful catalog after a failed refresh", async () => {
-  const failure = new Error("lxeskill list failed");
-  const errors: unknown[] = [];
-  let calls = 0;
-  const commandSkills = () => ++calls === 1 ? catalog() : Promise.reject(failure);
-  for (const expectedExecutions of [1, 0]) {
-    const stats = turn({ commandSkills, onError: error => errors.push(error) });
-    stats.observe("exec", { command: "lxeskill demo inspect" });
-    const snapshot = await stats.snapshot();
-    expect(snapshot.uses).toEqual([repoUse]);
-    expect(snapshot.executions).toHaveLength(expectedExecutions);
-  }
-  expect(calls).toBe(2);
-  expect(errors).toEqual([failure]);
+test("lxeskill commands feed only local command counts, not skill uses", async () => {
+  const stats = turn();
+  stats.observe("exec", { command: "lxeskill demo inspect --arg" });
+  expect(await stats.snapshot()).toMatchObject({ uses: [], executions: [{ skill: "repo", command: "demo inspect" }] });
 });
