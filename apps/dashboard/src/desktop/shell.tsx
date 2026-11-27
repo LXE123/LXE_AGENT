@@ -940,16 +940,23 @@ function DesktopSettingsForm({
     const switchingApp = Boolean(setup.feishu.app_id) && form.feishuAppId.trim() !== setup.feishu.app_id;
     const keepSecret = setup.feishu.app_secret_configured && !switchingApp;
     const retryConnection = setup.feishu.configured && health.gateway === "error";
+    const feishu = t.desktop.feishu;
     return (
-      <section className="desktop-settings-section">
+      <section className="desktop-settings-section desktop-feishu-settings">
         <DesktopSectionHeading
-          badge={dirty ? t.desktop.unsavedChanges : desktopSettingsSectionStatus(t.desktop, "feishu", setup)}
-          badgeClassName={integrationStatusClass(setup.feishu.managed || dirty, setup.feishu.configured && !dirty)}
-          description={t.desktop.feishu.description}
+          description={dirty || !setup.feishu.configured ? feishu.setupHint : feishu.description}
           headingRef={headingRef}
           title={t.desktop.sectionTitles.feishu}
         />
-        <div className="desktop-integration-fields">
+        <section className="desktop-feishu-credentials" aria-labelledby="feishu-credentials">
+          <div className="desktop-feishu-heading">
+            <h4 id="feishu-credentials">{feishu.credentials}</h4>
+            {dirty || setup.feishu.configured || setup.feishu.managed ? (
+              <span className={`desktop-integration-status ${dirty || !setup.feishu.configured ? "incomplete" : "optional"}`}>
+                {dirty ? t.desktop.unsavedChanges : setup.feishu.configured ? feishu.saved : t.desktop.sectionStatus.incomplete}
+              </span>
+            ) : null}
+          </div>
           <IntegrationIssues issues={setup.feishu.issues} />
           <div className="desktop-field-grid">
             <label>
@@ -957,38 +964,43 @@ function DesktopSettingsForm({
               <input
                 autoComplete="off"
                 onChange={(event) => onChange({ feishuAppId: event.target.value })}
+                placeholder="cli_…"
+                spellCheck={false}
                 value={form.feishuAppId}
               />
             </label>
             <label>
-              <span>{t.desktop.feishu.appSecret}{keepSecret ? t.desktop.keepBlankSuffix : ""}</span>
+              <span>{feishu.appSecret}</span>
               <input
                 autoComplete="new-password"
                 onChange={(event) => onChange({ feishuAppSecret: event.target.value })}
-                placeholder={keepSecret ? t.desktop.storedPlaceholder : t.desktop.feishu.appSecretPlaceholder}
+                placeholder={keepSecret ? feishu.savedSecretHint : feishu.appSecretPlaceholder}
                 type="password"
                 value={form.feishuAppSecret}
               />
             </label>
           </div>
-          {dirty || retryConnection ? (
+          {dirty || retryConnection || !setup.feishu.configured ? (
             <div className="desktop-feishu-connect">
               <button className="desktop-primary-button" type="button" onClick={onSaveFeishu}
                 disabled={saving || !form.feishuAppId.trim() || (!keepSecret && !form.feishuAppSecret.trim())}>
-                {saving ? t.desktop.feishu.connecting : t.desktop.feishu.saveAndConnect}
+                {saving ? feishu.connecting : feishu.saveAndConnect}
               </button>
-              {switchingApp && !form.feishuAppSecret.trim() ? <span>{t.desktop.feishu.newSecret}</span> : null}
+              {switchingApp && !form.feishuAppSecret.trim() ? <span>{feishu.newSecret}</span> : null}
               {retryConnection && !dirty ? <span role="status">{health.message}</span> : null}
             </div>
-          ) : setup.feishu.configured && health.gateway === "ready" ? (
-            <FeishuOwnerPanel key={setup.feishu.app_id} appId={setup.feishu.app_id} />
           ) : null}
-          {setup.feishu.managed ? (
+        </section>
+        {!dirty && setup.feishu.configured && health.gateway === "ready" ? (
+          <FeishuOwnerPanel key={setup.feishu.app_id} appId={setup.feishu.app_id} />
+        ) : null}
+        {setup.feishu.managed ? (
+          <div className="desktop-feishu-maintenance">
             <button className="desktop-clear-integration" onClick={() => onClearIntegration("feishu")} type="button">
-              <Trash2 size={14} />{t.desktop.clearIntegration}
+              <Trash2 aria-hidden="true" size={14} />{t.desktop.clearIntegration}
             </button>
-          ) : null}
-        </div>
+          </div>
+        ) : null}
       </section>
     );
   }
