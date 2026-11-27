@@ -479,6 +479,13 @@ export class UsageStore {
           ORDER BY sequence ASC LIMIT ?
         ) AS selected ON selected.turn_id = item.turn_id
         WHERE item.kind IN ('tool', 'skill_use')
+          -- Turns recorded before skill_use existed still upload their legacy skill rows,
+          -- so an upgrade does not drop usage that was waiting to sync. The server counts
+          -- every skill kind once per turn, so these rows never double count.
+          OR (item.kind IN ('skill_activation', 'skill_execution') AND NOT EXISTS (
+            SELECT 1 FROM turn_usage_items AS current
+            WHERE current.turn_id = item.turn_id AND current.kind = 'skill_use'
+          ))
         ORDER BY item.item_id ASC
       `, acknowledgedSequence, safeLimit);
       const itemCounts = new Map<string, number>();

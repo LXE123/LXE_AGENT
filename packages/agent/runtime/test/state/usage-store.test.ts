@@ -388,7 +388,11 @@ test("new call counts accumulate on historical usage without resetting its uploa
     store.recordTurn("s", { ...base, turn_id: "old", activations: [{ skill: "demo", module: "default" }],
       executions: [{ skill: "demo", module: "default", command: "demo run", success: false, duration_ms: 7 }] });
     const first = store.exportTurnUsageBatch("https://cloud.example", startedAt - 1, 10);
-    expect(first.turns[0]!.items).toEqual([]);
+    // A turn recorded before skill_use existed keeps uploading its legacy skill rows.
+    expect(first.turns[0]!.items).toEqual([
+      { kind: "skill_activation", name: "demo", module: "default", calls: 1 },
+      { kind: "skill_execution", name: "demo", module: "default", calls: 1 },
+    ]);
     store.acknowledgeTurnUsage("https://cloud.example", Number(first.turns[0]!.sequence));
     store.recordTurn("s", { ...base, turn_id: "new", activations: Array(2).fill({ skill: "demo", module: "default" }),
       uses: [{ skill: "demo", module: "default", source: "implicit" }],

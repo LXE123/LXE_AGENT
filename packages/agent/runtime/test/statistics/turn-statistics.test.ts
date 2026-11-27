@@ -48,10 +48,26 @@ for (const shell of ["posix", "powershell"] as const) {
       "cat", "BAT.EXE --line-range 1:50", "batcat", "less", "more", "head -n 50", "tail -n +1",
       "awk '{print $1}'", "nl -ba", "sed -n '1,200p'", "Get-Content -Path", "Get-Content -LiteralPath",
       "Get-Content -TotalCount 50", "gc -Raw", "type",
+      "Get-Content -Raw -Encoding utf8 -Path", "Get-Content -Tail 20 -Encoding UTF8", "gc -First 40",
     ])("%s reads an indexed manifest", async reader => {
       const stats = turn({ shell });
       stats.observe("exec", { command: reader + " " + doc });
       expect((await stats.snapshot()).uses).toEqual([repoUse]);
+    });
+
+    test.each([
+      ["cat", " 2>/dev/null"], ["head -n 50", " 2>&1"], ["cat", " > out.txt"], ["sed -n '1,80p'", " 2> err.log"],
+      ["Get-Content -Encoding utf8", " 2>$null"], ["gc", " *> out.txt"],
+    ])("%s with redirection%s still reads the manifest", async (reader, redirect) => {
+      const stats = turn({ shell });
+      stats.observe("exec", { command: reader + " " + doc + redirect });
+      expect((await stats.snapshot()).uses).toEqual([repoUse]);
+    });
+
+    test.each(["Get-Content -Encoding", "Get-Content -Wait"])("%s without a file operand does not count", async reader => {
+      const stats = turn({ shell });
+      stats.observe("exec", { command: reader + " " + doc });
+      expect((await stats.snapshot()).uses).toEqual([]);
     });
 
     test.each([

@@ -90,6 +90,21 @@ const readerFlags: ReadonlyMap<string, readonly string[]> = new Map([
   ["awk", ["-F", "-v", "-f", "--field-separator", "--assign", "--file"]],
 ]);
 
+// Windows reads of Chinese skill text commonly pass -Encoding; line limits are equally common.
+const getContentValueFlags = new Set(["-totalcount", "-head", "-first", "-tail", "-last", "-encoding", "-readcount", "-delimiter"]);
+
+// Redirections such as `2>/dev/null`, `2>&1` or `> out.txt` are not operands of the command.
+function withoutRedirections(args: string[]): string[] {
+  const operands: string[] = [];
+  for (let i = 0; i < args.length; i++) {
+    const arg = args[i]!;
+    if (/^(?:\d|\*)?(?:>>?|<)$/u.test(arg)) { i++; continue; }
+    if (/^(?:\d|\*)?(?:>>?|<)/u.test(arg)) continue;
+    operands.push(arg);
+  }
+  return operands;
+}
+
 function readPath(name: string, args: string[]): string | undefined {
   if (name === "sed") {
     // Only sed's quiet, numeric print-range form reads a document for attribution.
@@ -103,8 +118,12 @@ function readPath(name: string, args: string[]): string | undefined {
     let path: string | undefined;
     for (let i = 0; i < args.length; i++) {
       const arg = args[i]!, flag = arg.toLowerCase();
-      if (flag === "-totalcount" && /^\d+$/u.test(args[i + 1] ?? "")) { i++; continue; }
-      if (flag === "-raw") continue;
+      if (getContentValueFlags.has(flag)) {
+        if (args[i + 1] === undefined) return;
+        i++;
+        continue;
+      }
+      if (flag === "-raw" || flag === "-force") continue;
       if (flag === "-path" || flag === "-literalpath") {
         if (!args[i + 1] || args[i + 1]!.startsWith("-")) return;
         continue;
@@ -194,8 +213,9 @@ export class SkillCommandMatcher {
   }
 
   private matchSegments(command: string, directory: string, shell: StatisticsShell, unwrap: boolean): SkillMatch | undefined {
-    for (const [token, ...args] of segments(command, shell)) {
+    for (const [token, ...words] of segments(command, shell)) {
       if (!token) continue;
+      const args = withoutRedirections(words);
       const name = executable(token, shell);
       if (["cd", "set-location", "sl", "pushd"].includes(name)) {
         const path = args[0] === "--" || ["-path", "-literalpath"].includes(args[0]?.toLowerCase() ?? "")
