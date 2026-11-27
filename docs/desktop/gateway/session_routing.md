@@ -29,11 +29,11 @@ Feishu adapter 在进入 Router 前按顺序检查：
 
 ## Session source 与 binding
 
-`SessionSource` 归一化平台、bot、用户、chat type、chat id、thread 和显示名。session key 只由平台决定（`agent:main:feishu:personal`）：私聊、群聊和话题里的消息都进入同一个 session。回复仍按每条消息自己的 response route 回到它来的那个聊天。
+`SessionSource` 只保留平台、chat id、chat type、发送人、消息 id 和 bot 信息（`extra`），随 job 传给 Agent。session key 只由平台决定（`agent:main:feishu:personal`）：私聊、群聊和话题里的消息都进入同一个 session。回复仍按每条消息自己的 response route 回到它来的那个聊天。
 
 因为所有聊天共用一个 session，Router 在每条消息开头标明来源，例如 `[来自飞书私聊]`，或 `[来自飞书群聊 chat_id=…：群成员都能看到回复，不要透露私聊或其他聊天中的内容]`。附件消息的第一个文本块也带上同样的标记。
 
-`SessionBindingStore` 使用原子 UTF-8 JSON 保存 source key 到 session id 的映射：
+`SessionBindingStore` 使用原子 UTF-8 JSON 保存 session key 到 session id 的映射，每条只有 key、session id 和创建/更新时间；消息来自哪个聊天不记在这里，跟着每条消息走。旧版本写入的 `origin`、`platform`、`chat_type` 字段读取时忽略，下次保存时去掉：
 
 - 已有 binding 且 SQLite session 存在时复用并用最新 source ensure。
 - binding 存在但 session 丢失时创建新的 session，避免悬空引用。

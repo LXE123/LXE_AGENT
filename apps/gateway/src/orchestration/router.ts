@@ -92,34 +92,19 @@ function labelledInput(context: SessionContext): { text: string; blocks: JsonObj
   return { text, blocks };
 }
 
-export function sourceFromEvent(event: InboundEvent): SessionSource {
-  const raw: Record<string, unknown> = { ...event.source };
-  if (!("platform" in raw)) raw.platform = clean(event.platform);
-  if (!("chat_id" in raw)) raw.chat_id = clean(event.conversation_id);
-  if (!("chat_type" in raw)) raw.chat_type = event.is_group ? "group" : "dm";
-  if (!("user_id" in raw)) raw.user_id = clean(event.user_id);
-  if (clean(event.union_id) && !clean(raw.user_id_alt)) raw.user_id_alt = clean(event.union_id);
-  if (!("user_name" in raw)) raw.user_name = clean(event.sender_nick);
-  if (!("message_id" in raw)) raw.message_id = clean(event.message_id);
-  return SessionSource.from(raw);
-}
-
-export function contextFromEvent(
-  event: InboundEvent,
-  source: SessionSource,
-  sessionKey: string,
-  id: () => string,
-): SessionContext {
+/** The channel fills the event's routing fields; the source only keys the session and travels with the job. */
+export function contextFromEvent(event: InboundEvent, id: () => string): SessionContext {
+  const source = SessionSource.from(event.source);
   return {
-    platform: clean(source.platform || event.platform),
+    platform: clean(event.platform),
     user_input: clean(event.user_input),
-    user_id: clean(source.userKey || event.user_id),
+    user_id: clean(event.user_id),
     response_route_id: clean(event.response_route_id) || id(),
-    conversation_id: clean(source.chat_id || event.conversation_id),
-    is_group: clean(source.chat_type).toLowerCase() === "group",
-    message_id: clean(event.message_id || source.message_id),
-    sender_nick: clean(source.user_name || event.sender_nick),
-    session_key: sessionKey,
+    conversation_id: clean(event.conversation_id),
+    is_group: event.is_group,
+    message_id: clean(event.message_id),
+    sender_nick: clean(event.sender_nick),
+    session_key: source.sessionKey,
     source: source.toJSON() as JsonObject,
     raw_data: { ...event.raw_data },
     user_content_blocks: event.user_content_blocks.map((block) => ({ ...block })),
@@ -138,9 +123,7 @@ export class SessionRouter {
   }
 
   async routeMessage(event: InboundEvent): Promise<RouteDecision> {
-    const source = sourceFromEvent(event);
-    const sessionKey = source.sessionKey;
-    const context = contextFromEvent(event, source, sessionKey, this.id);
+    const context = contextFromEvent(event, this.id);
     return runWithLogContext({
       response_route_id: context.response_route_id,
       message_id: context.message_id,

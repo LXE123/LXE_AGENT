@@ -15,9 +15,8 @@ describe("SessionSource", () => {
     ["p2p", {}, "agent:main:feishu:personal"],
     ["private", {}, "agent:main:feishu:personal"],
     ["", {}, "agent:main:feishu:personal"],
-    ["chat", { user_id: "open", user_id_alt: "union" }, "agent:main:feishu:personal"],
+    ["chat", { user_id: "open" }, "agent:main:feishu:personal"],
     ["group", { user_id: "open" }, "agent:main:feishu:personal"],
-    ["group", { thread_id: "thread-1" }, "agent:main:feishu:personal"],
     ["channel", {}, "agent:main:feishu:personal"],
     ["thread", {}, "agent:main:feishu:personal"],
   ];
@@ -59,7 +58,7 @@ describe("SessionBindingStore", () => {
     expect(() => store.ensureUsable()).toThrow("must be a JSON object");
   });
 
-  test("writes deterministic UTF-8 JSON atomically", () => {
+  test("writes deterministic JSON atomically", () => {
     const root = mkdtempSync(join(tmpdir(), "lxe-bindings-"));
     roots.push(root);
     const path = join(root, "nested", "sessions.json");
@@ -79,12 +78,18 @@ describe("SessionBindingStore", () => {
     const first = store.getOrCreate(source);
     expect(first.session_id).toBe("session-a");
     const raw = readFileSync(path, "utf8");
-    expect(raw).toContain("群聊");
     expect(raw.endsWith("\n")).toBe(true);
     expect(readdirSync(join(root, "nested"))).toEqual(["sessions.json"]);
 
-    const payload = JSON.parse(raw);
-    expect(payload[first.session_key].session_id).toBe("session-a");
+    // A binding only maps the key to a session; where each message came from travels with the message.
+    expect(JSON.parse(raw)).toEqual({
+      "agent:main:feishu:personal": {
+        session_key: "agent:main:feishu:personal",
+        session_id: "session-a",
+        created_at: "2026-01-01T00:00:00+00:00",
+        updated_at: "2026-01-01T00:00:00+00:00",
+      },
+    });
     const rebound = store.bind(source, "session-b");
     expect(rebound.created_at).toBe(first.created_at);
     expect(Object.keys(store.loadAll())).toEqual([first.session_key]);
@@ -109,6 +114,34 @@ describe("SessionBindingStore", () => {
     store.restore(removed);
     expect(Object.values(store.loadAll()).map((entry) => entry.session_id))
       .toEqual(["shared-session", "shared-session"]);
+  });
+
+  test("loads entries written with the older origin fields and drops them on the next save", () => {
+    const root = mkdtempSync(join(tmpdir(), "lxe-bindings-legacy-"));
+    roots.push(root);
+    const path = join(root, "sessions.json");
+    writeFileSync(path, JSON.stringify({
+      "agent:main:feishu:personal": {
+        session_key: "agent:main:feishu:personal",
+        session_id: "session-old",
+        created_at: "2026-01-01T00:00:00+00:00",
+        updated_at: "2026-01-01T00:00:00+00:00",
+        origin: { platform: "feishu", chat_id: "oc_chat" },
+        platform: "feishu",
+        chat_type: "group",
+      },
+    }), "utf8");
+    const store = new SessionBindingStore(path, { now: () => "2026-01-02T00:00:00+00:00" });
+    const source = SessionSource.from({ platform: "feishu" });
+    expect(store.getOrCreate(source).session_id).toBe("session-old");
+
+    store.bind(source, "session-old");
+    expect(JSON.parse(readFileSync(path, "utf8"))["agent:main:feishu:personal"]).toEqual({
+      session_key: "agent:main:feishu:personal",
+      session_id: "session-old",
+      created_at: "2026-01-01T00:00:00+00:00",
+      updated_at: "2026-01-02T00:00:00+00:00",
+    });
   });
 
   test("rejects invalid sessions roots and ignores invalid entries", () => {

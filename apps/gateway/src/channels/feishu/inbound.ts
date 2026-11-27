@@ -841,12 +841,8 @@ export class FeishuInboundNormalizer {
       chat_id: snapshot.chat_id,
       chat_type: snapshot.chat_type,
       user_id: userId,
-      user_id_alt: unionId,
       user_name: senderNick,
-      thread_id: snapshot.thread_id,
       message_id: snapshot.message_id,
-      root_id: snapshot.root_id,
-      parent_id: snapshot.parent_id,
       extra: sourceExtra,
     };
     const rawData: JsonObject = {

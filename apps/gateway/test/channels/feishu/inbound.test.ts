@@ -126,12 +126,8 @@ describe("Feishu inbound normalization", () => {
         chat_id: "oc_chat",
         chat_type: "p2p",
         user_id: "ou_user",
-        user_id_alt: "on_union",
         user_name: "u_user",
-        thread_id: "omt_thread",
         message_id: "om_1",
-        root_id: "om_root",
-        parent_id: "om_parent",
         extra: {
           bot_app_id: "cli_test",
           bot_id: "ou_bot",
