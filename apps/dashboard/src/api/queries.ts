@@ -415,12 +415,12 @@ export function useToolStatsQuery(days: number, enabled = true) {
 
 const FEISHU_PAIRING_POLL_MS = 2_000;
 
-/** Polls only while a pairing code is live, so Settings notices the owner pairing from Feishu. */
+/** Refresh while the panel is open so a disconnect or completed pairing reaches Settings. */
 export function useFeishuOwnerQuery(appId: string) {
   return useQuery({
     queryKey: dashboardQueryKeys.channelHealth.feishuOwner(appId),
     queryFn: () => callDashboard({ operation: "channels.feishu.owner", input: {} }),
-    refetchInterval: (query) => query.state.data?.pairing ? FEISHU_PAIRING_POLL_MS : false,
+    refetchInterval: (query) => !query.state.data?.available || query.state.data.pairing ? FEISHU_PAIRING_POLL_MS : 10_000,
     refetchIntervalInBackground: false,
   });
 }

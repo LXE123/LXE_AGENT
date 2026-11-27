@@ -436,8 +436,9 @@ export type ChannelHealthList = {
 
 /** The Feishu channel answers only the owner who sent this desktop's pairing code in a private chat. */
 export type FeishuOwnerPayload = {
-  /** False when the Feishu channel is not configured or Gateway is not running. */
+  /** Pairing is available once the Feishu connection is ready to receive messages. */
   available: boolean;
+  connection_error?: string;
   paired: boolean;
   owner_open_id_masked: string;
   paired_at: string;

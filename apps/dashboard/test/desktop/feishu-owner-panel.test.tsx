@@ -50,7 +50,8 @@ test("a paired channel shows the masked owner and offers pairing again", () => {
 });
 
 test("an unavailable channel explains it is not running and hides the button", () => {
-  const html = render({ ...owner, available: false });
+  const html = render({ ...owner, available: false, connection_error: "app_id or app_secret is invalid" });
   expect(html).toContain(UI_TEXT.zh.desktop.feishu.owner.unavailable);
+  expect(html).toContain("app_id or app_secret is invalid");
   expect(html).not.toContain("<button");
 });

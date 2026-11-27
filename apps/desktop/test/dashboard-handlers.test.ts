@@ -140,9 +140,17 @@ test("Feishu owner pairing reports unavailable without the channel and starts a 
     status: () => ({ paired: false, owner_open_id_masked: "", paired_at: "", pairing }),
     startPairing: () => (pairing = { code: "123456", expires_at: "2026-01-01T00:10:00.000Z" }),
   };
-  expect(await call("channels.feishu.owner.pair", {})({ parts: { feishuOwner } })).toEqual({
+  let ready = true;
+  const last_error = "pullConnectConfig failed: code=1000040345, msg=app_id or app_secret is invalid";
+  const parts = { feishuOwner, channels: { get: () => ({ health: async () => ({
+    ready, connection_state: ready ? "connected" : "failed", last_error: ready ? "" : last_error,
+  }) }) } };
+  expect(await call("channels.feishu.owner.pair", {})({ parts })).toEqual({
     available: true, paired: false, owner_open_id_masked: "", paired_at: "",
     pairing: { code: "123456", expires_at: "2026-01-01T00:10:00.000Z" },
   });
-  expect((await call("channels.feishu.owner", {})({ parts: { feishuOwner } })).pairing?.code).toBe("123456");
+  expect((await call("channels.feishu.owner", {})({ parts })).pairing?.code).toBe("123456");
+  ready = false;
+  expect(await call("channels.feishu.owner", {})({ parts })).toMatchObject({ available: false, pairing: null, connection_error: last_error });
+  await expect(call("channels.feishu.owner.pair", {})({ parts })).rejects.toThrow(last_error);
 });

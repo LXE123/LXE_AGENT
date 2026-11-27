@@ -86,6 +86,7 @@ const finalCard = (
 
 interface SetupOptions {
   failStart?: boolean;
+  pendingHandshake?: boolean;
   hangStart?: boolean;
   hangStop?: boolean;
   projectRoot?: string;
@@ -112,13 +113,13 @@ const setup = (options: SetupOptions = {}) => {
         calls.push("start");
         if (options.failStart) throw new Error("connect failed");
         if (options.hangStart) await new Promise(() => undefined);
-        callbacks.onReady();
+        if (!options.pendingHandshake) callbacks.onReady();
       },
       stop: async (force) => {
         calls.push(`stop:${Boolean(force)}`);
         if (options.hangStop && !force) await new Promise(() => undefined);
       },
-      status: () => ({ state: "connected", reconnectAttempts: 0 }),
+      status: () => ({ state: options.pendingHandshake ? "connecting" : "connected", reconnectAttempts: 0 }),
     },
     api: {
       request: async (method, path, requestOptions) => {
@@ -180,6 +181,16 @@ const setup = (options: SetupOptions = {}) => {
 };
 
 describe("FeishuAdapter lifecycle and delivery", () => {
+  test("a resolved SDK start does not mark a pending handshake as connected", async () => {
+    const state = setup({ pendingHandshake: true });
+    state.adapter.setInboundSink(async () => {});
+    await state.adapter.start();
+    expect(await state.adapter.health()).toMatchObject({ ready: false, connection_state: "starting" });
+    state.callbacks.onError(new Error("app_id or app_secret is invalid"));
+    expect(await state.adapter.health()).toMatchObject({ ready: false, connection_state: "failed", last_error: "app_id or app_secret is invalid" });
+    await state.adapter.stop();
+  });
+
   test("registers inbound sink, starts idempotently, handles reconnect health and stops idempotently", async () => {
     const state = setup();
     const inbound: unknown[] = [];

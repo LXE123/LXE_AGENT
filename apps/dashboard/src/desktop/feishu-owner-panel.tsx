@@ -10,7 +10,7 @@ export function FeishuOwnerPanel({ appId }: { appId: string }) {
   const pair = useFeishuOwnerPairing(appId);
 
   const owner = status.data;
-  const error = pair.error ? queryError(pair.error) : status.error ? queryError(status.error) : "";
+  const error = owner?.connection_error || (pair.error ? queryError(pair.error) : status.error ? queryError(status.error) : "");
   return (
     <div className="desktop-feishu-owner">
       <div className="desktop-feishu-owner-heading">

@@ -413,15 +413,8 @@ export class FeishuAdapter implements ChannelAdapter {
       ...(this.options.uuid ? { uuid: this.options.uuid } : {}),
     });
     try {
-      await sdk.connection.start();
+      await this.startConnection(sdk);
       if (!this.desiredStarted) throw new Error("Feishu adapter startup aborted");
-      // Some injectable/older SDKs do not expose an onReady callback.
-      if (!this.ready) {
-        this.ready = true;
-        this.connectionState = "connected";
-        this.lastConnectedAt = new Date().toISOString();
-        this.logger.info("feishu_connected", { connection_state: this.connectionState, source: "start_returned" });
-      }
       if (this.options.config.autoRestartEnabled) {
         this.restart = new FeishuIdleRestart({
           ...(this.options.restartClock ? { clock: this.options.restartClock } : {}),
@@ -494,11 +487,18 @@ export class FeishuAdapter implements ChannelAdapter {
     this.connectionState = "restarting";
     await sdk.connection.stop(false);
     if (!this.desiredStarted) return;
+    await this.startConnection(sdk);
+  }
+
+  private async startConnection(sdk: FeishuSdkServices): Promise<void> {
     await sdk.connection.start();
-    if (!this.desiredStarted) return;
-    this.ready = true;
-    this.connectionState = "connected";
-    this.lastConnectedAt = new Date().toISOString();
+    // start() may resolve while authenticating. SDKs without a ready callback can confirm via status.
+    if (this.desiredStarted && !this.ready && this.connectionState !== "failed" && sdk.connection.status().state === "connected") {
+      this.ready = true;
+      this.connectionState = "connected";
+      this.lastConnectedAt = new Date().toISOString();
+      this.logger.info("feishu_connected", { connection_state: this.connectionState, source: "sdk_status" });
+    }
   }
 
   private async handleMessage(data: unknown): Promise<void> {

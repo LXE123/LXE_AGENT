@@ -44,7 +44,9 @@ describe("DesktopConfigStore", () => {
   test("switching Feishu apps requires the matching secret and preserves the saved bot on validation failure", () => {
     const root = createRoot();
     const workspace_root = join(root, "workspace");
-    const store = new DesktopConfigStore(root, workspace_root, safeStorage, { platform: "darwin" });
+    const store = new DesktopConfigStore(root, workspace_root, safeStorage, {
+      platform: "darwin", secretEnvironment: { FEISHU_APP_SECRET: "other-dev-bot-secret" },
+    });
     const saveBot = (app_id: string, app_secret?: string) => store.save({
       workspace_root, feishu: { action: "save", app_id, ...(app_secret ? { app_secret } : {}) },
     });
