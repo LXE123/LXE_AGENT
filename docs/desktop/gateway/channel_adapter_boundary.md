@@ -30,7 +30,7 @@ Lark event callback
   -> registered inbound sink
 ```
 
-Normalizer 支持 text、post、image、file、audio、video，以及 location、sticker、calendar、share、folder、todo、vote、video chat、merge-forward、interactive、system 和 unknown。unknown 消息保留可读描述，不能因为 converter 未识别而静默丢失。
+Normalizer 支持 text、post、image、file、audio 和单发视频（飞书推送 `media`，同时兼容 `video`），以及 location、sticker、calendar、share、folder、todo、vote、video chat、merge-forward、interactive、system 和 unknown。unknown 消息保留可读描述，不能因为 converter 未识别而静默丢失。
 
 Interactive Card 是单独的结构化文本边界。直接收到卡片、读取被引用卡片或展开合并转发时，adapter 都以 `card_msg_content_type=raw_card_content` 获取原始 CardKit JSON，再提取标题、Markdown、代码块、折叠面板、操作和 footer。引用查询先请求 `/im/v1/messages/{id}`；查询、快照、转换、资源处理或组装任一阶段失败，都会带着该阶段的实际异常继续尝试 `/im/v1/messages/mget`。只有整条尝试成功才算引用可用；两条路径均失败时，用户正文保持原样，脱敏后的真实异常通过 `AgentDiagnostic` 传递，不再写“引用不可用”等自造错误文本。飞书的内部 icon、image key 和默认升级客户端降级文案不会进入 Agent 输入。
 

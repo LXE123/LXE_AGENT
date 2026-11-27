@@ -240,6 +240,19 @@ describe("Feishu inbound normalization", () => {
     ]);
   });
 
+  test.each(["media", "video"])("extracts the MP4 and cover from a standalone %s message", async (messageType) => {
+    const snapshot = snapshotMessageEvent(baseEvent({
+      message_id: "om_video",
+      message_type: messageType,
+      content: JSON.stringify({ file_key: "file_clip", file_name: "clip.mp4", image_key: "img_cover", duration: 1000 }),
+    }))!;
+    const converted = await convertFeishuMessage(snapshot);
+    expect(converted.resources).toEqual([
+      { type: "video", file_key: "file_clip", file_name: "clip.mp4", message_id: "om_video" },
+      { type: "image", file_key: "img_cover", file_name: "video-cover", message_id: "om_video" },
+    ]);
+  });
+
   test("preserves rich post Markdown, mentions, images and media resources", async () => {
     const snapshot = snapshotMessageEvent(baseEvent({
       message_id: "om_rich",

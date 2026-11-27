@@ -671,6 +671,19 @@ const convertMerged = async (
   };
 };
 
+const convertVideo: FeishuMessageConverter = async (content, snapshot) => {
+  const fileKey = text(content.file_key);
+  const imageKey = text(content.image_key);
+  return {
+    message: "[Video message]",
+    resources: [
+      ...(fileKey ? [resource(snapshot, "video", fileKey, text(content.file_name))] : []),
+      ...(imageKey ? [resource(snapshot, "image", imageKey, "video-cover")] : []),
+    ],
+    diagnostics: [],
+  };
+};
+
 const converters: Readonly<Record<string, FeishuMessageConverter>> = {
   text: async (content) => none(text(content.text)),
   post: convertPost,
@@ -686,18 +699,8 @@ const converters: Readonly<Record<string, FeishuMessageConverter>> = {
     const key = text(content.file_key);
     return { message: "[Audio message]", resources: key ? [resource(snapshot, "audio", key, text(content.file_name))] : [], diagnostics: [] };
   },
-  video: async (content, snapshot) => {
-    const key = text(content.file_key);
-    const imageKey = text(content.image_key);
-    return {
-      message: "[Video message]",
-      resources: [
-        ...(key ? [resource(snapshot, "video", key, text(content.file_name))] : []),
-        ...(imageKey ? [resource(snapshot, "image", imageKey, "video-cover")] : []),
-      ],
-      diagnostics: [],
-    };
-  },
+  media: convertVideo,
+  video: convertVideo,
   location: async (content) => none([
     `[Location] ${text(content.name) || text(content.address) || "Shared location"}`,
     text(content.address),
