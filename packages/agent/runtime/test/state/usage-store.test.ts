@@ -20,7 +20,7 @@ describe("UsageStore", () => {
         turn_id: "turn-1", started_at: startedAt, status: "completed", elapsed_ms: 5,
         input_tokens: 3, output_tokens: 4, tool_calls: 1, api_calls: 1,
         tools: [{ name: "read", calls: 1, errors: 0, duration_ms: 7 }],
-        activations: [], executions: [],
+        activations: [],
       });
       expect(store.toolUsageStats(30)).toEqual([
         expect.objectContaining({ name: "read", calls: 1, errors: 0, duration_ms: 7, turns: 1 }),
@@ -47,7 +47,7 @@ describe("UsageStore", () => {
       const turn = (id: string, at: number) => store.recordTurn("s1", {
         turn_id: id, started_at: at, status: "completed", elapsed_ms: 5,
         input_tokens: 1, output_tokens: 1, tool_calls: 0, api_calls: 1,
-        tools: [], activations: [], executions: [],
+        tools: [], activations: [],
       });
 
       const onTheHour = startedAt - (startedAt % 3_600);
@@ -76,7 +76,7 @@ describe("UsageStore", () => {
       const turn = (id: string, at: number) => store.recordTurn("s1", {
         turn_id: id, started_at: at, status: "completed", elapsed_ms: 5,
         input_tokens: 1, output_tokens: 1, tool_calls: 0, api_calls: 1,
-        tools: [], activations: [], executions: [],
+        tools: [], activations: [],
       });
 
       const onTheHour = startedAt - (startedAt % 3_600);
@@ -100,7 +100,7 @@ describe("UsageStore", () => {
         input_tokens: 207, output_tokens: 310,
         cache_read_input_tokens: 16_128, cache_creation_input_tokens: 64,
         tool_calls: 0, api_calls: 1,
-        tools: [], activations: [], executions: [],
+        tools: [], activations: [],
       });
 
       expect(store.usageOverview(30).totals).toMatchObject({
@@ -127,7 +127,7 @@ describe("UsageStore", () => {
       const base = {
         turn_id: "turn-1", started_at: startedAt, status: "completed", elapsed_ms: 5,
         input_tokens: 1, output_tokens: 1, tool_calls: 0, api_calls: 1,
-        tools: [], activations: [], executions: [],
+        tools: [], activations: [],
       };
       store.recordTurn("s1", { ...base, cache_read_input_tokens: 10, cache_creation_input_tokens: 2 });
       store.recordTurn("s1", { ...base, cache_read_input_tokens: 99, cache_creation_input_tokens: 7 });
@@ -148,7 +148,7 @@ describe("UsageStore", () => {
       store.recordTurn("s1", {
         turn_id: "turn-1", started_at: startedAt, status: "completed", elapsed_ms: 5,
         input_tokens: 3, output_tokens: 4, tool_calls: 0, api_calls: 1,
-        tools: [], activations: [], executions: [],
+        tools: [], activations: [],
       });
 
       expect(store.usageOverview(30).totals).toMatchObject({
@@ -198,7 +198,7 @@ describe("UsageStore", () => {
         input_tokens: 1, output_tokens: 1,
         cache_read_input_tokens: 500, cache_creation_input_tokens: 0,
         tool_calls: 0, api_calls: 1,
-        tools: [], activations: [], executions: [],
+        tools: [], activations: [],
       });
       expect(store.usageOverview(30).totals).toMatchObject({ cache_read_input_tokens: 500 });
     } finally {
@@ -215,7 +215,7 @@ describe("UsageStore", () => {
           turn_id: turnId, started_at: startedAt + index, status: "completed", elapsed_ms: 1,
           input_tokens: 1, output_tokens: 1, tool_calls: 1, api_calls: 1,
           tools: [{ name: "read", calls: 1, errors: 0, duration_ms: 1 }],
-          activations: [], executions: [],
+          activations: [],
         });
       }
       const batch = store.exportTurnUsageBatch("https://cloud.example", startedAt - 1, 10);
@@ -225,7 +225,7 @@ describe("UsageStore", () => {
         turn_id: "turn-2", started_at: startedAt + 1, status: "error", elapsed_ms: 2,
         input_tokens: 1, output_tokens: 1, tool_calls: 1, api_calls: 1,
         tools: [{ name: "write", calls: 1, errors: 1, duration_ms: 2 }],
-        activations: [], executions: [],
+        activations: [],
       });
       expect(store.toolUsageStats(30)).toEqual([
         expect.objectContaining({ name: "read", calls: 2, turns: 2 }),
@@ -245,7 +245,7 @@ describe("UsageStore", () => {
         store.recordTurn("s1", {
           turn_id: turnId, started_at: startedAt + index, status: "completed", elapsed_ms: 1,
           input_tokens: 1, output_tokens: 1, tool_calls: 0, api_calls: 1,
-          tools: [], activations: [], executions: [],
+          tools: [], activations: [],
         });
       }
       const first = store.exportTurnUsageBatch("https://cloud.example", startedAt - 1, 2);
@@ -279,30 +279,33 @@ describe("UsageStore", () => {
         input_tokens: 2, output_tokens: 3, cache_read_input_tokens: 4, cache_creation_input_tokens: 5,
         tool_calls: 1, api_calls: 1, tools: [{ name: "exec", calls: 1, errors: 1, duration_ms: 3 }],
         activations: [{ skill: "demo", module: "amazon_fba" }],
-        executions: [{ skill: "demo", module: "amazon_fba", command: "fba shipment prepare-upload", success: false, duration_ms: 3 }],
+        uses: [{ skill: "demo", module: "amazon_fba", source: "explicit" }],
       });
+      expect(database.query(`
+        SELECT kind, name, module, calls, errors, duration_ms, detail FROM turn_usage_items
+        WHERE turn_id = 'turn-1' AND kind != 'tool' ORDER BY item_id
+      `).all()).toEqual([
+        { kind: "skill_activation", name: "demo", module: "amazon_fba", calls: 1, errors: 0, duration_ms: 0, detail: "" },
+        { kind: "skill_use", name: "demo", module: "amazon_fba", calls: 1, errors: 0, duration_ms: 0, detail: "explicit" },
+      ]);
       const batch = store.exportTurnUsageBatch("https://cloud.example", startedAt - 1, 10);
       const serialized = JSON.stringify(batch);
       expect(serialized).not.toContain("secret-session");
-      expect(serialized).not.toContain("fba shipment prepare-upload");
       expect(batch.turns[0]).toMatchObject({
         turn_id: "turn-1", status: "completed", elapsed_ms: 1, llm_calls: 1, tool_calls: 1,
         input_tokens: 2, output_tokens: 3, cache_read_input_tokens: 4, cache_creation_input_tokens: 5,
       });
       expect(batch.turns[0]!.items).toEqual([
         { kind: "tool", name: "exec", module: "", calls: 1, errors: 1, duration_ms: 3 },
-        { kind: "skill_activation", name: "demo", module: "amazon_fba", calls: 1 },
-        { kind: "skill_execution", name: "demo", module: "amazon_fba", calls: 1 },
+        { kind: "skill_use", name: "demo", module: "amazon_fba", calls: 1 },
       ]);
 
       expect(store.skillUsageDetail("demo", 30)).toMatchObject({
         name: "demo",
-        recent_failures: [expect.objectContaining({
-          turn_id: "turn-1", session_id: "secret-session", command: "fba shipment prepare-upload",
-        })],
+        daily: [expect.objectContaining({ activations: 1 })],
       });
       expect(store.skillUsageStats(30, "demo")).toEqual([expect.objectContaining({
-        name: "demo", module: "amazon_fba", activations: 1, executions: 1, failures: 1, duration_ms: 3,
+        name: "demo", module: "amazon_fba", activations: 1,
       })]);
     } finally {
       database.close(true);
@@ -342,10 +345,29 @@ describe("UsageStore", () => {
 
       store.recordTurn("s1", {
         turn_id: "new-turn", started_at: startedAt + 1, status: "completed", elapsed_ms: 1,
-        input_tokens: 0, output_tokens: 0, tool_calls: 0, api_calls: 1, tools: [], activations: [], executions: [],
+        input_tokens: 0, output_tokens: 0, tool_calls: 0, api_calls: 1, tools: [], activations: [],
       });
       expect(store.exportTurnUsageBatch("https://cloud.example", startedAt - 1, 10).turns
         .map((turn) => turn.sequence)).toEqual([1, 2]);
+    } finally {
+      database.close(true);
+    }
+  });
+
+  test("applies the 500-item upload cap after filtering out local-only rows", () => {
+    const database = usageDatabase();
+    try {
+      const store = new UsageStore(database);
+      store.recordTurn("s1", {
+        turn_id: "full", started_at: startedAt, status: "completed", elapsed_ms: 1,
+        input_tokens: 0, output_tokens: 0, tool_calls: 500, api_calls: 1,
+        tools: [{ name: "read", calls: 500, errors: 0, duration_ms: 10 }],
+        activations: Array(500).fill({ skill: "demo", module: "default" }),
+        uses: Array.from({ length: 500 }, (_, i) => ({ skill: `skill-${i}`, module: "default", source: "implicit" })),
+      });
+      const items = store.exportTurnUsageBatch("https://cloud.example", startedAt - 1).turns[0]!.items;
+      expect(items).toHaveLength(500);
+      expect(Array.isArray(items) && items.at(-1)).toEqual({ kind: "skill_use", name: "skill-498", module: "default", calls: 1 });
     } finally {
       database.close(true);
     }
@@ -358,19 +380,27 @@ test("new call counts accumulate on historical usage without resetting its uploa
     const store = new UsageStore(database);
     const base = { started_at: startedAt, status: "completed", elapsed_ms: 1,
       input_tokens: 0, output_tokens: 0, tool_calls: 0, api_calls: 1, tools: [] };
-    store.recordTurn("s", { ...base, turn_id: "old", activations: [{ skill: "demo", module: "default" }],
-      executions: [{ skill: "demo", module: "default", command: "demo run", success: false, duration_ms: 7 }] });
+    const oldTurn = { ...base, turn_id: "old", activations: [{ skill: "demo", module: "default" }] };
+    store.recordTurn("s", oldTurn);
+    database.run(`INSERT INTO turn_usage_items (turn_id, session_id, started_at, kind, name, module, detail)
+      VALUES ('old', 's', ?, 'skill_execution', 'demo', 'default', 'legacy command')`, [startedAt]);
     const first = store.exportTurnUsageBatch("https://cloud.example", startedAt - 1, 10);
+    // A turn recorded before skill_use existed keeps uploading its legacy skill rows.
+    expect(first.turns[0]!.items).toEqual([
+      { kind: "skill_activation", name: "demo", module: "default", calls: 1 },
+      { kind: "skill_execution", name: "demo", module: "default", calls: 1 },
+    ]);
+    store.recordTurn("s", oldTurn);
+    expect(store.exportTurnUsageBatch("https://cloud.example", startedAt - 1).turns[0]!.items)
+      .toContainEqual({ kind: "skill_execution", name: "demo", module: "default", calls: 1 });
     store.acknowledgeTurnUsage("https://cloud.example", Number(first.turns[0]!.sequence));
     store.recordTurn("s", { ...base, turn_id: "new", activations: Array(2).fill({ skill: "demo", module: "default" }),
-      executions: [{ skill: "demo", module: "default", command: "demo run" }] });
-    expect(store.skillUsageStats(30, "demo")).toEqual([expect.objectContaining({ activations: 3, executions: 2, failures: 1, duration_ms: 7 })]);
+      uses: [{ skill: "demo", module: "default", source: "implicit" }] });
+    expect(store.skillUsageStats(30, "demo")).toEqual([expect.objectContaining({ activations: 3 })]);
     const batch = store.exportTurnUsageBatch("https://cloud.example", startedAt - 1, 10);
     expect(batch.turns.map(turn => turn.turn_id)).toEqual(["new"]);
     expect(batch.turns[0]!.items).toEqual([
-      { kind: "skill_activation", name: "demo", module: "default", calls: 1 },
-      { kind: "skill_activation", name: "demo", module: "default", calls: 1 },
-      { kind: "skill_execution", name: "demo", module: "default", calls: 1 },
+      { kind: "skill_use", name: "demo", module: "default", calls: 1 },
     ]);
   } finally { database.close(true); }
 });

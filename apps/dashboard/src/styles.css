@@ -86,7 +86,6 @@
   --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.05), 0 6px 20px rgba(0, 0, 0, 0.04);
   --rate-good: #4e8a4e;
   --rate-good-soft: #edf5ed;
-  --rate-warn: #b07f1f;
   --rate-bad: #b3422f;
   --scrollbar-thumb: rgba(122, 112, 101, 0.26);
 
@@ -219,7 +218,6 @@ button {
   --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.24), 0 6px 20px rgba(0, 0, 0, 0.16);
   --rate-good: #8dca8d;
   --rate-good-soft: #29332b;
-  --rate-warn: #dfb268;
   --rate-bad: #ed9a83;
   --scrollbar-thumb: rgba(255, 255, 255, 0.22);
 }
@@ -7131,7 +7129,7 @@ pre {
 
 .usage-summary-strip {
   display: grid;
-  grid-template-columns: repeat(6, minmax(0, 1fr));
+  grid-template-columns: repeat(5, minmax(0, 1fr));
   overflow: hidden;
   border: 1px solid var(--border);
   border-radius: 12px;
@@ -7212,7 +7210,6 @@ pre {
 .usage-chart-section {
   --series-turns: color-mix(in srgb, var(--muted-light) 46%, var(--surface));
   --series-turns-line: color-mix(in srgb, var(--muted-light) 70%, var(--muted));
-  --series-executions: var(--accent);
 }
 
 .usage-chart-side {
@@ -7349,10 +7346,6 @@ pre {
   stroke: var(--series-turns-line);
 }
 
-.usage-chart-lines polyline.executions {
-  stroke: var(--series-executions);
-}
-
 .usage-chart-point {
   position: absolute;
   width: 5px;
@@ -7377,10 +7370,6 @@ pre {
 
 .usage-chart-point.turns {
   background: var(--series-turns-line);
-}
-
-.usage-chart-point.executions {
-  background: var(--series-executions);
 }
 
 @keyframes usage-lines-fade {
@@ -7426,10 +7415,6 @@ pre {
 
 .usage-chart-bar.turns {
   background: var(--series-turns);
-}
-
-.usage-chart-bar.executions {
-  background: var(--series-executions);
 }
 
 .usage-chart-day:hover .usage-chart-bar {
@@ -7480,10 +7465,6 @@ pre {
 
 .usage-legend-dot.turns {
   background: var(--series-turns);
-}
-
-.usage-legend-dot.executions {
-  background: var(--series-executions);
 }
 
 .usage-chart-tooltip {
@@ -7683,51 +7664,6 @@ pre {
 
 .usage-num-zero {
   color: var(--muted-light);
-}
-
-.rate-cell {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  white-space: nowrap;
-}
-
-.rate-cell-track {
-  display: inline-block;
-  width: 52px;
-  height: 6px;
-  border-radius: 3px;
-  background: var(--surface-subtle);
-  overflow: hidden;
-}
-
-.rate-cell-fill {
-  display: block;
-  height: 100%;
-  border-radius: 3px;
-}
-
-.rate-cell.tone-good .rate-cell-fill {
-  background: var(--rate-good);
-}
-
-.rate-cell.tone-warn .rate-cell-fill {
-  background: var(--rate-warn);
-}
-
-.rate-cell.tone-bad .rate-cell-fill {
-  background: var(--rate-bad);
-}
-
-.rate-cell-text {
-  font-size: 0.78125rem;
-  font-variant-numeric: tabular-nums;
-  color: var(--text-soft);
-}
-
-.rate-cell.tone-bad .rate-cell-text {
-  color: var(--rate-bad);
-  font-weight: 650;
 }
 
 /* ------------------------------------------------------------- home page */
@@ -8882,7 +8818,7 @@ pre {
   display: grid;
   margin: 0;
   gap: 6px;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
 /* Quiet neutral tiles keep the numbers prominent without extra borders. */

@@ -399,9 +399,9 @@ const dashboard = {
       case "channels.health": return { items: {}, total: 0 };
       case "stats.skills.list": case "stats.tools.list": return { items: [], days: call.input.days };
       case "stats.overview": return {
-        days: call.input.days, peak_hour: null, modules: [], daily: [],
+        days: call.input.days, peak_hour: null, daily: [],
         totals: { turns: 7, error_turns: 0, tool_calls: 0, llm_calls: 0, input_tokens: 0,
-          output_tokens: 0, skill_executions: 0, skill_failures: 0 },
+          output_tokens: 0 },
       };
       default: throw new Error(`Unexpected fixture RPC: ${call.operation}`);
     }

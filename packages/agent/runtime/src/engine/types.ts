@@ -178,12 +178,10 @@ export interface SkillActivationUsage extends JsonObject {
   module: string;
 }
 
-export interface SkillExecutionUsage extends JsonObject {
+export interface SkillUse extends JsonObject {
   skill: string;
   module: string;
-  command: string;
-  success?: boolean;
-  duration_ms?: number;
+  source: "explicit" | "implicit";
 }
 
 export interface RuntimeTurnUsageRecord extends JsonObject {
@@ -205,7 +203,7 @@ export interface RuntimeTurnUsageRecord extends JsonObject {
   api_calls: number;
   tools: ToolTurnUsage[];
   activations: SkillActivationUsage[];
-  executions: SkillExecutionUsage[];
+  uses?: SkillUse[];
 }
 
 export interface RuntimeTurnContextRecord extends JsonObject {

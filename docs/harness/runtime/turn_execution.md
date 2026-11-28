@@ -71,7 +71,7 @@ context overflow 独立走一次强制 compaction；压缩成功且预算回到�
 
 工具异常形成 `is_error` 结果，不跳过闭合；后续调用继续按当前策略执行，直到本批结束或用户取消。相邻且支持并行的调用成组执行，其余独占，结果始终按原调用顺序持久化。
 
-`exec` 按通用权限与进程规则执行外部命令。项目集成会注入 `LXESKILL_SKILL_SCOPE`，lxeskillCLI 自行处理授权、参数和业务执行。统计观察独立于工具执行，通过公开 CLI 查询命令归属，不加载业务 Catalog。详见 [工具手册](tools/README.md) 与 [Skill 手册](../skill/README.md)。
+`exec` 按通用权限与进程规则执行外部命令。项目集成会注入 `LXESKILL_SKILL_SCOPE`，lxeskillCLI 自行处理授权、参数和业务执行。agentcli 按 Skill 目录的注入、读取和脚本调用统计使用情况。lxeskillCLI 独立记录业务命令。详见 [工具手册](tools/README.md) 与 [Skill 手册](../skill/README.md)。
 
 ## Steering 与取消
 

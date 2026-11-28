@@ -843,7 +843,7 @@ describe("TypeScriptAgentRuntime", () => {
     await runtime.stop();
   });
 
-  test("counts every skill read request and command call independently of execution results", async () => {
+  test("counts repeated Skill reads and reports exec failures as tool usage", async () => {
     const skillPath = join(process.cwd(), "skills/amazon-replenishment/SKILL.md");
     const store = new MemoryStore();
     const tools = new ToolRegistry();
@@ -885,7 +885,6 @@ describe("TypeScriptAgentRuntime", () => {
     const runtime = new TypeScriptAgentRuntime({ permissionPolicy,
       store,
       tools,
-      commandSkills: async () => [{ command: "lxeskill replenish store resolve", skill: "amazon-replenishment" }],
       provider: { summarize, turn: async () => responses.shift()! },
       emitter: { emit: async (request) => { emitted.push(request); }, typing: async () => undefined },
       systemPrompt: (context) => {
@@ -921,26 +920,17 @@ describe("TypeScriptAgentRuntime", () => {
       skill: "amazon-replenishment",
       module: "replenishment",
     }, { skill: "amazon-replenishment", module: "replenishment" }]);
-    expect(store.metrics[0]?.executions).toEqual([]);
+    expect(store.metrics[0]?.uses).toEqual([{
+      skill: "amazon-replenishment", module: "replenishment", source: "implicit",
+    }]);
+    expect(store.metrics[1]?.uses).toEqual([]);
     expect(store.metrics[1]?.tools).toContainEqual(expect.objectContaining({
       name: "exec",
       calls: 2,
       errors: 1,
     }));
     expect(store.metrics[1]?.activations).toEqual([]);
-    expect(store.metrics[1]?.executions).toEqual([
-      expect.objectContaining({
-        skill: "amazon-replenishment",
-        module: "replenishment",
-        command: "replenish store resolve",
-      }),
-      expect.objectContaining({
-        skill: "amazon-replenishment",
-        module: "replenishment",
-        command: "replenish store resolve",
-      }),
-    ]);
-    expect(JSON.stringify(store.metrics[1]?.executions)).not.toContain("--store-name");
+    expect(JSON.stringify(store.metrics[1])).not.toContain("--store-name");
     const failedToolResult = store.messages.flatMap((message) =>
       message.role === "tool" && Array.isArray(message.content)
         ? message.content.filter((block) => block.type === "tool_result" && block.is_error === true)
@@ -959,7 +949,7 @@ describe("TypeScriptAgentRuntime", () => {
     expect(displayedFailure?.error_block?.content).toBe("command failed");
   });
 
-  test("does not count static tool ownership as a skill execution", async () => {
+  test("does not count static tool ownership as a skill use", async () => {
     const store = new MemoryStore();
     const tools = new ToolRegistry();
     tools.register({
@@ -986,7 +976,7 @@ describe("TypeScriptAgentRuntime", () => {
     await runtime.runTurn(job(), handle());
     await runtime.stop();
 
-    expect(store.metrics[0]?.executions).toEqual([]);
+    expect(store.metrics[0]?.uses).toEqual([]);
   });
 
   test("keeps concurrent turns on the skill snapshot acquired at their own start", async () => {
@@ -3334,10 +3324,12 @@ describe("skill loading", () => {
       expect(looked).toEqual(["office-xlsx", "missing-skill"]);
       const user = store.messages.find(m => m.role === "user" && m.message_id === "m1");
       expect(user && "invoked_skills" in user && user.invoked_skills).toEqual(["office-xlsx"]);
+      expect(store.metrics[0]?.uses).toEqual([{ skill: "office-xlsx", module: "", source: "explicit" }]);
       expect(store.messageReasons.filter(r => r === "skill_invocation")).toHaveLength(1);
       expect(store.metrics[0]?.activations).toEqual([]);
       await runtime.runTurn(job({ job_id: "j2", user_input: "continue" }), handle());
       expect(looked).toEqual(["office-xlsx", "missing-skill"]);
+      expect(store.metrics[1]?.uses).toEqual([]);
     } finally { await runtime.stop(); }
   });
   test("real skill-load errors stop before provider and are not reported as success", async () => {
@@ -3361,16 +3353,17 @@ test("explicit skills deduplicate a steering batch and never scan tool output", 
   const store = new MemoryStore(), tools = new ToolRegistry(), looked: string[] = [];
   const queue: ReturnType<RuntimeHandle["drainSteering"]> = [];
   let round = 0, invalidations = 0;
-  tools.register({ name: "fixture", description: "fixture", input_schema: { type: "object" }, execute: async () => ({ content: [{ type: "text", text: "/tool-output-skill" }] }) });
+  tools.register({ name: "read", description: "fixture", input_schema: { type: "object" }, execute: async () => ({ content: [{ type: "text", text: "/tool-output-skill" }] }) });
   const runtime = new TypeScriptAgentRuntime({ permissionPolicy, store, tools, systemPrompt: "test",
     emitter: { emit: async () => {}, typing: async () => {} },
     onToolResult: () => { invalidations++; },
-    toolExposure: { allowedSkills: new Set(["one", "two"]) },
+    skillSnapshot: () => ({ names: ["one", "two"], prompt: "", modules: { one: "demo", two: "demo" },
+      locations: { [skillPathKey("/skills/one/SKILL.md")]: "one" } }),
     resolveInvokedSkill: async name => { looked.push(name); return { name, root: "/skills/" + name, content: "Instructions " + name }; },
     provider: { summarize, turn: async request => {
       if (round++ === 0) {
         queue.push({ text: "/one /two /blocked" }, { text: "/two continue" });
-        return messageFixture({ stopReason: "toolUse", content: [{ type: "tool_call", id: "c", name: "fixture", arguments: {} }] });
+        return messageFixture({ stopReason: "toolUse", content: [{ type: "tool_call", id: "c", name: "read", arguments: { path: "/skills/one/SKILL.md" } }] });
       }
       expect(request.messages.filter(m => m.role === "user" && typeof m.content === "string" && m.content.startsWith("<skill_content"))).toHaveLength(2);
       return messageFixture({ stopReason: "stop", content: [{ type: "text", text: "done" }] });
@@ -3380,6 +3373,11 @@ test("explicit skills deduplicate a steering batch and never scan tool output", 
   try {
     expect((await runtime.runTurn(job(), { ...handle(), drainSteering: () => queue.splice(0) })).status).toBe("completed");
     expect(looked).toEqual(["one", "two"]); expect(invalidations).toBeGreaterThan(0);
+    expect(store.metrics[0]?.activations).toEqual([{ skill: "one", module: "demo" }]);
+    expect(store.metrics[0]?.uses).toEqual([
+      { skill: "one", module: "demo", source: "explicit" },
+      { skill: "two", module: "demo", source: "explicit" },
+    ]);
     expect(store.messageReasons.filter(reason => reason === "skill_invocation")).toHaveLength(2);
   } finally { await runtime.stop(); }
 });

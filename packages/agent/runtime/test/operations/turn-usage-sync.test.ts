@@ -111,13 +111,7 @@ const recordTurn = async (
       duration_ms: 3,
     })),
     activations: [{ skill: "inventory", module: "fba" }],
-    executions: [{
-      skill: "inventory",
-      module: "fba",
-      command: "secret command arguments must stay local",
-      success: true,
-      duration_ms: 4,
-    }],
+    uses: [{ skill: "inventory", module: "fba", source: "explicit" }],
   });
 };
 
@@ -259,13 +253,11 @@ describe("TurnUsageSyncService", () => {
       "session_id",
       "title",
       "user-secret",
-      "secret command arguments",
       testWorkspace.directory,
     ]) expect(serialized).not.toContain(forbidden);
     expect(uploads[0]?.body.turns[0].items).toEqual([
       { kind: "tool", name: "tool-0", module: "", calls: 1, errors: 0, duration_ms: 3 },
-      { kind: "skill_activation", name: "inventory", module: "fba", calls: 1 },
-      { kind: "skill_execution", name: "inventory", module: "fba", calls: 1 },
+      { kind: "skill_use", name: "inventory", module: "fba", calls: 1 },
     ]);
     await store.stop();
   });

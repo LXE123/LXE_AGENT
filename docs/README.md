@@ -53,6 +53,7 @@
 - [FBA 术语与文件对照](lxeskill-cli/fba-glossary.md)：跨马帮、WMS、亚马逊卖家后台与 FBA ERP 的单据、业务文件与动作边界。
 
 - [马帮浏览器认证](../python/lxeskill_cli/browser_auth_service/README.md)：桌面认证窗口、独立 CLI 浏览器绑定和排障。
+- [业务命令调用统计](lxeskill-cli/usage-statistics.md)：记录范围、上传时机与失败重试。
 - [CLI 云端通信与自检](lxeskill-cli/cloud-access.md)：权限查询、连接诊断、公共 HTTP 模块和业务请求。
 - [越南备货实现说明](lxeskill-cli/vietnam-replenishment.md)：输入快照、设置保存、校验和工作簿生成。
 ### 共享能力与诊断

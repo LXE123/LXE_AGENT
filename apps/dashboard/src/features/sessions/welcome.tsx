@@ -53,7 +53,6 @@ function Heatmap({ cells }: { cells: HeatmapCell[] }) {
 function metricCards(t: UiText, summary: UsageSummary): { label: string; value: string }[] {
   return [
     { label: t.welcome.turns, value: formatCompactNumber(summary.turns) },
-    { label: t.welcome.executions, value: formatCompactNumber(summary.executions) },
     { label: t.usage.totalsReads, value: formatCompactNumber(summary.reads) },
     { label: t.welcome.toolCalls, value: formatCompactNumber(summary.toolCalls) },
     { label: t.welcome.activeDays, value: t.welcome.days(formatNumber(summary.activeDays)) },
@@ -64,7 +63,6 @@ function metricCards(t: UiText, summary: UsageSummary): { label: string; value: 
         ? "—"
         : t.welcome.hour(`${summary.peakHour}`.padStart(2, "0")),
     },
-    { label: t.welcome.topSkill, value: summary.topModule?.module || "—" },
   ];
 }
 

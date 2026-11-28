@@ -6,7 +6,6 @@
   padding: 24px 28px 92px;
   background: var(--cds-surface-panel);
   overflow: auto;
-  --rate-warn: var(--warning);
   --rate-bad: var(--danger);
 }
 .home-theme .home-page {
@@ -69,14 +68,6 @@
 .home-theme :is(.home-session-row, .home-skill-row):last-child { border-bottom: 0; }
 .home-theme .home-skill-name { min-width: 0; font-size: .875rem; line-height: 1.5; font-weight: 500; }
 .home-theme .home-skill-meta { display: inline-flex; flex-wrap: nowrap; gap: 12px; }
-.home-theme .home-skill-rate { display: inline-flex; align-items: center; gap: 10px; }
-.home-theme .home-skill-rate-label {
-  position: absolute; width: 1px; height: 1px; overflow: hidden;
-  clip-path: inset(50%); white-space: nowrap;
-}
-.home-theme .rate-cell { color: var(--text-soft); font-variant-numeric: tabular-nums; }
-.home-theme .rate-cell-track { width: 48px; height: 4px; background: var(--cds-alpha-2); }
-.home-theme .rate-cell-text { font-size: .75rem; }
 .home-theme .home-skill-count { color: var(--text-soft); font-size: .75rem; }
 .home-theme .home-query-state {
   display: flex; align-items: baseline; justify-content: space-between; gap: 16px;

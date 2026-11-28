@@ -35,7 +35,6 @@ import {
   createRuntimeProvider,
   DeepSeekFilesService,
   ExecShellAdapter,
-  queryLxeSkillCommandSkills,
   addMcpServer,
   loadMcpConfig,
   mcpNamespace,
@@ -281,7 +280,6 @@ export function createAgentRuntimeHost(
   });
   const providerDescriptor = providerManager.acquire().descriptor;
   const runtime = new TypeScriptAgentRuntime({
-    commandSkills: () => queryLxeSkillCommandSkills({ cwd: options.dataRoot, environment }),
     permissionPolicy, executionPaths, approvalAvailable: true,
     store, sessionTitles,
     providerManager,

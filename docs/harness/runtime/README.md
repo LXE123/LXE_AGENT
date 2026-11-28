@@ -8,7 +8,7 @@ Runtime 是 agentcli 的执行核心，负责模型调用、上下文、工具�
 
 [独立 CLI exec](agent_cli_exec.md) 复用同一个宿主，直接提交任务，并使用独立于桌面的会话数据库。Runtime 返回执行事件和结果；渠道路由、排队和最终发送位置由 Gateway 管理。
 
-模型通过通用 `exec` 调用 lxeskillCLI 等外部程序。Runtime 不加载业务 CLI 的 Python 模块或 `catalog.json`；针对 lxeskill 的统计适配通过公开命令查询归属，具体见 [Skill 与统计](../skill/README.md#读取调用与命令统计)。
+模型通过通用 `exec` 调用 lxeskillCLI 等外部程序。Runtime 只按 Skill 目录的注入、读取和脚本调用统计 Skill 使用。lxeskillCLI 自行记录和上传业务命令调用次数。具体见 [Skill 与统计](../skill/README.md#skill-使用与本地调用统计)。
 
 ## 专题导航
 

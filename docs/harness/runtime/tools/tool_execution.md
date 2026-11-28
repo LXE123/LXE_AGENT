@@ -101,7 +101,9 @@ Model-visible result、用户展示和运行日志是三个不同输出，不能
 
 ## Usage
 
-Runtime 的独立统计组件在工具执行前观察调用：`read` 命中已发现的 Skill 路径时，每次计一次读取；`exec` 简单识别以 lxeskill 开头的命令。回合收尾时通过 `lxeskill list` 的归属字段记录 Skill 命令调用次数，不推断成功、失败或耗时。查询失败只记录日志，不影响工具调用。通用工具仍记录 calls、errors、duration。数据继续写入原有 usage tables。
+Runtime 在工具执行前观察调用，并记录工具名称、次数、错误数和耗时。桌面统计页累计原生 `read` 读取已发现的 `SKILL.md` 的次数。
+
+上传时，每个 Skill 在同一回合只计一次。显式注入、读取 `SKILL.md` 或运行 Skill 脚本都可以计入。lxeskillCLI 独立记录自己的业务命令。判定规则见 [Skill 使用与本地调用统计](../../skill/README.md#skill-使用与本地调用统计)。
 
 ## Failure 语义
 
@@ -115,4 +117,4 @@ Runtime 的独立统计组件在工具执行前观察调用：`read` 命中已�
 
 ## 验证
 
-Tests 覆盖宿主路径访问、read-before-edit、exec/wait 生命周期、跨 Session 隔离、进程树终止、tool search、MCP timeout/disable、通用命令执行、Skill 调用统计与 CLI 归属查询、result trimming、cancel closure 和 artifact ordering。
+Tests 覆盖宿主路径访问、read-before-edit、exec/wait 生命周期、跨 Session 隔离、进程树终止、tool search、MCP timeout/disable、通用命令执行、Skill 目录使用统计、result trimming、cancel closure 和 artifact ordering。

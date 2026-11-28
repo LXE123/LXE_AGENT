@@ -319,7 +319,6 @@ describe("DashboardService", () => {
       input_tokens: 3, output_tokens: 2, tool_calls: 1, api_calls: 1,
       tools: [{ name: "demo_tool", calls: 1, errors: 0, duration_ms: 5 }],
       activations: [{ skill: "demo", module: "default" }],
-      executions: [{ skill: "demo", module: "default", command: "scripts.demo", success: false, duration_ms: 12 }],
     });
     const tools = new ToolRegistry();
     tools.register({
@@ -504,21 +503,18 @@ describe("DashboardService", () => {
       .toMatchObject({ name: "inventory", enabled: false });
     expect(await call({ operation: "stats.overview", input: { days: 7 } })).toMatchObject({
       days: 7,
-      totals: { turns: 1, input_tokens: 3, skill_executions: 1, skill_failures: 1 },
-      modules: [{ module: "default", skills: 1, turns: 1, executions: 1, failures: 1, duration_ms: 12 }],
+      totals: { turns: 1, input_tokens: 3, skill_activations: 1 },
     });
     expect(await call({ operation: "stats.skills.list", input: { days: 7 } })).toMatchObject({
       days: 7,
       total: 1,
       items: [{
-        name: "demo", module: "default", activations: 1, executions: 1, failures: 1,
-        execution_turns: 1, duration_ms: 12,
+        name: "demo", module: "default", activations: 1,
       }],
     });
     expect(await call({ operation: "stats.skills.detail", input: { name: "demo", days: 7 } })).toMatchObject({
       name: "demo", days: 7,
-      daily: [{ activations: 1, executions: 1, failures: 1 }],
-      recent_failures: [{ turn_id: "turn-one", session_id: "session-one", command: "scripts.demo" }],
+      daily: [{ activations: 1 }],
     });
     expect(await call({ operation: "stats.tools.list", input: { days: 7 } })).toMatchObject({
       days: 7,

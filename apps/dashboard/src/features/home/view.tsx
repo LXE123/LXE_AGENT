@@ -57,12 +57,11 @@ export function DashboardHome({
     hour < 12 ? t.home.greetingMorning : hour < 18 ? t.home.greetingAfternoon : t.home.greetingEvening;
   const totals = overview?.totals;
   const activeSkills = skills
-    .filter((skill) => skill.executions > 0)
-    .sort((a, b) => b.executions - a.executions)
+    .filter((skill) => skill.activations > 0)
+    .sort((a, b) => b.activations - a.activations)
     .slice(0, 5);
   const tiles = [
     { label: t.home.todayTurns, value: totals ? formatNumber(totals.turns) : "—", tone: "" },
-    { label: t.home.todayExecutions, value: totals ? formatNumber(totals.skill_executions) : "—", tone: "" },
     { label: t.usage.totalsReads, value: totals ? formatNumber(totals.skill_activations ?? 0) : "—", tone: "" },
     {
       label: t.home.todayTokens,
@@ -142,7 +141,7 @@ export function DashboardHome({
                 <div className="home-skill-row" key={skill.name}>
                   <span className="home-skill-name" title={skill.name}>{t.skillDisplayName(skill.name)}</span>
                   <span className="home-skill-meta">
-                    <span className="home-skill-count">{t.home.executionsUnit(formatNumber(skill.executions))}</span>
+                    <span className="home-skill-count">{t.home.readsUnit(formatNumber(skill.activations))}</span>
                   </span>
                 </div>
               ))}

@@ -11,25 +11,21 @@ const dayBefore = (offset: number): string =>
 
 const overview = (
   days: number,
-  daily: Array<{ offset: number; executions?: number; turns?: number }>,
+  daily: Array<{ offset: number; turns: number }>,
   totals: Partial<StatsOverviewPayload["totals"]> = {},
-  modules: StatsOverviewPayload["modules"] = [],
   peakHour: number | null = 11,
 ): StatsOverviewPayload => ({
   days,
   peak_hour: peakHour,
   totals: {
     turns: 0, error_turns: 0, tool_calls: 0, llm_calls: 0,
-    input_tokens: 0, output_tokens: 0, skill_executions: 0, skill_failures: 0,
+    input_tokens: 0, output_tokens: 0,
     ...totals,
   },
-  modules,
   daily: daily.map((entry) => ({
     day: dayBefore(entry.offset),
-    turns: entry.turns ?? entry.executions ?? 0,
+    turns: entry.turns,
     tool_calls: 0,
-    executions: entry.executions ?? 0,
-    failures: 0,
   })),
 });
 
@@ -42,9 +38,9 @@ describe("usage summary", () => {
   // entirely - closing the gaps would make a broken streak look unbroken.
   test("fills the days the store left out rather than closing the gap", () => {
     const summary = usageSummary(overview(7, [
-      { offset: 0, executions: 3 },
-      { offset: 1, executions: 2 },
-      { offset: 4, executions: 5 },
+      { offset: 0, turns: 3 },
+      { offset: 1, turns: 2 },
+      { offset: 4, turns: 5 },
     ]), TODAY)!;
 
     expect(summary.heatmap).toHaveLength(7);
@@ -60,9 +56,9 @@ describe("usage summary", () => {
 
   test("counts the streak back only from a day that is itself active", () => {
     const idleToday = usageSummary(overview(7, [
-      { offset: 1, executions: 4 },
-      { offset: 2, executions: 4 },
-      { offset: 3, executions: 4 },
+      { offset: 1, turns: 4 },
+      { offset: 2, turns: 4 },
+      { offset: 3, turns: 4 },
     ]), TODAY)!;
 
     expect(idleToday.currentStreak).toBe(0);
@@ -71,37 +67,19 @@ describe("usage summary", () => {
 
   test("grades the heatmap against the busiest day in the window", () => {
     const summary = usageSummary(overview(4, [
-      { offset: 0, executions: 100 },
-      { offset: 1, executions: 60 },
-      { offset: 2, executions: 30 },
-      { offset: 3, executions: 5 },
+      { offset: 0, turns: 100 },
+      { offset: 1, turns: 60 },
+      { offset: 2, turns: 30 },
+      { offset: 3, turns: 5 },
     ]), TODAY)!;
 
     expect(summary.heatmap.map((cell) => cell.level)).toEqual([1, 2, 3, 4]);
   });
 
-  test("uses turn counts even when a day has a different number of Skill calls", () => {
-    const summary = usageSummary(overview(2, [{ offset: 0, turns: 6, executions: 40 }]), TODAY)!;
-
-    expect(summary.heatmap.at(-1)?.turns).toBe(6);
-    expect(summary.activeDays).toBe(1);
-  });
-
-  test("carries read and command calls without deriving Skill outcomes", () => {
-    const result = usageSummary(overview(7, [], { skill_activations: 8, skill_executions: 40, skill_failures: 6 }), TODAY)!;
-    expect(result.reads).toBe(8);
-    expect(result.executions).toBe(40);
-    expect(result).not.toHaveProperty("successRate");
-  });
-
-  test("carries the busiest module and the peak hour through", () => {
-    const summary = usageSummary(overview(7, [], {}, [
-      { module: "fba_shipment", skills: 4, turns: 9, executions: 97, failures: 2, duration_ms: 1 },
-      { module: "amazon_operations", skills: 2, turns: 3, executions: 12, failures: 0, duration_ms: 1 },
-    ], 9), TODAY)!;
-
-    expect(summary.topModule).toEqual({ module: "fba_shipment", executions: 97 });
+  test("carries Skill reads and the peak hour through", () => {
+    const summary = usageSummary(overview(7, [], { skill_activations: 8 }, 9), TODAY)!;
+    expect(summary.reads).toBe(8);
     expect(summary.peakHour).toBe(9);
-    expect(usageSummary(overview(7, [], {}, [], null), TODAY)!.topModule).toBeNull();
+    expect(usageSummary(overview(7, [], {}, null), TODAY)!.peakHour).toBeNull();
   });
 });

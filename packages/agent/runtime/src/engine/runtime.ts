@@ -1,5 +1,5 @@
 import { directoryRevisions, latestPromptState, sameTools, withMcpDirectory } from "./prompt-state";
-import { TurnStatistics, type CommandSkill } from "../statistics/turn-statistics";
+import { TurnStatistics } from "../statistics/turn-statistics";
 import type { SessionTitleService } from "../state/session-title";
 import { ExecutionPaths } from "../permissions/execution-paths";
 import { workspaceArtifactRoot } from "@lxe/core";
@@ -92,7 +92,6 @@ export interface TypeScriptAgentRuntimeOptions {
   onToolResult?: (session: string) => void;
   skillSnapshot?: (workspace: WorkspaceContext) => RuntimeSkillSnapshot;
   workspaceInstances?: RuntimeWorkspaceInstanceProvider;
-  commandSkills?: () => Promise<readonly CommandSkill[]>;
   emitter: RuntimeEmitter;
   onSessionChanged?: (
     sessionId: string,
@@ -308,7 +307,6 @@ export class TypeScriptAgentRuntime implements AgentRuntime {
     if (!provider) throw new Error("runtime provider is not configured");
     const statistics = new TurnStatistics({
       directory: workspace.directory,
-      ...(this.options.commandSkills ? { commandSkills: this.options.commandSkills } : {}),
       onError: error => this.logger.warn("turn_statistics_failed", { error }),
     });
     const descriptor = providerSnapshot?.descriptor;
@@ -431,7 +429,7 @@ export class TypeScriptAgentRuntime implements AgentRuntime {
           cache_creation_input_tokens: cacheCreationTokens,
           tool_calls: toolCalls,
           api_calls: apiCalls,
-          ...await statistics.snapshot(),
+          ...statistics.snapshot(),
         });
         await this.notifySessionChanged(job.session_id, "usage");
       } catch (cause) {
@@ -539,7 +537,7 @@ export class TypeScriptAgentRuntime implements AgentRuntime {
         userMessage.promptState = { mcpDirectory: directory };
       }
       const loadInvokedSkills = async (names: readonly string[], seen = new Set<string>()): Promise<RuntimeMessage[]> => {
-        const injected: RuntimeMessage[] = [];
+        const injected = new Map<string, RuntimeMessage>();
         for (const name of names) {
           if (seen.has(name) || !toolExposure.allowsSkill(name)) continue;
           const skill = await this.options.resolveInvokedSkill?.(name, workspace);
@@ -547,9 +545,10 @@ export class TypeScriptAgentRuntime implements AgentRuntime {
           if (!skill) continue;
           await toolExposure.activateSkill(name);
           seen.add(name);
-          injected.push({ role: "user", content: renderInvokedSkill(skill), invoked_skills: [name] });
+          injected.set(name, { role: "user", content: renderInvokedSkill(skill), invoked_skills: [name] });
         }
-        return injected;
+        for (const name of injected.keys()) statistics.recordUse(name, "explicit");
+        return [...injected.values()];
       };
       const instructions = await loadInvokedSkills(invokedSkillNames(job.user_input)).catch(async error => {
         // Keep the submitted input in history when skill selection or loading fails.

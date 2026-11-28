@@ -147,7 +147,6 @@ export class UsageStore {
     const startedAt = Number(metrics.started_at ?? Date.now() / 1_000);
     const tools = Array.isArray(metrics.tools) ? metrics.tools.map(parseObject) : [];
     const activations = Array.isArray(metrics.activations) ? metrics.activations.map(parseObject) : [];
-    const executions = Array.isArray(metrics.executions) ? metrics.executions.map(parseObject) : [];
     this.database.transaction(() => {
       this.database.query(`
         INSERT INTO turn_usage
@@ -189,7 +188,10 @@ export class UsageStore {
           (SELECT COALESCE(MAX(sequence), 0) + 1 FROM turn_usage)
         ) WHERE singleton = 1
       `).run();
-      this.database.query("DELETE FROM turn_usage_items WHERE turn_id = ?").run(turnId);
+      // A retried turn replaces only the kinds this version writes.
+      this.database.query(`
+        DELETE FROM turn_usage_items WHERE turn_id = ? AND kind IN ('tool', 'skill_activation', 'skill_use')
+      `).run(turnId);
       for (const tool of tools) {
         const name = text(tool.name);
         if (!name) continue;
@@ -213,17 +215,12 @@ export class UsageStore {
           turnId, safeSessionId, startedAt, name, text(activation.module),
         );
       }
-      for (const execution of executions) {
-        const name = text(execution.skill);
-        if (!name) continue;
+      for (const use of metrics.uses ?? []) {
         this.database.query(`
           INSERT INTO turn_usage_items
             (turn_id, session_id, started_at, kind, name, module, calls, errors, duration_ms, detail)
-          VALUES (?, ?, ?, 'skill_execution', ?, ?, 1, ?, ?, ?)
-        `).run(
-          turnId, safeSessionId, startedAt, name, text(execution.module), execution.success === false ? 1 : 0,
-          Number(execution.duration_ms ?? 0), text(execution.command),
-        );
+          VALUES (?, ?, ?, 'skill_use', ?, ?, 1, 0, 0, ?)
+        `).run(turnId, safeSessionId, startedAt, use.skill, use.module, use.source);
       }
     })();
   }
@@ -245,24 +242,7 @@ export class UsageStore {
              COALESCE(SUM(tool_calls), 0) AS tool_calls
       FROM turn_usage WHERE started_at >= ? GROUP BY day ORDER BY day ASC
     `, cutoff);
-    const dailyExecutions = this.all<Record<string, unknown>>(`
-      SELECT date(started_at, 'unixepoch', 'localtime') AS day,
-             COALESCE(SUM(calls), 0) AS executions, COALESCE(SUM(errors), 0) AS failures
-      FROM turn_usage_items WHERE kind = 'skill_execution' AND started_at >= ?
-      GROUP BY day ORDER BY day ASC
-    `, cutoff);
     const skillReads = this.get<{ calls: number }>("SELECT COALESCE(SUM(calls), 0) AS calls FROM turn_usage_items WHERE kind = 'skill_activation' AND started_at >= ?", cutoff);
-    const skillTotals = this.get<Record<string, number>>(`
-      SELECT COALESCE(SUM(calls), 0) AS executions, COALESCE(SUM(errors), 0) AS failures
-      FROM turn_usage_items WHERE kind = 'skill_execution' AND started_at >= ?
-    `, cutoff);
-    const modules = this.all<Record<string, unknown>>(`
-      SELECT ${statisticsModule} AS module, COUNT(DISTINCT name) AS skills, COUNT(DISTINCT turn_id) AS turns,
-             COALESCE(SUM(calls), 0) AS executions, COALESCE(SUM(errors), 0) AS failures,
-             COALESCE(SUM(duration_ms), 0) AS duration_ms
-      FROM turn_usage_items WHERE kind = 'skill_execution' AND started_at >= ?
-      GROUP BY ${statisticsModule} ORDER BY executions DESC, module ASC
-    `, cutoff);
     // The hour the operator actually works in, in their own timezone: the busiest
     // one wins, and the earliest breaks a tie so the answer is stable.
     const peak = this.get<Record<string, number>>(`
@@ -271,7 +251,6 @@ export class UsageStore {
       FROM turn_usage WHERE started_at >= ?
       GROUP BY hour ORDER BY turns DESC, hour ASC LIMIT 1
     `, cutoff);
-    const executionsByDay = new Map(dailyExecutions.map((row) => [text(row.day), row]));
     return {
       days: safeDays,
       peak_hour: peak ? Number(peak.hour ?? 0) : null,
@@ -282,20 +261,10 @@ export class UsageStore {
         cache_read_input_tokens: Number(totals.cache_read_input_tokens ?? 0),
         cache_creation_input_tokens: Number(totals.cache_creation_input_tokens ?? 0),
         skill_activations: Number(skillReads?.calls ?? 0),
-        skill_executions: Number(skillTotals?.executions ?? 0), skill_failures: Number(skillTotals?.failures ?? 0),
       },
-      modules: modules.map((row) => ({
-        module: text(row.module), skills: Number(row.skills ?? 0), turns: Number(row.turns ?? 0),
-        executions: Number(row.executions ?? 0), failures: Number(row.failures ?? 0),
-        duration_ms: Number(row.duration_ms ?? 0),
+      daily: dailyTurns.map((row) => ({
+        day: text(row.day), turns: Number(row.turns ?? 0), tool_calls: Number(row.tool_calls ?? 0),
       })),
-      daily: dailyTurns.map((row) => {
-        const execution = executionsByDay.get(text(row.day));
-        return {
-          day: text(row.day), turns: Number(row.turns ?? 0), tool_calls: Number(row.tool_calls ?? 0),
-          executions: Number(execution?.executions ?? 0), failures: Number(execution?.failures ?? 0),
-        };
-      }),
     };
   }
 
@@ -319,53 +288,29 @@ export class UsageStore {
     const skillName = text(name);
     const rows = this.all<Record<string, unknown>>(`
       SELECT name, MAX(${statisticsModule}) AS module,
-             COALESCE(SUM(CASE WHEN kind = 'skill_activation' THEN calls ELSE 0 END), 0) AS activations,
-             COALESCE(SUM(CASE WHEN kind = 'skill_execution' THEN calls ELSE 0 END), 0) AS executions,
-             COALESCE(SUM(CASE WHEN kind = 'skill_execution' THEN errors ELSE 0 END), 0) AS failures,
-             COUNT(DISTINCT CASE WHEN kind = 'skill_execution' THEN turn_id END) AS execution_turns,
-             COALESCE(SUM(CASE WHEN kind = 'skill_execution' THEN duration_ms ELSE 0 END), 0) AS duration_ms,
-             MAX(started_at) AS last_used_at
+             SUM(calls) AS activations, MAX(started_at) AS last_used_at
       FROM turn_usage_items
-      WHERE kind IN ('skill_activation', 'skill_execution') AND started_at >= ? AND (? = '' OR name = ?)
-      GROUP BY name ORDER BY executions DESC, activations DESC, name ASC
+      WHERE kind = 'skill_activation' AND started_at >= ? AND (? = '' OR name = ?)
+      GROUP BY name ORDER BY activations DESC, name ASC
     `, cutoff, skillName, skillName);
     return rows.map((row) => ({
       name: text(row.name), module: text(row.module), activations: Number(row.activations ?? 0),
-      executions: Number(row.executions ?? 0),
-      failures: Number(row.failures ?? 0), duration_ms: Number(row.duration_ms ?? 0),
-      execution_turns: Number(row.execution_turns ?? 0), last_used_at: Number(row.last_used_at ?? 0),
+      last_used_at: Number(row.last_used_at ?? 0),
     }));
   }
 
-  skillUsageDetail(name: string, days: number, failureLimit = 10): JsonObject {
+  skillUsageDetail(name: string, days: number): JsonObject {
     const skillName = text(name);
     const cutoff = Date.now() / 1_000 - Math.max(1, Math.min(Math.trunc(days), 365)) * 86_400;
-    const safeFailureLimit = Math.max(1, Math.min(Math.trunc(failureLimit), 50));
     const daily = this.all<Record<string, unknown>>(`
-      SELECT date(started_at, 'unixepoch', 'localtime') AS day,
-             COALESCE(SUM(CASE WHEN kind = 'skill_activation' THEN calls ELSE 0 END), 0) AS activations,
-             COALESCE(SUM(CASE WHEN kind = 'skill_execution' THEN calls ELSE 0 END), 0) AS executions,
-             COALESCE(SUM(CASE WHEN kind = 'skill_execution' THEN errors ELSE 0 END), 0) AS failures
+      SELECT date(started_at, 'unixepoch', 'localtime') AS day, SUM(calls) AS activations
       FROM turn_usage_items
-      WHERE name = ? AND kind IN ('skill_activation', 'skill_execution') AND started_at >= ?
+      WHERE name = ? AND kind = 'skill_activation' AND started_at >= ?
       GROUP BY day ORDER BY day ASC
     `, skillName, cutoff);
-    const failures = this.all<Record<string, unknown>>(`
-      SELECT turn_id, session_id, started_at, detail
-      FROM turn_usage_items
-      WHERE name = ? AND kind = 'skill_execution' AND errors > 0 AND started_at >= ?
-      ORDER BY started_at DESC LIMIT ?
-    `, skillName, cutoff, safeFailureLimit);
     return {
       name: skillName,
-      daily: daily.map((row) => ({
-        day: text(row.day), activations: Number(row.activations ?? 0),
-        executions: Number(row.executions ?? 0), failures: Number(row.failures ?? 0),
-      })),
-      recent_failures: failures.map((row) => ({
-        turn_id: text(row.turn_id), session_id: text(row.session_id), started_at: Number(row.started_at ?? 0),
-        command: text(row.detail),
-      })),
+      daily: daily.map((row) => ({ day: text(row.day), activations: Number(row.activations ?? 0) })),
     };
   }
 
@@ -471,7 +416,14 @@ export class UsageStore {
           WHERE sequence > ?
           ORDER BY sequence ASC LIMIT ?
         ) AS selected ON selected.turn_id = item.turn_id
-        WHERE item.kind IN ('tool', 'skill_activation', 'skill_execution')
+        WHERE item.kind IN ('tool', 'skill_use')
+          -- Turns recorded before skill_use existed still upload their legacy skill rows,
+          -- so an upgrade does not drop usage that was waiting to sync. The server counts
+          -- every skill kind once per turn, so these rows never double count.
+          OR (item.kind IN ('skill_activation', 'skill_execution') AND NOT EXISTS (
+            SELECT 1 FROM turn_usage_items AS current
+            WHERE current.turn_id = item.turn_id AND current.kind = 'skill_use'
+          ))
         ORDER BY item.item_id ASC
       `, acknowledgedSequence, safeLimit);
       const itemCounts = new Map<string, number>();

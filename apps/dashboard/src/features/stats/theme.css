@@ -1,11 +1,9 @@
 @import "../../shared/cds-theme.css";
 
 /* CDS chart source: docs/design/cds/sources/embedded-text-8.original.md.
-   Cove blue/orange identify series; status colors only identify outcomes.
    Compact sans metrics and this page layout are LXE adaptations. */
 .activity-theme {
   --chart-blue: #2a78d6;
-  --chart-orange: #eb6834;
   --usage-grid: #e1e0d9;
   --chart-baseline: #c3c2b7;
   --rate-bad: var(--danger);
@@ -13,7 +11,6 @@
 }
 :root[data-theme="dark"] .activity-theme {
   --chart-blue: #3987e5;
-  --chart-orange: #d95926;
   --usage-grid: #2c2c2a;
   --chart-baseline: #383835;
 }
@@ -72,7 +69,6 @@
 .activity-theme .usage-chart-section {
   --series-turns: var(--chart-blue);
   --series-turns-line: var(--chart-blue);
-  --series-executions: var(--chart-orange);
   --chart-height: 200px;
   padding: 4px 0 16px;
 }

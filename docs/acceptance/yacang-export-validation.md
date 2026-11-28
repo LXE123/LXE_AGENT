@@ -27,7 +27,7 @@ XLSX 放在 `yacang/exports/<账号摘要>/<本次运行编号>/`。下载文件
 
 ```sh
 uv run --frozen pytest -q python/lxeskill_cli/tests/yacang python/lxeskill_cli/tests/lxeskill python/lxeskill_cli/tests/infra
-bun test apps/desktop/test/config-store.test.ts apps/desktop/test/config-store-repository.test.ts apps/desktop/test/ipc-validation.test.ts apps/dashboard/test/desktop/settings-model.test.ts packages/agent/runtime/test/tooling/lxeskill-command.test.ts packages/agent/runtime/test/tooling/skills.test.ts
+bun test apps/desktop/test/config-store.test.ts apps/desktop/test/config-store-repository.test.ts apps/desktop/test/ipc-validation.test.ts apps/dashboard/test/desktop/settings-model.test.ts packages/agent/runtime/test/tooling/skills.test.ts
 bun run dashboard:build
 ```
 

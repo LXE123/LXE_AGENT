@@ -26,7 +26,7 @@ test("a fork copies exactly through the selected terminal node, including cancel
   await store.appendMessage("parent", { role: "user", content: "first" }, "turn_input", "one");
   await store.appendMessage("parent", { role: "assistant", content: "answer" }, "assistant_response", "one");
   await store.recordTurn("parent", { turn_id: "one", status: "completed", started_at: 1, elapsed_ms: 20,
-    input_tokens: 82, output_tokens: 7, tool_calls: 0, api_calls: 1, tools: [], activations: [], executions: [] });
+    input_tokens: 82, output_tokens: 7, tool_calls: 0, api_calls: 1, tools: [], activations: [] });
   await store.appendTurnEnd("parent", "one", "completed");
   await store.appendMessage("parent", { role: "user", content: "second" }, "turn_input", "two");
   await expect(store.forkSession("parent")).rejects.toThrow("not finished");
@@ -113,7 +113,7 @@ test("v2 first-open migration preserves batched results, compaction offsets and 
   const { store, file, events } = await setup();
   await store.appendMessage("parent", { role: "user", content: "old" }, "turn_input", "one");
   await store.recordTurn("parent", { turn_id: "one", status: "completed", started_at: 1, elapsed_ms: 20,
-    input_tokens: 2, output_tokens: 3, tool_calls: 2, api_calls: 1, tools: [], activations: [], executions: [] });
+    input_tokens: 2, output_tokens: 3, tool_calls: 2, api_calls: 1, tools: [], activations: [] });
   await store.stop();
   const msg = { role: "tool" as const, content: ["a","b"].map(id => ({ type: "tool_result", tool_call_id: id, content: id })) };
   const original = [

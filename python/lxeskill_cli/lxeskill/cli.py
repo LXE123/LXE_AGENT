@@ -9,6 +9,7 @@ from typing import Any
 from lxeskill.business import ArtifactPathError, execute_module_json, load_catalog
 from lxeskill.browser import BrowserCliError, execute_browser_command
 from lxeskill.help import help_target, render_help
+from lxeskill.usage import with_command_usage
 from shared.infra.net import bootstrap_network_policy
 from shared.input_assets import InputAssetError, current_asset, promote_asset
 from shared.datasets import load_datasets
@@ -554,7 +555,7 @@ def _main(argv: list[str] | None = None) -> int:
         entry, remaining = _resolve_entry(arguments, catalog)
         activate_project_workspace()
         setup_logging()
-        return _run_entry(entry, remaining)
+        return with_command_usage(entry, lambda: _run_entry(entry, remaining))
     except LxeSkillError as exc:
         failure: dict[str, Any] = {
             "type": "result",

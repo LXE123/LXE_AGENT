@@ -17,16 +17,15 @@ export function createHomeFixture(initialMode = "ready") {
         }
         const empty = mode === "empty";
         if (operation === "stats.overview") return {
-          days: Number(input.days), peak_hour: null, daily: [], modules: [],
+          days: Number(input.days), peak_hour: null, daily: [],
           totals: { turns: empty ? 18 : 32, error_turns: 0, tool_calls: 180, llm_calls: 40,
-            input_tokens: 740000, output_tokens: 34868, skill_activations: empty ? 0 : 9, skill_executions: empty ? 0 : 12, skill_failures: empty ? 0 : 1 },
+            input_tokens: 740000, output_tokens: 34868, skill_activations: empty ? 0 : 9 },
         } satisfies StatsOverviewPayload;
         if (operation === "stats.skills.list") return { days: Number(input.days), items: empty ? [] : [
-          { name: "Amazon 备货算法参数管理", executions: 28, failures: 0 },
-          { name: "frontend-design", executions: 20, failures: 1 },
-          { name: "lark-sheets", executions: 12, failures: 2 },
-        ].map(skill => ({ ...skill, module: "default", activations: skill.executions, execution_turns: skill.executions,
-          duration_ms: 10000, last_used_at: now })) satisfies SkillStatPayload[] };
+          { name: "Amazon 备货算法参数管理", activations: 28 },
+          { name: "frontend-design", activations: 20 },
+          { name: "lark-sheets", activations: 12 },
+        ].map(skill => ({ ...skill, module: "default", last_used_at: now })) satisfies SkillStatPayload[] };
         const items = empty ? [] : sessions.slice(0, 6).map((session, index) => ({ ...session,
           title: titles[index]!, last_active_at: now - index * 18000,
           input_tokens: 480000 - index * 14000, output_tokens: 2868 + index * 1200,

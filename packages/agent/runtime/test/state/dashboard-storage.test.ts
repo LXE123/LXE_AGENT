@@ -160,7 +160,7 @@ describe("SqliteRuntimeStore dashboard queries", () => {
     await store.recordTurn("delete-me", {
       turn_id: "turn-delete", started_at: Date.now() / 1_000, status: "completed", elapsed_ms: 20,
       input_tokens: 2, output_tokens: 3, tool_calls: 1, api_calls: 1,
-      tools: [{ name: "read", calls: 1, errors: 0, duration_ms: 4 }], activations: [], executions: [],
+      tools: [{ name: "read", calls: 1, errors: 0, duration_ms: 4 }], activations: [],
     });
     expect(await store.resolveAttachment("delete-me", "attachment-1")).toMatchObject({ path: inputPath });
     expect(await store.resolveArtifact("delete-me", "artifact-1")).toMatchObject({ path: outputPath });
@@ -200,7 +200,7 @@ describe("SqliteRuntimeStore dashboard queries", () => {
       turn_id: "turn-1", started_at: Date.now() / 1_000, status: "completed", elapsed_ms: 20,
       input_tokens: 7, output_tokens: 3, tool_calls: 2, api_calls: 1,
       tools: [{ name: "read", calls: 2, errors: 0, duration_ms: 5 }],
-      activations: [], executions: [],
+      activations: [],
     });
 
     const listed = store.listSessions({ limit: 20, offset: 0, query: "s-1" });
@@ -343,7 +343,7 @@ describe("SqliteRuntimeStore dashboard queries", () => {
     await store.recordTurn("error-session", {
       turn_id: "turn-error", started_at: 100, status: "error", elapsed_ms: 2500,
       input_tokens: 1, output_tokens: 0, tool_calls: 0, api_calls: 1,
-      tools: [], activations: [], executions: [],
+      tools: [], activations: [],
     });
 
     expect(await store.loadMessages("error-session")).toEqual([{ role: "user", content: "try it" }]);
@@ -572,7 +572,7 @@ test("old sessions recover latest turn consumption separately from unknown occup
   for (let i=1;i<=2;i++) await store.recordTurn("s",{
     turn_id:`t${i}`,started_at:i,status:"completed",elapsed_ms:10,input_tokens:i*100,output_tokens:i*10,
     cache_read_input_tokens:i*20,cache_creation_input_tokens:0,tool_calls:0,api_calls:1,
-    tools:[],activations:[],executions:[],
+    tools:[],activations:[],
   });
   const detail=await store.sessionDetail("s",{limit:10});
   expect(detail?.context_display).toBeNull();

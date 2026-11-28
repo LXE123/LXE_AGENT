@@ -2,16 +2,12 @@ import { homedir } from "node:os";
 import { resolve } from "node:path";
 import type { JsonObject } from "@lxe/protocol";
 import { skillPathKey } from "../tooling/skill-files";
-import type { SkillActivationUsage, SkillExecutionUsage, ToolTurnUsage } from "../engine/types";
-
-export interface CommandSkill {
-  command: string;
-  skill: string;
-}
+import type { SkillActivationUsage, SkillUse, ToolTurnUsage } from "../engine/types";
+import { SkillCommandMatcher, type StatisticsShell } from "./skill-use-command";
 
 export interface TurnStatisticsOptions {
   directory: string;
-  commandSkills?: () => Promise<readonly CommandSkill[]>;
+  shell?: StatisticsShell;
   onError?: (error: unknown) => void;
 }
 
@@ -19,15 +15,23 @@ export interface TurnStatisticsOptions {
 export class TurnStatistics {
   private readonly tools = new Map<string, ToolTurnUsage>();
   private readonly reads: SkillActivationUsage[] = [];
-  private readonly commands: string[] = [];
+  private readonly uses = new Map<string, SkillUse>();
   private locations: Readonly<Record<string, string>> = {};
   private modules: Readonly<Record<string, string>> = {};
+  private commandMatcher = new SkillCommandMatcher(this.locations);
 
   constructor(private readonly options: TurnStatisticsOptions) {}
 
   setSkills(locations: Readonly<Record<string, string>>, modules: Readonly<Record<string, string>>): void {
     this.locations = locations;
     this.modules = modules;
+    this.commandMatcher = new SkillCommandMatcher(locations);
+  }
+
+  recordUse(skill: string, source: SkillUse["source"]): void {
+    if (source === "explicit" || !this.uses.has(skill)) {
+      this.uses.set(skill, { skill, module: this.modules[skill] ?? "", source });
+    }
   }
 
   observe(name: string, input: JsonObject, native = true): void {
@@ -41,10 +45,16 @@ export class TurnStatistics {
         const path = /^~[\\/]/u.test(requested) ? resolve(homedir(), requested.slice(2))
           : resolve(this.options.directory, requested);
         const skill = this.locations[skillPathKey(path)];
-        if (skill) this.reads.push({ skill, module: this.modules[skill] ?? "" });
+        if (skill) {
+          this.reads.push({ skill, module: this.modules[skill] ?? "" });
+          this.recordUse(skill, "implicit");
+        }
       }
-      if (name === "exec" && typeof input.command === "string" && /^\s*lxeskill(?:\.cmd)?\s+/iu.test(input.command)) {
-        this.commands.push(input.command.trim().replace(/^lxeskill\.cmd(?=\s)/iu, "lxeskill").replace(/\s+/gu, " "));
+      if (name === "exec" && typeof input.command === "string") {
+        const shell = this.options.shell ?? (process.platform === "win32" ? "powershell" : "posix");
+        const cwd = typeof input.cwd === "string" ? input.cwd : ".";
+        const skill = this.commandMatcher.match(input.command, cwd, this.options.directory, shell);
+        if (skill) this.recordUse(skill, "implicit");
       }
     } catch (error) { this.options.onError?.(error); }
   }
@@ -56,19 +66,7 @@ export class TurnStatistics {
     if (failed) tool.errors += 1;
   }
 
-  async snapshot(): Promise<{ tools: ToolTurnUsage[]; activations: SkillActivationUsage[]; executions: SkillExecutionUsage[] }> {
-    const executions: SkillExecutionUsage[] = [];
-    if (this.commands.length && this.options.commandSkills) {
-      try {
-        const entries = [...await this.options.commandSkills()].sort((a, b) => b.command.length - a.command.length);
-        for (const invocation of this.commands) {
-          const entry = entries.find(item => invocation === item.command || invocation.startsWith(`${item.command} `));
-          if (entry) executions.push({
-            skill: entry.skill, module: this.modules[entry.skill] ?? "", command: entry.command.slice("lxeskill ".length),
-          });
-        }
-      } catch (error) { this.options.onError?.(error); }
-    }
-    return { tools: [...this.tools.values()], activations: [...this.reads], executions };
+  snapshot() {
+    return { tools: [...this.tools.values()], activations: [...this.reads], uses: [...this.uses.values()] };
   }
 }
