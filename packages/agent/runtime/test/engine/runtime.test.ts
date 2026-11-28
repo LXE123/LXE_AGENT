@@ -843,7 +843,7 @@ describe("TypeScriptAgentRuntime", () => {
     await runtime.stop();
   });
 
-  test("counts every skill read request and command call independently of execution results", async () => {
+  test("counts repeated Skill reads and reports exec failures as tool usage", async () => {
     const skillPath = join(process.cwd(), "skills/amazon-replenishment/SKILL.md");
     const store = new MemoryStore();
     const tools = new ToolRegistry();
@@ -885,7 +885,6 @@ describe("TypeScriptAgentRuntime", () => {
     const runtime = new TypeScriptAgentRuntime({ permissionPolicy,
       store,
       tools,
-      commandSkills: async () => [{ command: "lxeskill replenish store resolve", skill: "amazon-replenishment" }],
       provider: { summarize, turn: async () => responses.shift()! },
       emitter: { emit: async (request) => { emitted.push(request); }, typing: async () => undefined },
       systemPrompt: (context) => {
@@ -921,11 +920,9 @@ describe("TypeScriptAgentRuntime", () => {
       skill: "amazon-replenishment",
       module: "replenishment",
     }, { skill: "amazon-replenishment", module: "replenishment" }]);
-    expect(store.metrics[0]?.executions).toEqual([]);
     expect(store.metrics[0]?.uses).toEqual([{
       skill: "amazon-replenishment", module: "replenishment", source: "implicit",
     }]);
-    // lxeskill commands stay in local command counts; the CLI owns their skill attribution.
     expect(store.metrics[1]?.uses).toEqual([]);
     expect(store.metrics[1]?.tools).toContainEqual(expect.objectContaining({
       name: "exec",
@@ -933,19 +930,7 @@ describe("TypeScriptAgentRuntime", () => {
       errors: 1,
     }));
     expect(store.metrics[1]?.activations).toEqual([]);
-    expect(store.metrics[1]?.executions).toEqual([
-      expect.objectContaining({
-        skill: "amazon-replenishment",
-        module: "replenishment",
-        command: "replenish store resolve",
-      }),
-      expect.objectContaining({
-        skill: "amazon-replenishment",
-        module: "replenishment",
-        command: "replenish store resolve",
-      }),
-    ]);
-    expect(JSON.stringify(store.metrics[1]?.executions)).not.toContain("--store-name");
+    expect(JSON.stringify(store.metrics[1])).not.toContain("--store-name");
     const failedToolResult = store.messages.flatMap((message) =>
       message.role === "tool" && Array.isArray(message.content)
         ? message.content.filter((block) => block.type === "tool_result" && block.is_error === true)
@@ -964,7 +949,7 @@ describe("TypeScriptAgentRuntime", () => {
     expect(displayedFailure?.error_block?.content).toBe("command failed");
   });
 
-  test("does not count static tool ownership as a skill execution", async () => {
+  test("does not count static tool ownership as a skill use", async () => {
     const store = new MemoryStore();
     const tools = new ToolRegistry();
     tools.register({
@@ -991,7 +976,7 @@ describe("TypeScriptAgentRuntime", () => {
     await runtime.runTurn(job(), handle());
     await runtime.stop();
 
-    expect(store.metrics[0]?.executions).toEqual([]);
+    expect(store.metrics[0]?.uses).toEqual([]);
   });
 
   test("keeps concurrent turns on the skill snapshot acquired at their own start", async () => {

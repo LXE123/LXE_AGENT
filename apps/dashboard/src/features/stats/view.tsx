@@ -1,6 +1,6 @@
 import { useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { KeyboardEvent as ReactKeyboardEvent } from "react";
-import { BookOpen, Coins, MessagesSquare, TriangleAlert, Wrench, Zap } from "lucide-react";
+import { BookOpen, Coins, MessagesSquare, TriangleAlert, Wrench } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 
 import {
@@ -10,7 +10,7 @@ import {
   useToolStatsQuery,
 } from "../../api/queries";
 import { EmptyState, FailureCount } from "../../shared/components";
-import { formatDate, formatDurationMs, formatNumber, skillTypeLabel } from "../../shared/format";
+import { formatDate, formatDurationMs, formatNumber } from "../../shared/format";
 import { useUiText } from "../../shared/i18n";
 import type { StatsOverviewPayload } from "../../api/payloads";
 
@@ -40,7 +40,6 @@ type ChartTip = {
   y: number;
   day: string;
   turns: number;
-  executions: number;
 };
 
 function fillDailyRange(
@@ -59,7 +58,7 @@ function fillDailyRange(
       String(date.getMonth() + 1).padStart(2, "0"),
       String(date.getDate()).padStart(2, "0")
     ].join("-");
-    filled.push(byDay.get(key) ?? { day: key, turns: 0, tool_calls: 0, executions: 0, failures: 0 });
+    filled.push(byDay.get(key) ?? { day: key, turns: 0, tool_calls: 0 });
   }
   return filled;
 }
@@ -91,19 +90,15 @@ function UsageDailyChart({
   }, [daily.length > 0]);
   useLayoutEffect(() => { setTip(null); }, [days, mode, daily]);
   const { max, ticks } = chartTicks(
-    Math.max(1, ...filled.map((entry) => Math.max(entry.turns, entry.executions)))
+    Math.max(1, ...filled.map((entry) => entry.turns))
   );
   const turnsPolylineRef = useRef<SVGPolylineElement | null>(null);
-  const executionsPolylineRef = useRef<SVGPolylineElement | null>(null);
   const previousLineRef = useRef<{
     count: number;
     max: number;
-    byDay: Map<string, { index: number; turns: number; executions: number }>;
+    byDay: Map<string, { index: number; turns: number }>;
   } | null>(null);
-  const renderedPointsRef = useRef<{
-    turns: [number, number][];
-    executions: [number, number][];
-  } | null>(null);
+  const renderedPointsRef = useRef<[number, number][] | null>(null);
 
   useLayoutEffect(() => {
     // FLIP: columns that survive a range change slide to their new positions.
@@ -150,33 +145,29 @@ function UsageDailyChart({
   }, [filled, days]);
 
   useLayoutEffect(() => {
-    // Morph the polylines between layouts: shared days glide from their old
+    // Morph the line between layouts: shared days glide from their old
     // coordinates to the new ones, days missing before rise from the baseline.
     if (mode !== "line") {
       previousLineRef.current = null;
       renderedPointsRef.current = null;
       return;
     }
-    type SeriesKey = "turns" | "executions";
     const next = {
       count: filled.length,
       max,
       byDay: new Map(
-        filled.map((entry, index) => [entry.day, { index, turns: entry.turns, executions: entry.executions }])
+        filled.map((entry, index) => [entry.day, { index, turns: entry.turns }])
       )
     };
-    const finalFor = (key: SeriesKey): [number, number][] =>
-      filled.map((entry, index): [number, number] => [
-        ((index + 0.5) / next.count) * 100,
-        100 - (entry[key] / next.max) * 100
-      ]);
-    const nextFinal = { turns: finalFor("turns"), executions: finalFor("executions") };
+    const nextFinal = filled.map((entry, index): [number, number] => [
+      ((index + 0.5) / next.count) * 100,
+      100 - (entry.turns / next.max) * 100
+    ]);
     const previous = previousLineRef.current;
     previousLineRef.current = next;
     const turnsLine = turnsPolylineRef.current;
-    const executionsLine = executionsPolylineRef.current;
     const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-    if (!previous || !turnsLine || !executionsLine || reducedMotion) {
+    if (!previous || !turnsLine || reducedMotion) {
       renderedPointsRef.current = nextFinal;
       return;
     }
@@ -184,34 +175,23 @@ function UsageDailyChart({
     // going from the on-screen mid-flight points instead of restarting.
     const rendered = renderedPointsRef.current;
     const sameCount = previous.count === next.count;
-    const startFor = (key: SeriesKey): [number, number][] =>
-      filled.map((entry, index): [number, number] => {
-        if (sameCount && rendered?.[key][index]) return rendered[key][index];
-        const old = previous.byDay.get(entry.day);
-        return old
-          ? [((old.index + 0.5) / previous.count) * 100, 100 - (old[key] / previous.max) * 100]
-          : [((index + 0.5) / next.count) * 100, 100];
-      });
-    const start = { turns: startFor("turns"), executions: startFor("executions") };
+    const start = filled.map((entry, index): [number, number] => {
+      if (sameCount && rendered?.[index]) return rendered[index];
+      const old = previous.byDay.get(entry.day);
+      return old
+        ? [((old.index + 0.5) / previous.count) * 100, 100 - (old.turns / previous.max) * 100]
+        : [((index + 0.5) / next.count) * 100, 100];
+    });
     let raf = 0;
     const startTime = performance.now();
     const step = (now: number) => {
       const progress = Math.min(1, (now - startTime) / FLIP_DURATION_MS);
       const eased = 1 - (1 - progress) ** 3;
-      const current = { turns: [] as [number, number][], executions: [] as [number, number][] };
-      const points = (key: SeriesKey) =>
-        filled
-          .map((_, index) => {
-            const [startX, startY] = start[key][index];
-            const [endX, endY] = nextFinal[key][index];
-            const x = startX + (endX - startX) * eased;
-            const y = startY + (endY - startY) * eased;
-            current[key].push([x, y]);
-            return `${x.toFixed(3)},${y.toFixed(3)}`;
-          })
-          .join(" ");
-      turnsLine.setAttribute("points", points("turns"));
-      executionsLine.setAttribute("points", points("executions"));
+      const current = start.map(([startX, startY], index): [number, number] => {
+        const [endX, endY] = nextFinal[index];
+        return [startX + (endX - startX) * eased, startY + (endY - startY) * eased];
+      });
+      turnsLine.setAttribute("points", current.map(([x, y]) => `${x.toFixed(3)},${y.toFixed(3)}`).join(" "));
       renderedPointsRef.current = current;
       if (progress < 1) raf = requestAnimationFrame(step);
     };
@@ -224,7 +204,6 @@ function UsageDailyChart({
   }
   const labelCount = Math.max(2, Math.min(15, Math.floor(chartWidth / 56)));
   const labelStep = Math.max(1, Math.ceil(filled.length / labelCount));
-  // CDS chart marks cap at 24px; keep the 2px gap between paired series.
   const barMaxWidth = days <= 7 ? 24 : days <= 30 ? 16 : 8;
   // Column centers in percent of the chart width, so the SVG overlay can use a
   // squashed 100x100 viewBox and still land on the right day.
@@ -237,14 +216,13 @@ function UsageDailyChart({
       })
       .join(" ");
   const turnsLinePoints = linePoints(filled.map((entry) => entry.turns));
-  const executionsLinePoints = linePoints(filled.map((entry) => entry.executions));
   const showTip = (
     element: HTMLButtonElement,
     entry: StatsOverviewPayload["daily"][number]
   ) => {
     const rect = element.getBoundingClientRect();
     const x = Math.max(100, Math.min(window.innerWidth - 100, rect.left + rect.width / 2));
-    setTip({ x, y: rect.top, day: entry.day, turns: entry.turns, executions: entry.executions });
+    setTip({ x, y: rect.top, day: entry.day, turns: entry.turns });
   };
   const moveFocus = (event: ReactKeyboardEvent<HTMLButtonElement>, index: number) => {
     const next = event.key === "ArrowRight" ? Math.min(index + 1, filled.length - 1)
@@ -274,7 +252,7 @@ function UsageDailyChart({
             data-day={entry.day}
             key={entry.day}
             tabIndex={index === (tabStop < 0 ? filled.length - 1 : tabStop) ? 0 : -1}
-            aria-label={`${entry.day}, ${t.usage.dailyLegendTurns}: ${formatNumber(entry.turns)}, ${t.usage.dailyLegendExecutions}: ${formatNumber(entry.executions)}`}
+            aria-label={`${entry.day}, ${t.usage.dailyLegendTurns}: ${formatNumber(entry.turns)}`}
             onFocus={(event) => { setFocusedDay(entry.day); showTip(event.currentTarget, entry); }}
             onBlur={() => setTip(null)}
             onClick={(event) => showTip(event.currentTarget, entry)}
@@ -284,24 +262,14 @@ function UsageDailyChart({
           >
             <span className="usage-chart-bars" aria-hidden="true">
               {mode === "bars" ? (
-                <>
-                  <span
-                    className="usage-chart-bar turns"
-                    style={{
-                      height: `${Math.max(entry.turns > 0 ? 2 : 0, (entry.turns / max) * 100)}%`,
-                      maxWidth: barMaxWidth,
-                      animationDelay: `${Math.min(index * 14, 420)}ms`
-                    }}
-                  />
-                  <span
-                    className="usage-chart-bar executions"
-                    style={{
-                      height: `${Math.max(entry.executions > 0 ? 2 : 0, (entry.executions / max) * 100)}%`,
-                      maxWidth: barMaxWidth,
-                      animationDelay: `${Math.min(index * 14 + 40, 460)}ms`
-                    }}
-                  />
-                </>
+                <span
+                  className="usage-chart-bar turns"
+                  style={{
+                    height: `${Math.max(entry.turns > 0 ? 2 : 0, (entry.turns / max) * 100)}%`,
+                    maxWidth: barMaxWidth,
+                    animationDelay: `${Math.min(index * 14, 420)}ms`
+                  }}
+                />
               ) : null}
             </span>
             <span className="usage-chart-label" aria-hidden="true">
@@ -324,28 +292,17 @@ function UsageDailyChart({
               ref={turnsPolylineRef}
               vectorEffect="non-scaling-stroke"
             />
-            <polyline
-              className="executions"
-              points={executionsLinePoints}
-              ref={executionsPolylineRef}
-              vectorEffect="non-scaling-stroke"
-            />
           </svg>
           {days <= 30 ? (
             <div aria-hidden="true" className="usage-chart-points">
               {filled.map((entry, index) => {
                 const x = ((index + 0.5) / filled.length) * 100;
                 return (
-                  <span key={entry.day}>
-                    <i
-                      className="usage-chart-point turns"
-                      style={{ left: `${x}%`, top: `${100 - (entry.turns / max) * 100}%` }}
-                    />
-                    <i
-                      className="usage-chart-point executions"
-                      style={{ left: `${x}%`, top: `${100 - (entry.executions / max) * 100}%` }}
-                    />
-                  </span>
+                  <i
+                    key={entry.day}
+                    className="usage-chart-point turns"
+                    style={{ left: `${x}%`, top: `${100 - (entry.turns / max) * 100}%` }}
+                  />
                 );
               })}
             </div>
@@ -359,11 +316,6 @@ function UsageDailyChart({
             <i className="usage-legend-dot turns" />
             {t.usage.dailyLegendTurns}
             <b>{formatNumber(tip.turns)}</b>
-          </span>
-          <span>
-            <i className="usage-legend-dot executions" />
-            {t.usage.dailyLegendExecutions}
-            <b>{formatNumber(tip.executions)}</b>
           </span>
         </div>
       ) : null}
@@ -379,7 +331,7 @@ function StatsSkeleton() {
     <div className="usage-page usage-skeleton" aria-busy="true" aria-label={t.usage.loading}>
       <span className="usage-skel-block usage-skel-range" />
       <div className="usage-summary-strip">
-        {Array.from({ length: 6 }, (_, index) => (
+        {Array.from({ length: 5 }, (_, index) => (
           <div className="usage-skel-cell" key={index}>
             <span className="usage-skel-block usage-skel-label" />
             <span className="usage-skel-block usage-skel-value" />
@@ -458,7 +410,6 @@ export function StatsView({ enabled = true }: { enabled?: boolean }) {
     { label: t.usage.totalsErrorTurns, value: formatNumber(totals.error_turns), tone: dangerTone(totals.error_turns), icon: TriangleAlert },
     { label: t.usage.totalsToolCalls, value: formatNumber(totals.tool_calls), tone: "", icon: Wrench },
     { label: t.usage.totalsReads, value: formatNumber(totals.skill_activations ?? 0), tone: "", icon: BookOpen },
-    { label: t.usage.totalsExecutions, value: formatNumber(totals.skill_executions), tone: "", icon: Zap },
     { label: t.usage.totalsTokens, value: formatNumber(totals.input_tokens + totals.output_tokens), tone: "", icon: Coins }
   ];
 
@@ -503,7 +454,6 @@ export function StatsView({ enabled = true }: { enabled?: boolean }) {
           <div className="usage-chart-side">
             <div className="usage-chart-legend">
               <span><i className="usage-legend-dot turns" />{t.usage.dailyLegendTurns}</span>
-              <span><i className="usage-legend-dot executions" />{t.usage.dailyLegendExecutions}</span>
             </div>
             <div className="usage-range" role="group" aria-label={t.usage.chartModeAria}>
               <button
@@ -529,37 +479,6 @@ export function StatsView({ enabled = true }: { enabled?: boolean }) {
       </section>
 
       <div className="usage-breakdowns">
-        {overview.modules.length ? (
-          <details className="usage-section usage-breakdown">
-            <summary>
-              <span>{t.usage.modulesTitle}</span>
-              <small>{t.common.countItems(formatNumber(overview.modules.length), t.usage.modulesTitle)}</small>
-            </summary>
-            <div className="table-shell">
-              <table className="session-table usage-table">
-                <thead>
-                  <tr>
-                    <th>{t.usage.columnName}</th>
-                    <th>{t.usage.columnSkills}</th>
-                    <th>{t.usage.columnTurns}</th>
-                    <th>{t.usage.columnExecutions}</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {overview.modules.map((module) => (
-                    <tr key={module.module || "-"}>
-                      <td>{skillTypeLabel(module.module, t)}</td>
-                      <td>{formatNumber(module.skills)}</td>
-                      <td>{formatNumber(module.turns)}</td>
-                      <td>{formatNumber(module.executions)}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </details>
-        ) : null}
-
         {skillStats.length ? (
           <details className="usage-section usage-breakdown">
             <summary>
@@ -572,8 +491,6 @@ export function StatsView({ enabled = true }: { enabled?: boolean }) {
                   <tr>
                     <th>{t.usage.columnName}</th>
                     <th>{t.usage.columnActivations}</th>
-                    <th>{t.usage.columnExecutions}</th>
-                    <th>{t.usage.columnTurns}</th>
                     <th>{t.usage.columnLastUsed}</th>
                   </tr>
                 </thead>
@@ -582,8 +499,6 @@ export function StatsView({ enabled = true }: { enabled?: boolean }) {
                     <tr key={skill.name}>
                       <td title={skill.name}>{t.skillDisplayName(skill.name)}</td>
                       <td>{formatNumber(skill.activations)}</td>
-                      <td>{formatNumber(skill.executions)}</td>
-                      <td>{formatNumber(skill.execution_turns)}</td>
                       <td>{formatDate(skill.last_used_at)}</td>
                     </tr>
                   ))}

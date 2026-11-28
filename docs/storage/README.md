@@ -23,7 +23,7 @@ SQLite 保存适合查询和更新的状态、索引及统计，消息和工具�
 | `db/gateway.sqlite3` | Electron Main / Gateway | Gateway session、平台来源和 response route |
 | `db/agent.sqlite3` | 私有 `agent-cli` / Runtime | Agent session（含独立的 `permission_mode`）、usage、模型信息和 transcript 索引 |
 | `db/exec-sessions/<thread-id>/agent.sqlite3` | 一次性 `agent-cli exec` / Runtime | 单个 CLI thread 的 session、usage、模型信息和 transcript 索引 |
-| `db/lxeskill.sqlite3` | lxeskillCLI | 业务状态与可丢弃的紫鸟会话缓存；浏览器真实状态以紫鸟客户端实时接口为准 |
+| `db/lxeskill.sqlite3` | lxeskillCLI | 业务状态、业务命令调用记录及上传进度、可丢弃的紫鸟会话缓存 |
 
 session、route 和 usage 更新使用各自数据库事务。Gateway 创建 session 时，会同时让 Gateway store 和 Agent store 建立对应记录；response route 留在 Gateway，usage 留在 Agent。两边通过稳定的 session id 关联，不通过共享 SQLite 表通信。
 
@@ -87,7 +87,7 @@ JSON、JSONL 和业务文件按各自格式及目录规则管理。文件放在 
 
 ## 排障顺序
 
-消息路由错误先看 `gateway.sqlite3` 和 `sessions.json`；模型历史错误看 transcript 与 `context_patch`；后台任务或 usage 错误看 `agent.sqlite3`；紫鸟会话状态错误再看 `lxeskill.sqlite3`。
+消息路由错误先看 `gateway.sqlite3` 和 `sessions.json`。模型历史错误看 transcript 与 `context_patch`，后台任务或回合用量错误看 `agent.sqlite3`。紫鸟会话缓存和业务命令统计看 `lxeskill.sqlite3`。见 [业务命令调用统计](../lxeskill-cli/usage-statistics.md)。
 
 当前路径装配见 [Desktop Gateway](../../apps/desktop/src/main/gateway/desktop-gateway.ts)，Transcript 实现见 [Runtime storage](../../packages/agent/runtime/src/state/storage.ts)。
 Machine identity 的唯一实现见 [Core machine identity](../../packages/foundation/core/src/machine-identity.ts)；移动代码不会迁移或重写现有 JSON 文件。

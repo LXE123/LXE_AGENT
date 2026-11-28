@@ -10,13 +10,11 @@ export type HeatmapCell = {
 export type UsageSummary = {
   turns: number;
   toolCalls: number;
-  executions: number;
   reads: number;
   activeDays: number;
   currentStreak: number;
   longestStreak: number;
   peakHour: number | null;
-  topModule: { module: string; executions: number } | null;
   heatmap: HeatmapCell[];
 };
 
@@ -30,9 +28,9 @@ export function localDayKey(date: Date): string {
   return `${year}-${month}-${day}`;
 }
 
-function heatmapLevel(executions: number, busiest: number): HeatmapCell["level"] {
-  if (executions <= 0 || busiest <= 0) return 0;
-  const share = executions / busiest;
+function heatmapLevel(turns: number, busiest: number): HeatmapCell["level"] {
+  if (turns <= 0 || busiest <= 0) return 0;
+  const share = turns / busiest;
   if (share > 0.75) return 4;
   if (share > 0.5) return 3;
   if (share > 0.25) return 2;
@@ -77,18 +75,14 @@ export function usageSummary(
   }
 
   const { totals } = overview;
-  const attempted = totals.skill_executions;
-  const [topModule] = overview.modules;
   return {
     turns: totals.turns,
     toolCalls: totals.tool_calls,
-    executions: attempted,
     reads: totals.skill_activations ?? 0,
     activeDays: heatmap.filter((cell) => cell.turns > 0).length,
     currentStreak,
     longestStreak,
     peakHour: overview.peak_hour,
-    topModule: topModule ? { module: topModule.module, executions: topModule.executions } : null,
     heatmap,
   };
 }

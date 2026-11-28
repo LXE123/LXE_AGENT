@@ -44,7 +44,6 @@ When you receive an instruction:
 - **测试与验证路径**：测试必须从仓库根目录运行（从子目录运行会因相对路径假失败）。
   - Python 定向测试：`uv run --frozen pytest <测试文件或目录>`
   - JS/TS 定向测试：`bun test <测试文件或目录>`
-  - 命令契约联动测试：agentcli 的统计适配通过 `lxeskill list` 查询命令归属。修改命令契约时，两端定向测试都要跑：`uv run --frozen pytest python/lxeskill_cli/tests/lxeskill python/lxeskill_cli/tests/infra` 加 `bun test packages/agent/runtime/test/tooling/lxeskill-command.test.ts`。
 - **警惕假通过（验证必须拿真实结果）**：管道会吞掉退出码（`cmd | tail` 的退出码是 tail 的，不是 cmd 的——用 `set -o pipefail` 或先落盘再查 `$?`）；扫描类校验匹配到空集也会"通过"（cwd 漂移、glob 写错时扫了 0 个文件照样报绿）。报告通过之前，先确认命令真的执行了、扫描真的扫到了东西。
 - **验证范围**：按改动的实际影响范围完成必要验证，局部改动优先做定向检查；影响广泛或难以界定时再扩大验证范围，必要时运行全量验证。合并前确认验证仍适用于当前代码和最新基线，避免无变化的重复验证。
 - **Obsidian 协作**：需要访问 Obsidian 时，先发现当前机器上的 CLI 路径，并用 `obsidian vaults` 确认 Vault，不要写死安装位置或笔记目录。若 CLI 已安装且应用正在运行，但沙箱因看不到应用 IPC 而误报未运行，申请在沙箱外执行，并将命令前缀限制为实际 CLI 路径；若未安装或未启用 CLI，明确说明，并在已知 Vault 路径时回退为直接读写 Markdown，否则询问用户。默认只读；只有用户明确要求维护笔记时才执行写操作，不执行 `eval` 或插件管理命令。

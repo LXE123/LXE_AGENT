@@ -82,7 +82,6 @@ test("Scoped desktop environment uploads natively without sending or logging leg
     output_tokens: 3,
     tools: [],
     activations: [],
-    executions: [],
   });
   const intervals: unknown[] = [];
   const initialTasks: Array<() => void> = [];

@@ -10,7 +10,7 @@ Registry 保存工具定义和 handler，Runtime 按当前回合及步骤生成�
 
 - Native direct tools：普通会话使用 read/write/edit/send_files/exec/wait 等内置工具。列目录、找文件和搜索内容默认通过 `exec`。
 - Desktop interaction：`ask_user_question` 只对真实来源为桌面的当前回合开放，返回答案后继续同一工具调用。
-- 外部命令：模型通过 `exec` 调用 `lxeskill`、`lark-cli` 等 CLI，不注册为独立的 model tool。lxeskill 的调用契约与统计归属查询见 [业务命令](tool_execution.md#lxeskill-业务命令)和 [Usage](tool_execution.md#usage)。
+- 外部命令：模型通过 `exec` 调用 `lxeskill`、`lark-cli` 等 CLI，不注册为独立的 model tool。业务命令调用和工具统计见 [业务命令](tool_execution.md#lxeskill-业务命令)和 [Usage](tool_execution.md#usage)。
 - MCP tools：从已启用的服务动态发现，暴露方式由服务的 [exposure 配置](mcp.md#工具适配与上下文的边界) 决定。桌面宿主还注入 [桌面 MCP](../../../desktop/automations.md)，仅向桌面对话提供定时任务管理工具。
 - Skill-owned tools：只有允许的 skill 被激活后才暴露。
 - `tool_search`：当前平台启用了 `deferred` 服务时出现。它搜索尚未加载的工具，命中后从下一次模型请求起可以直接调用；续聊和分叉按当前分支恢复已加载的工具。
@@ -37,7 +37,7 @@ Registry 保存工具定义和 handler，Runtime 按当前回合及步骤生成�
 
 - [`registry.ts`](../../../../packages/agent/runtime/src/tooling/registry.ts)：工具注册与 exposure state。
 - [`coding/register.ts`](../../../../packages/agent/runtime/src/tooling/coding/register.ts)：文件、搜索、exec/wait 和文件交付工具的装配入口。
-- [`statistics/`](../../../../packages/agent/runtime/src/statistics/)：独立的调用统计与 `lxeskill list` 归属查询。
+- [`statistics/`](../../../../packages/agent/runtime/src/statistics/)：工具调用和 Skill 目录使用统计。
 - [`mcp.ts`](../../../../../packages/agent/runtime/src/tooling/mcp.ts)：MCP 公共入口，实现拆分在同级 `mcp/` 目录。
 - [`skills.ts`](../../../../packages/agent/runtime/src/tooling/skills.ts)：Skill 发现与提示词内容。
 - [`runtime-host.ts`](../../../../apps/agent-cli/src/runtime-host.ts)：工具、MCP、工作区和 CLI scope 的宿主装配。

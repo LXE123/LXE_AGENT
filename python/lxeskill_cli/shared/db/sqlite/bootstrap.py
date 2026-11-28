@@ -1,12 +1,7 @@
 from __future__ import annotations
 
 def ensure_ziniao_schema(conn) -> None:
-    """Create the Python-owned ziniao session table on demand.
-
-    The Bun gateway bootstraps every table it owns; this is the only table
-    owned by the Python side, so standalone CLI entrypoints create it on
-    demand without touching Bun-owned runtime tables.
-    """
+    """Create the Python-owned ziniao session table on demand."""
     _create_ziniao_sessions(conn)
 
 

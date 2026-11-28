@@ -150,3 +150,10 @@ test("image details retain text and metadata without serializing model image byt
   }
   expect(content[1]?.source?.data).toBe("image-bytes-fixture");
 });
+
+test("exec cards retain the actual command without inferring a business skill", () => {
+  const command = "lxeskill fba shipment prepare-upload --context-file report.json";
+  const step = buildToolDisplayStep("tool-1", "exec", { command }, "running", 0);
+  expect(step.title).toBe("Run command");
+  expect(step.detail).toBe(command);
+});

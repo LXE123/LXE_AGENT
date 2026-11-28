@@ -1256,8 +1256,8 @@ export class SqliteRuntimeStore implements RuntimeStore {
     return this.usage().skillUsageStats(days, name);
   }
 
-  skillUsageDetail(name: string, days: number, failureLimit = 10): JsonObject {
-    return this.usage().skillUsageDetail(name, days, failureLimit);
+  skillUsageDetail(name: string, days: number): JsonObject {
+    return this.usage().skillUsageDetail(name, days);
   }
 
   exportTurnUsage(days: number, limit = 5_000): JsonObject[] {

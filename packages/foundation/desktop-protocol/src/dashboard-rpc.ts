@@ -438,10 +438,6 @@ export type SkillStatPayload = {
   name: string;
   module: string;
   activations: number;
-  executions: number;
-  failures: number;
-  execution_turns: number;
-  duration_ms: number;
   last_used_at: number;
 };
 
@@ -451,14 +447,6 @@ export type SkillUsageDetailPayload = {
   daily: Array<{
     day: string;
     activations: number;
-    executions: number;
-    failures: number;
-  }>;
-  recent_failures: Array<{
-    turn_id: string;
-    session_id: string;
-    started_at: number;
-    command: string;
   }>;
 };
 
@@ -483,23 +471,11 @@ export type StatsOverviewPayload = {
     input_tokens: number;
     output_tokens: number;
     skill_activations?: number;
-    skill_executions: number;
-    skill_failures: number;
   };
-  modules: Array<{
-    module: string;
-    skills: number;
-    turns: number;
-    executions: number;
-    failures: number;
-    duration_ms: number;
-  }>;
   daily: Array<{
     day: string;
     turns: number;
     tool_calls: number;
-    executions: number;
-    failures: number;
   }>;
 };
 

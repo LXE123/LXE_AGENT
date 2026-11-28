@@ -16,20 +16,23 @@ def database_path() -> Path:
     return state_root() / "db" / "lxeskill.sqlite3"
 
 
-def connect() -> sqlite3.Connection:
+def connect(*, timeout: float = 5.0) -> sqlite3.Connection:
     path = database_path()
     path.parent.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(str(path), timeout=5.0)
-    conn.row_factory = sqlite3.Row
-    conn.execute("PRAGMA foreign_keys = ON")
-    conn.execute("PRAGMA busy_timeout = 5000")
-    conn.execute("PRAGMA journal_mode = WAL")
+    conn = sqlite3.connect(str(path), timeout=timeout)
+    try:
+        conn.row_factory = sqlite3.Row
+        conn.execute("PRAGMA foreign_keys = ON")
+        conn.execute("PRAGMA journal_mode = WAL")
+    except Exception:
+        conn.close()
+        raise
     return conn
 
 
 @contextmanager
-def connection_scope() -> Iterator[sqlite3.Connection]:
-    conn = connect()
+def connection_scope(*, timeout: float = 5.0) -> Iterator[sqlite3.Connection]:
+    conn = connect(timeout=timeout)
     try:
         yield conn
         conn.commit()

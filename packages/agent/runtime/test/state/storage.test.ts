@@ -489,7 +489,7 @@ describe("SqliteRuntimeStore", () => {
     await store.stop();
   });
 
-  test("resets context and records independent skill activation and execution usage", async () => {
+  test("resets context and reports skill reads", async () => {
     const root = mkdtempSync(join(tmpdir(), "lxe-runtime-lifecycle-store-"));
     roots.push(root);
     const databasePath = join(root, "local_agent.sqlite3");
@@ -504,22 +504,15 @@ describe("SqliteRuntimeStore", () => {
       turn_id: "turn-1", started_at: startedAt, status: "completed", elapsed_ms: 40,
       input_tokens: 1, output_tokens: 1, tool_calls: 2, api_calls: 1, tools: [],
       activations: [{ skill: "demo", module: "replenishment" }],
-      executions: [
-        { skill: "demo", module: "replenishment", command: "replenish store resolve", success: true, duration_ms: 10 },
-        { skill: "demo", module: "replenishment", command: "replenish store resolve", success: false, duration_ms: 20 },
-      ],
     });
     await store.recordTurn("s1", {
       turn_id: "turn-2", started_at: startedAt + 1, status: "completed", elapsed_ms: 30,
       input_tokens: 1, output_tokens: 1, tool_calls: 1, api_calls: 1, tools: [], activations: [],
-      executions: [
-        { skill: "demo", module: "replenishment", command: "replenish store resolve", success: true, duration_ms: 30 },
-      ],
     });
     await store.recordTurn("s1", {
       turn_id: "turn-3", started_at: startedAt + 2, status: "completed", elapsed_ms: 1,
       input_tokens: 0, output_tokens: 0, tool_calls: 0, api_calls: 0, tools: [],
-      activations: [{ skill: "activation-only", module: "amazon_fba" }], executions: [],
+      activations: [{ skill: "activation-only", module: "amazon_fba" }],
     });
 
     const legacy = new Database(databasePath);
@@ -536,32 +529,21 @@ describe("SqliteRuntimeStore", () => {
     }
 
     expect(store.skillUsageStats(30, "demo")).toEqual([{
-      name: "demo", module: "replenishment", activations: 1, executions: 3,
-      failures: 1, execution_turns: 2, duration_ms: 60, last_used_at: startedAt + 1,
+      name: "demo", module: "replenishment", activations: 1, last_used_at: startedAt,
     }]);
     expect(store.skillUsageStats(30, "activation-only")).toEqual([expect.objectContaining({
-      name: "activation-only", module: "amazon_fba", activations: 1, executions: 0,
-      failures: 0, execution_turns: 0, duration_ms: 0,
+      name: "activation-only", module: "amazon_fba", activations: 1,
     })]);
     expect(store.skillUsageStats(30, "legacy")).toEqual([]);
     expect(store.usageOverview(30)).toMatchObject({
-      totals: { skill_executions: 3, skill_failures: 1 },
-      modules: [{
-        module: "replenishment", skills: 1, turns: 2, executions: 3, failures: 1, duration_ms: 60,
-      }],
-      daily: [expect.objectContaining({ executions: 3, failures: 1 })],
+      totals: { skill_activations: 2, turns: 3 },
     });
     expect(store.skillUsageDetail("demo", 30)).toMatchObject({
-      name: "demo",
-      daily: [expect.objectContaining({ activations: 1, executions: 3, failures: 1 })],
-      recent_failures: [{
-        turn_id: "turn-1", session_id: "s1", started_at: startedAt, command: "replenish store resolve",
-      }],
+      name: "demo", daily: [expect.objectContaining({ activations: 1 })],
     });
     const exported = store.exportTurnUsage(30);
     expect(exported.flatMap((turn) => Array.isArray(turn.items) ? turn.items : [])).toEqual(expect.arrayContaining([
       expect.objectContaining({ kind: "skill_activation", name: "demo", module: "replenishment" }),
-      expect.objectContaining({ kind: "skill_execution", name: "demo", detail: "replenish store resolve" }),
     ]));
     expect(JSON.stringify(exported)).not.toContain('"kind":"skill"');
     expect(JSON.stringify(exported)).not.toContain("legacy command");
@@ -575,7 +557,6 @@ describe("SqliteRuntimeStore", () => {
       ],
     });
     expect(JSON.stringify(firstBatch)).not.toContain("session_id");
-    expect(JSON.stringify(firstBatch)).not.toContain("replenish store resolve");
     store.acknowledgeTurnUsage("https://cloud.example", 2);
     expect(store.exportTurnUsageBatch("https://cloud.example", startedAt - 1, 2).turns)
       .toEqual([expect.objectContaining({ sequence: 3, turn_id: "turn-3" })]);
@@ -587,7 +568,7 @@ describe("SqliteRuntimeStore", () => {
     await store.recordTurn("s1", {
       turn_id: "turn-4", started_at: startedAt + 3, status: "completed", elapsed_ms: 1,
       input_tokens: 0, output_tokens: 0, tool_calls: 0, api_calls: 0,
-      tools: [], activations: [], executions: [],
+      tools: [], activations: [],
     });
     expect(store.exportTurnUsageBatch("https://cloud.example", startedAt - 1, 2).turns)
       .toEqual([expect.objectContaining({ sequence: 4, turn_id: "turn-4" })]);
@@ -608,7 +589,6 @@ describe("SqliteRuntimeStore", () => {
       input_tokens: 1, output_tokens: 1, tool_calls: 1, api_calls: 1,
       tools: [{ name: "lxeskill:demo", calls: 1, errors: 0, duration_ms: 4 }],
       activations: [{ skill: "demo", module: "test" }],
-      executions: [{ skill: "demo", module: "test", command: "demo run", success: true, duration_ms: 4 }],
     });
 
     expect(store.listSessions({ limit: 10, offset: 0 }).items).toHaveLength(1);

@@ -51,14 +51,9 @@ lxeskillCLI 的命令契约由其自身维护；调用方通过 `lxeskill list`�
 - 原生 `read` 或已识别的 shell 读取命令读取该 Skill 的 `SKILL.md`，包括只读其中几行。
 - `exec` 运行该 Skill 的 `scripts/` 下的脚本。每次 `exec` 只取第一个匹配的命令段；`||` 右边的备用命令通常不会执行，不计入，直到遇到 `&&`、`;` 或换行。
 
-这里只识别对任何 Skill 都通用的信号。lxeskill 等业务 CLI 的命令调用不计入使用次数；CLI 自己最清楚命令属于哪个 Skill，应由 CLI 自己记录。
+agentcli 只按上述 Skill 目录信号判断使用情况。桌面统计页另行累计原生 `read` 对已发现的 `SKILL.md` 的读取请求（`skill_activation`），同一回合重复读取会累计多次。
 
-本地统计页另行展示两项调用次数：
-
-- 每次原生 `read` 的目标匹配本轮发现的 `SKILL.md`，就计一次 **Skill 读取调用**，重复读取重复计数。
-- 对直接以 `lxeskill` 或 `lxeskill.cmd` 开头的 `exec` 请求做简单识别；回合结束时通过公开 `lxeskill list` 查询命令归属，计入相应 Skill 的 **命令调用次数**。不解析所有 shell 包装形式，也不把任意命令猜成 Skill 调用。
-
-两者都是调用次数，不代表读取成功或业务成功。`/skill-name` 的直接注入不是一次原生 `read`；工具激活也不是独立的统计计数。归属查询失败保留诊断，不拦截工具执行。
+业务命令由 lxeskillCLI 独立记录，调用次数在服务端看板查看。见 [业务命令调用统计](../../lxeskill-cli/usage-statistics.md)。
 
 上传使用按回合去重的 `skill_use`。实现见 [TurnStatistics](../../../packages/agent/runtime/src/statistics/turn-statistics.ts)，上传与恢复见 [统计上传](../runtime/native-statistics-upload.md)。
 

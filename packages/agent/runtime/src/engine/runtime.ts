@@ -1,5 +1,5 @@
 import { directoryRevisions, latestPromptState, sameTools, withMcpDirectory } from "./prompt-state";
-import { TurnStatistics, type CommandSkill } from "../statistics/turn-statistics";
+import { TurnStatistics } from "../statistics/turn-statistics";
 import type { SessionTitleService } from "../state/session-title";
 import { ExecutionPaths } from "../permissions/execution-paths";
 import { workspaceArtifactRoot } from "@lxe/core";
@@ -92,7 +92,6 @@ export interface TypeScriptAgentRuntimeOptions {
   onToolResult?: (session: string) => void;
   skillSnapshot?: (workspace: WorkspaceContext) => RuntimeSkillSnapshot;
   workspaceInstances?: RuntimeWorkspaceInstanceProvider;
-  commandSkills?: () => Promise<readonly CommandSkill[]>;
   emitter: RuntimeEmitter;
   onSessionChanged?: (
     sessionId: string,
@@ -308,7 +307,6 @@ export class TypeScriptAgentRuntime implements AgentRuntime {
     if (!provider) throw new Error("runtime provider is not configured");
     const statistics = new TurnStatistics({
       directory: workspace.directory,
-      ...(this.options.commandSkills ? { commandSkills: this.options.commandSkills } : {}),
       onError: error => this.logger.warn("turn_statistics_failed", { error }),
     });
     const descriptor = providerSnapshot?.descriptor;
@@ -431,7 +429,7 @@ export class TypeScriptAgentRuntime implements AgentRuntime {
           cache_creation_input_tokens: cacheCreationTokens,
           tool_calls: toolCalls,
           api_calls: apiCalls,
-          ...await statistics.snapshot(),
+          ...statistics.snapshot(),
         });
         await this.notifySessionChanged(job.session_id, "usage");
       } catch (cause) {

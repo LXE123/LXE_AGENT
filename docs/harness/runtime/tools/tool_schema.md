@@ -26,7 +26,7 @@ Provider 只接收 name、description 和 input schema；handler、source metada
 
 所有 model name 在一个 registry 中全局唯一。重复注册直接抛错。MCP 名称先规范化 server/tool，再检查冲突并生成稳定唯一名；Dashboard 同时保留 raw/model mapping 便于诊断。
 
-`lxeskill` 业务命令不是独立 `ToolDefinition`，模型通过 `exec` 调用。命令契约由 lxeskillCLI 提供，agentcli 不加载其 `catalog.json`；调用与归属查询见 [业务命令](tool_execution.md#lxeskill-业务命令)和 [Usage](tool_execution.md#usage)。
+`lxeskill` 业务命令不是独立 `ToolDefinition`，模型通过 `exec` 调用。命令契约由 lxeskillCLI 提供，agentcli 不加载其 `catalog.json`。业务命令与工具统计见 [业务命令](tool_execution.md#lxeskill-业务命令)和 [Usage](tool_execution.md#usage)。
 
 ## JSON Schema
 

@@ -78,7 +78,7 @@ export function createDashboardContractFixture(calls: Call[]) {
   } satisfies Partial<LxeDesktopBridge["desktop"]>;
   function rpc(call: { operation: string; input: Record<string, unknown> }): unknown {
     switch (call.operation) {
-      case "stats.skills.list": return { days: 7, items: Array.from({ length: 8 }, (_, i) => ({ name: `skill-${i}`, executions: i + 1, failures: 0, success_rate: 1 })) };
+      case "stats.skills.list": return { days: 7, items: Array.from({ length: 8 }, (_, i) => ({ name: `skill-${i}`, activations: i + 1, module: "default", last_used_at: 0 })) };
       case "models.current": return structuredClone(selectedModel(call.input.session_id));
       case "models.list": return { items: structuredClone(models) };
       case "models.update": return (async () => { await gate(call.operation); const row = models.find(m => m.provider === call.input.provider)!;

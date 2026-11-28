@@ -22,7 +22,7 @@ module.exports = async ({ win, js, step, load, waitFor, click, key, focus, settl
   await step("activity preserves range queries, chart modes, keyboard data access and breakdowns", async () => {
     await open("activity");
     await waitFor("document.querySelectorAll('.usage-chart-day').length===30", "30 days rendered");
-    assert.equal(await js("document.querySelectorAll('.usage-summary-value').length"), 6);
+    assert.equal(await js("document.querySelectorAll('.usage-summary-value').length"), 5);
     await focus('.usage-chart-day[tabindex="0"]');
     await waitFor("Boolean(document.querySelector('[role=tooltip]'))", "focused day data");
     assert.ok(await js("document.querySelector('[role=tooltip]').textContent.includes(document.activeElement.dataset.day)"));
@@ -32,7 +32,7 @@ module.exports = async ({ win, js, step, load, waitFor, click, key, focus, settl
     assert.equal(await js("document.activeElement===document.querySelector('.usage-chart-day')"), true);
     await key("Escape"); assert.equal(await js("Boolean(document.querySelector('[role=tooltip]'))"), false);
     await click('.usage-chart-side .usage-range-button:last-child');
-    assert.equal(await js("document.querySelectorAll('.usage-chart-lines polyline').length"), 2);
+    assert.equal(await js("document.querySelectorAll('.usage-chart-lines polyline').length"), 1);
     for (const [index, days] of [[0, 7], [2, 90], [1, 30]]) {
       await click(`.usage-page > .usage-range .usage-range-button:nth-child(${index + 1})`);
       await waitFor(`document.querySelectorAll('.usage-chart-day').length===${days} && !document.querySelector('.dashboard-refresh-indicator')`, "range ready");
@@ -41,7 +41,7 @@ module.exports = async ({ win, js, step, load, waitFor, click, key, focus, settl
       }
       assert.equal(await js("document.querySelectorAll('.usage-page > .usage-range [aria-pressed=true]').length"), 1);
     }
-    for (let i = 1; i <= 3; i++) {
+    for (let i = 1; i <= 2; i++) {
       await click(`.usage-breakdown:nth-child(${i}) > summary`);
       assert.ok(await js(`document.querySelector('.usage-breakdown:nth-child(${i})').open && document.querySelector('.usage-breakdown:nth-child(${i}) tbody tr').checkVisibility()`));
     }
@@ -56,7 +56,7 @@ module.exports = async ({ win, js, step, load, waitFor, click, key, focus, settl
         await js(`document.documentElement.dataset.theme='${theme}'`); await settle();
         await noOverflow(".content-panel, .workspace-view, .usage-page, .usage-summary-value");
         const colors = await js("Array.from(document.querySelectorAll('.usage-chart-legend i')).map(e=>getComputedStyle(e).backgroundColor)");
-        assert.equal(new Set(colors).size, 2);
+        assert.equal(colors.length, 1);
         assert.notEqual(colors[0], await js("getComputedStyle(document.querySelector('.tone-danger .usage-summary-value')).color"));
         await screenshot("activity-" + theme);
       }

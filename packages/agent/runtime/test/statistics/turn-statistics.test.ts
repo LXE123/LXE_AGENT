@@ -30,12 +30,8 @@ beforeAll(() => {
 });
 afterAll(() => removeTemporaryRoot(root));
 
-const catalog = async () => [
-  { command: "lxeskill demo", skill: "external" },
-  { command: "lxeskill demo inspect", skill: "repo" },
-];
 const turn = (options: Partial<TurnStatisticsOptions> = {}) => {
-  const stats = new TurnStatistics({ directory: workspace, commandSkills: catalog, ...options });
+  const stats = new TurnStatistics({ directory: workspace, ...options });
   stats.setSkills(locations, { repo: "business", external: "user" });
   return stats;
 };
@@ -49,25 +45,25 @@ for (const shell of ["posix", "powershell"] as const) {
       "awk '{print $1}'", "nl -ba", "sed -n '1,200p'", "Get-Content -Path", "Get-Content -LiteralPath",
       "Get-Content -TotalCount 50", "gc -Raw", "type",
       "Get-Content -Raw -Encoding utf8 -Path", "Get-Content -Tail 20 -Encoding UTF8", "gc -First 40",
-    ])("%s reads an indexed manifest", async reader => {
+    ])("%s reads an indexed manifest", reader => {
       const stats = turn({ shell });
       stats.observe("exec", { command: reader + " " + doc });
-      expect((await stats.snapshot()).uses).toEqual([repoUse]);
+      expect(stats.snapshot().uses).toEqual([repoUse]);
     });
 
     test.each([
       ["cat", " 2>/dev/null"], ["head -n 50", " 2>&1"], ["cat", " > out.txt"], ["sed -n '1,80p'", " 2> err.log"],
       ["Get-Content -Encoding utf8", " 2>$null"], ["gc", " *> out.txt"],
-    ])("%s with redirection%s still reads the manifest", async (reader, redirect) => {
+    ])("%s with redirection%s still reads the manifest", (reader, redirect) => {
       const stats = turn({ shell });
       stats.observe("exec", { command: reader + " " + doc + redirect });
-      expect((await stats.snapshot()).uses).toEqual([repoUse]);
+      expect(stats.snapshot().uses).toEqual([repoUse]);
     });
 
-    test.each(["Get-Content -Encoding", "Get-Content -Wait"])("%s without a file operand does not count", async reader => {
+    test.each(["Get-Content -Encoding", "Get-Content -Wait"])("%s without a file operand does not count", reader => {
       const stats = turn({ shell });
       stats.observe("exec", { command: reader + " " + doc });
-      expect((await stats.snapshot()).uses).toEqual([]);
+      expect(stats.snapshot().uses).toEqual([]);
     });
 
     test.each([
@@ -76,10 +72,10 @@ for (const shell of ["posix", "powershell"] as const) {
       ["deno", "ts"], ["deno run --allow-read", "ts"], ["ruby", "rb"], ["perl", "pl"],
       ["pwsh -NoProfile -File", "ps1"], ["PowerShell.exe -File", "ps1"],
       ["uv run", "py"], ["UV.EXE RUN --frozen python -X utf8", "py"], ["npx tsx", "ts"],
-    ])("%s runs a skill script (%s)", async (runner, ext) => {
+    ])("%s runs a skill script (%s)", (runner, ext) => {
       const stats = turn({ shell });
       stats.observe("exec", { command: runner + " " + script + "." + ext + " --user-arg" });
-      expect((await stats.snapshot()).uses).toEqual([repoUse]);
+      expect(stats.snapshot().uses).toEqual([repoUse]);
     });
 
     test.each([
@@ -90,10 +86,10 @@ for (const shell of ["posix", "powershell"] as const) {
       "python -Im " + script + ".py", "uv run -m " + script + ".py",
       "node --require " + script + ".js outside.js", "node --eval " + script + ".js",
       "echo 'a | cat " + doc + "'", "bash -c 'sh -c \"cat " + doc + "\"'",
-    ])("skips %s", async command => {
+    ])("skips %s", command => {
       const stats = turn({ shell });
       stats.observe("exec", { command });
-      expect((await stats.snapshot()).uses).toEqual([]);
+      expect(stats.snapshot().uses).toEqual([]);
     });
 
     test.each([
@@ -112,10 +108,10 @@ for (const shell of ["posix", "powershell"] as const) {
       ["powershell.exe -NoProfile -c 'Set-Location skills/repo; type SKILL.md'", repoUse],
       ['pwsh -Command "sl skills\\repo; Get-Content .\\SKILL.md -TotalCount 5"', repoUse],
       ["bash -c 'cd skills/repo' && cat alias/SKILL.md", userUse],
-    ] as const)("attributes only the first matching segment in %s", async (command, expected) => {
+    ] as const)("attributes only the first matching segment in %s", (command, expected) => {
       const stats = turn({ shell });
       stats.observe("exec", { command });
-      expect((await stats.snapshot()).uses).toEqual([expected]);
+      expect(stats.snapshot().uses).toEqual([expected]);
     });
 
     test.each([
@@ -124,31 +120,31 @@ for (const shell of ["posix", "powershell"] as const) {
       "cat missing ||\n  cat " + doc,
       "false || cd skills/repo; cat SKILL.md",
       "lxeskill demo inspect",
-    ])("does not count %s", async command => {
+    ])("does not count %s", command => {
       const stats = turn({ shell });
       stats.observe("exec", { command });
-      expect((await stats.snapshot()).uses).toEqual([]);
+      expect(stats.snapshot().uses).toEqual([]);
     });
 
     test.each([
       ["false || echo fallback; cat " + doc, repoUse],
       ["cat missing || echo fallback && cat alias/SKILL.md", userUse],
       ["echo start\ncat missing || true\ncat " + doc, repoUse],
-    ] as const)("counts commands after a fallback ends in %s", async (command, expected) => {
+    ] as const)("counts commands after a fallback ends in %s", (command, expected) => {
       const stats = turn({ shell });
       stats.observe("exec", { command });
-      expect((await stats.snapshot()).uses).toEqual([expected]);
+      expect(stats.snapshot().uses).toEqual([expected]);
     });
   });
 }
 
-test("POSIX backslash escapes spaces and quoted operators are literal", async () => {
+test("POSIX backslash escapes spaces and quoted operators are literal", () => {
   const stats = turn({ shell: "posix" });
   stats.observe("exec", { command: "echo '|| lxeskill demo inspect' && cat ../user\\ skills/external/SKILL.md" });
-  expect((await stats.snapshot()).uses).toEqual([userUse]);
+  expect(stats.snapshot().uses).toEqual([userUse]);
 });
 
-test("a statistics lookup error leaves the observed tool call intact", async () => {
+test("a statistics lookup error leaves the observed tool call intact", () => {
   const failure = new Error("snapshot location unavailable");
   const errors: unknown[] = [];
   const stats = turn({ onError: error => errors.push(error) });
@@ -156,10 +152,10 @@ test("a statistics lookup error leaves the observed tool call intact", async () 
   stats.observe("exec", { command: "cat " + doc });
   stats.finish("exec", 7, false);
   expect(errors).toEqual([failure]);
-  expect(await stats.snapshot()).toMatchObject({ tools: [{ calls: 1, errors: 0, duration_ms: 7 }], uses: [] });
+  expect(stats.snapshot()).toMatchObject({ tools: [{ calls: 1, errors: 0, duration_ms: 7 }], uses: [] });
 });
 
-test("PowerShell paths, call operator, relative cwd and executable suffixes", async () => {
+test("PowerShell paths, call operator, relative cwd and executable suffixes", () => {
   for (const command of [
     '.\\scripts\\nested\\task.bat', '& ".\\scripts\\nested\\task.ps1"',
     "SET-LOCATION scripts; sl nested; ..\\nested\\task.cmd",
@@ -167,33 +163,28 @@ test("PowerShell paths, call operator, relative cwd and executable suffixes", as
   ]) {
     const stats = turn({ shell: "powershell" });
     stats.observe("exec", { command, cwd: "skills\\repo" });
-    expect((await stats.snapshot()).uses).toEqual([repoUse]);
+    expect(stats.snapshot().uses).toEqual([repoUse]);
   }
 });
 
-test("resolves an absolute path and a home-relative cwd outside the workspace", async () => {
+test("resolves an absolute path and a home-relative cwd outside the workspace", () => {
   const stats = turn({ shell: "powershell" });
   stats.observe("exec", { command: '& "' + join(workspace, script + ".ps1").replaceAll("/", "\\") + '"' });
   const rel = relative(homedir(), userSkill).split(sep).join("/");
   stats.observe("exec", { command: "cat SKILL.md", cwd: "~/" + rel });
-  expect((await stats.snapshot()).uses).toEqual([repoUse, userUse]);
+  expect(stats.snapshot().uses).toEqual([repoUse, userUse]);
 });
 
-test("deduplicates manifest reads and scripts, keeping explicit precedence", async () => {
+test("deduplicates manifest reads and scripts, keeping explicit precedence", () => {
   const stats = turn();
   stats.observe("read", { path: doc, offset: 10, limit: 3 });
   stats.observe("exec", { command: "node " + script + ".js" });
-  stats.observe("exec", { command: "lxeskill demo" });
-  expect(await stats.snapshot()).toMatchObject({
-    uses: [repoUse], activations: [{ skill: "repo" }], executions: [{ skill: "external", command: "demo" }],
+  stats.observe("read", { path: doc }, false);
+  stats.observe("read", { path: "other/SKILL.md" });
+  expect(stats.snapshot()).toMatchObject({
+    uses: [repoUse], activations: [{ skill: "repo" }],
   });
   stats.recordUse("repo", "explicit");
   stats.observe("read", { path: doc });
-  expect((await stats.snapshot()).uses).toEqual([{ ...repoUse, source: "explicit" }]);
-});
-
-test("lxeskill commands feed only local command counts, not skill uses", async () => {
-  const stats = turn();
-  stats.observe("exec", { command: "lxeskill demo inspect --arg" });
-  expect(await stats.snapshot()).toMatchObject({ uses: [], executions: [{ skill: "repo", command: "demo inspect" }] });
+  expect(stats.snapshot().uses).toEqual([{ ...repoUse, source: "explicit" }]);
 });

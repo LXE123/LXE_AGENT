@@ -2,18 +2,12 @@ import { homedir } from "node:os";
 import { resolve } from "node:path";
 import type { JsonObject } from "@lxe/protocol";
 import { skillPathKey } from "../tooling/skill-files";
-import type { SkillActivationUsage, SkillExecutionUsage, SkillUse, ToolTurnUsage } from "../engine/types";
+import type { SkillActivationUsage, SkillUse, ToolTurnUsage } from "../engine/types";
 import { SkillCommandMatcher, type StatisticsShell } from "./skill-use-command";
-
-export interface CommandSkill {
-  command: string;
-  skill: string;
-}
 
 export interface TurnStatisticsOptions {
   directory: string;
   shell?: StatisticsShell;
-  commandSkills?: () => Promise<readonly CommandSkill[]>;
   onError?: (error: unknown) => void;
 }
 
@@ -21,7 +15,6 @@ export interface TurnStatisticsOptions {
 export class TurnStatistics {
   private readonly tools = new Map<string, ToolTurnUsage>();
   private readonly reads: SkillActivationUsage[] = [];
-  private readonly commands: string[] = [];
   private readonly uses = new Map<string, SkillUse>();
   private locations: Readonly<Record<string, string>> = {};
   private modules: Readonly<Record<string, string>> = {};
@@ -58,9 +51,6 @@ export class TurnStatistics {
         }
       }
       if (name === "exec" && typeof input.command === "string") {
-        if (/^\s*lxeskill(?:\.cmd)?\s+/iu.test(input.command)) {
-          this.commands.push(input.command.trim().replace(/^lxeskill\.cmd(?=\s)/iu, "lxeskill").replace(/\s+/gu, " "));
-        }
         const shell = this.options.shell ?? (process.platform === "win32" ? "powershell" : "posix");
         const cwd = typeof input.cwd === "string" ? input.cwd : ".";
         const skill = this.commandMatcher.match(input.command, cwd, this.options.directory, shell);
@@ -76,22 +66,7 @@ export class TurnStatistics {
     if (failed) tool.errors += 1;
   }
 
-  async snapshot(): Promise<{
-    tools: ToolTurnUsage[]; activations: SkillActivationUsage[]; executions: SkillExecutionUsage[]; uses: SkillUse[];
-  }> {
-    const executions: SkillExecutionUsage[] = [];
-    // lxeskill command calls feed only the local stats page; `uses` covers generic skill signals.
-    if (this.commands.length && this.options.commandSkills) {
-      try {
-        const entries = [...await this.options.commandSkills()].sort((a, b) => b.command.length - a.command.length);
-        for (const invocation of this.commands) {
-          const entry = entries.find(item => invocation === item.command || invocation.startsWith(`${item.command} `));
-          if (entry) executions.push({
-            skill: entry.skill, module: this.modules[entry.skill] ?? "", command: entry.command.slice("lxeskill ".length),
-          });
-        }
-      } catch (error) { this.options.onError?.(error); }
-    }
-    return { tools: [...this.tools.values()], activations: [...this.reads], executions, uses: [...this.uses.values()] };
+  snapshot() {
+    return { tools: [...this.tools.values()], activations: [...this.reads], uses: [...this.uses.values()] };
   }
 }

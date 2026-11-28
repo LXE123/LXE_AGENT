@@ -112,13 +112,6 @@ const recordTurn = async (
     })),
     activations: [{ skill: "inventory", module: "fba" }],
     uses: [{ skill: "inventory", module: "fba", source: "explicit" }],
-    executions: [{
-      skill: "inventory",
-      module: "fba",
-      command: "secret command arguments must stay local",
-      success: true,
-      duration_ms: 4,
-    }],
   });
 };
 
@@ -260,7 +253,6 @@ describe("TurnUsageSyncService", () => {
       "session_id",
       "title",
       "user-secret",
-      "secret command arguments",
       testWorkspace.directory,
     ]) expect(serialized).not.toContain(forbidden);
     expect(uploads[0]?.body.turns[0].items).toEqual([
